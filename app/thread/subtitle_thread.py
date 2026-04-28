@@ -5,7 +5,7 @@ from typing import Dict
 
 from PyQt5.QtCore import QSettings, QThread, pyqtSignal
 
-from app.common.config import SubtitleLayoutEnum, cfg
+from app.common.config import cfg
 from app.core.bk_asr.asr_data import ASRData
 from app.core.entities import (
     SubtitleConfig,
@@ -14,10 +14,8 @@ from app.core.entities import (
     TranslatorServiceEnum,
 )
 from app.core.subtitle_processor.split import SubtitleSplitter
-from app.core.subtitle_processor.summarization import SubtitleSummarizer
 from app.core.subtitle_processor.optimize import SubtitleOptimizer
 from app.core.subtitle_processor.translate import TranslatorFactory, TranslatorType
-from app.core.utils.openai_compat import QWEN_THINKING_TIMEOUT
 from app.core.utils.logger import setup_logger
 from app.core.utils.test_opanai import test_openai
 from app.core.storage.cache_manager import ServiceUsageManager
@@ -87,6 +85,7 @@ class SubtitleThread(QThread):
                 self.task.subtitle_config.llm_model,
                 self.task.subtitle_config.llm_service,
                 self.task.subtitle_config.qwen_enable_thinking,
+                self.task.subtitle_config.llm_request_timeout,
             )[0]:
                 raise Exception(
                     self.tr(
@@ -160,13 +159,10 @@ class SubtitleThread(QThread):
                 os.environ["OPENAI_QWEN_ENABLE_THINKING"] = (
                     "true" if subtitle_config.qwen_enable_thinking else "false"
                 )
-                if (
-                    subtitle_config.llm_service == "Qwen"
-                    and subtitle_config.qwen_enable_thinking
-                ):
-                    logger.info(
-                        f"Qwen 思考模式已开启，API 超时已提升到 {QWEN_THINKING_TIMEOUT} 秒"
-                    )
+                logger.info(
+                    "LLM API timeout set to %s seconds",
+                    subtitle_config.llm_request_timeout,
+                )
 
             # 2. 重新断句（对于字词级字幕）
             if asr_data.is_word_timestamp():
@@ -176,7 +172,7 @@ class SubtitleThread(QThread):
                     thread_num=subtitle_config.thread_num,
                     model=subtitle_config.llm_model,
                     temperature=0.3,
-                    timeout=60,
+                    timeout=subtitle_config.llm_request_timeout,
                     retry_times=1,
                     split_type=subtitle_config.split_type,
                     max_word_count_cjk=subtitle_config.max_word_count_cjk,
@@ -203,6 +199,7 @@ class SubtitleThread(QThread):
                     thread_num=subtitle_config.thread_num,
                     update_callback=self.callback,
                     usage_callback=self.usage_callback,
+                    timeout=subtitle_config.llm_request_timeout,
                 )
                 asr_data = optimizer.optimize_subtitle(asr_data)
                 self.update_all.emit(asr_data.to_json())
@@ -229,6 +226,7 @@ class SubtitleThread(QThread):
                     is_reflect=subtitle_config.need_reflect,
                     update_callback=self.callback,
                     usage_callback=self.usage_callback,
+                    timeout=subtitle_config.llm_request_timeout,
                 )
                 asr_data = translator.translate_subtitle(asr_data)
                 if (
@@ -240,24 +238,6 @@ class SubtitleThread(QThread):
                 if subtitle_config.need_remove_punctuation:
                     asr_data.remove_translated_periods()
                 self.update_all.emit(asr_data.to_json())
-                # 保存翻译结果(单语、双语)
-                if self.task.need_next_task and self.task.video_path:
-                    for subtitle_layout in [
-                        SubtitleLayoutEnum.ORIGINAL_ON_TOP.value,
-                        SubtitleLayoutEnum.TRANSLATE_ON_TOP.value,
-                        SubtitleLayoutEnum.ONLY_ORIGINAL.value,
-                        SubtitleLayoutEnum.ONLY_TRANSLATE.value,
-                    ]:
-                        save_path = str(
-                            Path(self.task.subtitle_path).parent
-                            / f"{Path(self.task.video_path).stem}-{subtitle_layout}.srt"
-                        )
-                        asr_data.save(
-                            save_path=save_path,
-                            ass_style=subtitle_config.subtitle_style,
-                            layout=subtitle_layout,
-                        )
-                        logger.info(f"字幕保存到 {save_path}")
 
             # 5. 保存字幕
             asr_data.save(
@@ -267,35 +247,13 @@ class SubtitleThread(QThread):
             )
             logger.info(f"字幕保存到 {self.task.output_path}")
 
-            # 6. 文件移动与清理
-            if self.task.need_next_task and self.task.video_path:
-                # 保存srt/ass文件到视频目录（对于全流程任务）
-                save_srt_path = (
-                    Path(self.task.video_path).parent
-                    / f"{Path(self.task.video_path).stem}.srt"
-                )
-                asr_data.save(
-                    save_path=str(save_srt_path),
-                    ass_style=subtitle_config.subtitle_style,
-                    layout=subtitle_config.subtitle_layout,
-                )
-                # save_ass_path = (
-                #     Path(self.task.video_path).parent
-                #     / f"{Path(self.task.video_path).stem}.ass"
-                # )
-                # asr_data.to_ass(
-                #     save_path=str(save_ass_path),
-                #     layout=subtitle_config.subtitle_layout,
-                #     style_str=subtitle_config.subtitle_style,
-                # )
-            else:
-                # 删除断句文件（对于仅字幕任务）
-                split_path = str(
-                    Path(self.task.subtitle_path).parent
-                    / f"【智能断句】{Path(self.task.subtitle_path).stem}.srt"
-                )
-                if os.path.exists(split_path):
-                    os.remove(split_path)
+            # 6. 清理中间断句文件
+            split_path = str(
+                Path(self.task.subtitle_path).parent
+                / f"【智能断句】{Path(self.task.subtitle_path).stem}.srt"
+            )
+            if os.path.exists(split_path):
+                os.remove(split_path)
 
             self._emit_progress(100, self.tr("优化完成"))
             logger.info("优化完成")

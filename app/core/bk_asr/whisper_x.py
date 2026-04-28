@@ -1,7 +1,6 @@
 import gc
 import hashlib
 import os
-
 from ..utils.logger import setup_logger
 from .asr_data import ASRDataSeg
 from .base import BaseASR
@@ -24,7 +23,6 @@ class WhisperXASR(BaseASR):
         compute_type: str = "float16",
         batch_size: int = 8,
         align: bool = True,
-        hf_token: str = None,
         model_dir: str = None,
         use_cache: bool = False,
         need_word_time_stamp: bool = False,
@@ -36,7 +34,6 @@ class WhisperXASR(BaseASR):
         self.compute_type = compute_type or "float16"
         self.batch_size = batch_size or 8
         self.align = align
-        self.hf_token = hf_token or ""
         self.model_dir = model_dir
         self.need_word_time_stamp = need_word_time_stamp
 
@@ -88,10 +85,6 @@ class WhisperXASR(BaseASR):
             raise RuntimeError(
                 "WhisperX 未安装。请先安装 whisperx 及其依赖后再使用该转录模型。"
             ) from exc
-
-        if self.hf_token:
-            os.environ["HF_TOKEN"] = self.hf_token
-            os.environ["HUGGINGFACE_TOKEN"] = self.hf_token
 
         model = None
         align_model = None

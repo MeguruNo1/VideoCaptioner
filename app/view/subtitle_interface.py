@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QSplitter,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -51,13 +52,23 @@ from app.thread.subtitle_thread import SubtitleThread
 
 
 class SubtitleTableModel(QAbstractTableModel):
-    def __init__(self, data=""):
+    def __init__(self, data="", view_mode="original"):
         super().__init__()
         self._data = {}
+        self.view_mode = view_mode
         if isinstance(data, str):
             self.load_data(data)
         else:
             self._data = data
+
+    @staticmethod
+    def _format_time(ms: int) -> str:
+        return QTime(0, 0).addMSecs(ms).toString("hh:mm:ss.zzz")[:-2]
+
+    def _field_name(self) -> str:
+        if self.view_mode == "translated":
+            return "translated_subtitle"
+        return "original_subtitle"
 
     def load_data(self, data: str):
         """加载字幕数据"""
@@ -72,32 +83,21 @@ class SubtitleTableModel(QAbstractTableModel):
             return None
 
         row = index.row()
-        col = index.column()
         segment = self._data.get(str(row + 1))
 
         if not segment:
             return None
 
-        if role == Qt.DisplayRole or role == Qt.EditRole:
-            if col == 0:
-                return (
-                    QTime(0, 0)
-                    .addMSecs(segment["start_time"])
-                    .toString("hh:mm:ss.zzz")[:-2]
-                )
-            elif col == 1:
-                return (
-                    QTime(0, 0)
-                    .addMSecs(segment["end_time"])
-                    .toString("hh:mm:ss.zzz")[:-2]
-                )
-            elif col == 2:
-                return segment["original_subtitle"]
-            elif col == 3:
-                return segment["translated_subtitle"]
+        field_name = self._field_name()
+        if role == Qt.EditRole:
+            return segment.get(field_name, "")
+        if role == Qt.DisplayRole:
+            start = self._format_time(segment["start_time"])
+            end = self._format_time(segment["end_time"])
+            text = segment.get(field_name, "")
+            return f"{start} - {end}\n{text}"
         elif role == Qt.TextAlignmentRole:
-            if col in [0, 1]:
-                return Qt.AlignCenter
+            return Qt.AlignLeft | Qt.AlignVCenter
         return None
 
     def setData(self, index, value, role=Qt.EditRole):
@@ -106,18 +106,12 @@ class SubtitleTableModel(QAbstractTableModel):
 
         if role == Qt.EditRole:
             row = index.row()
-            col = index.column()
             segment = self._data.get(str(row + 1))
 
             if not segment:
                 return False
 
-            if col == 2:
-                segment["original_subtitle"] = value
-            elif col == 3:
-                segment["translated_subtitle"] = value
-            else:
-                return False
+            segment[self._field_name()] = value
 
             self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
             return True
@@ -126,16 +120,13 @@ class SubtitleTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if role == Qt.DisplayRole:
             if orientation == Qt.Horizontal:
-                return [
-                    self.tr("开始时间"),
-                    self.tr("结束时间"),
-                    self.tr("字幕内容"),
-                    (
-                        self.tr("翻译字幕")
+                if self.view_mode == "translated":
+                    return (
+                        self.tr("译文")
                         if cfg.need_translate.value
-                        else self.tr("优化字幕")
-                    ),
-                ][section]
+                        else self.tr("优化结果")
+                    )
+                return self.tr("原文")
             elif orientation == Qt.Vertical:
                 return str(section + 1)  # 显示行号
         elif role == Qt.TextAlignmentRole:
@@ -146,14 +137,12 @@ class SubtitleTableModel(QAbstractTableModel):
         return len(self._data)
 
     def columnCount(self, parent=None):
-        return 4
+        return 1
 
     def flags(self, index):
         if not index.isValid():
             return Qt.NoItemFlags
-        if index.column() in [2, 3]:
-            return Qt.ItemIsEditable | Qt.ItemIsEnabled | Qt.ItemIsSelectable
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        return Qt.ItemIsEditable | Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
     def update_data(self, new_data):
         """更新字幕数据"""
@@ -175,8 +164,8 @@ class SubtitleTableModel(QAbstractTableModel):
         if updated_rows:
             min_row = min(updated_rows)
             max_row = max(updated_rows)
-            top_left = self.index(min_row, 2)
-            bottom_right = self.index(max_row, 3)
+            top_left = self.index(min_row, 0)
+            bottom_right = self.index(max_row, 0)
             self.dataChanged.emit(top_left, bottom_right, [Qt.DisplayRole, Qt.EditRole])
 
     def update_all(self, data: dict):
@@ -251,9 +240,11 @@ class SubtitleInterface(QWidget):
             save_menu.addAction(action)
 
         # 添加保存按钮(带下拉菜单)
-        save_button = TransparentDropDownPushButton(self.tr("保存"), self, FIF.SAVE)
+        save_button = TransparentDropDownPushButton("", self, FIF.SAVE)
         save_button.setMenu(save_menu)
         save_button.setFixedHeight(34)
+        save_button.setFixedWidth(46)
+        save_button.setToolTip(self.tr("保存"))
         self.command_bar.addWidget(save_button)
 
         # 添加字幕排布下拉按钮
@@ -354,42 +345,45 @@ class SubtitleInterface(QWidget):
         self.main_layout.addLayout(top_layout)
 
     def _setup_subtitle_table(self):
+        self.content_splitter = QSplitter(Qt.Horizontal, self)
+        self.original_table = TableView(self)
         self.subtitle_table = TableView(self)
-        self.subtitle_table.setAcceptDrops(True)
-        self.subtitle_table.viewport().setAcceptDrops(True)
-        self.subtitle_table.installEventFilter(self)
-        self.subtitle_table.viewport().installEventFilter(self)
-        self.model = SubtitleTableModel("")
-        self.subtitle_table.setModel(self.model)
-        self.subtitle_table.setBorderVisible(True)
-        self.subtitle_table.setBorderRadius(8)
-        self.subtitle_table.setWordWrap(True)
-        self.subtitle_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.subtitle_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.Fixed
-        )
-        self.subtitle_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.Fixed
-        )
-        self.subtitle_table.setColumnWidth(0, 120)
-        self.subtitle_table.setColumnWidth(1, 120)
+        self.log_text = TextEdit(self)
+        self.log_text.setReadOnly(True)
 
-        # 配置垂直表头
-        self.subtitle_table.verticalHeader().setVisible(True)  # 显示垂直表头
-        self.subtitle_table.verticalHeader().setDefaultAlignment(
-            Qt.AlignCenter
-        )  # 居中对齐
-        self.subtitle_table.verticalHeader().setDefaultSectionSize(50)  # 行高
-        self.subtitle_table.verticalHeader().setMinimumWidth(20)  # 设置最小宽度
+        self.original_model = SubtitleTableModel("", "original")
+        self.translation_model = SubtitleTableModel("", "translated")
+        self.model = self.translation_model
+        self.original_table.setModel(self.original_model)
+        self.subtitle_table.setModel(self.translation_model)
 
-        self.subtitle_table.setEditTriggers(
-            QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
-        )
-        self.subtitle_table.clicked.connect(self.on_subtitle_clicked)
-        # 添加右键菜单支持
-        self.subtitle_table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.subtitle_table.customContextMenuRequested.connect(self.show_context_menu)
-        self.main_layout.addWidget(self.subtitle_table)
+        for table in (self.original_table, self.subtitle_table):
+            table.setAcceptDrops(True)
+            table.viewport().setAcceptDrops(True)
+            table.installEventFilter(self)
+            table.viewport().installEventFilter(self)
+            table.setBorderVisible(True)
+            table.setBorderRadius(8)
+            table.setWordWrap(True)
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            table.verticalHeader().setVisible(True)
+            table.verticalHeader().setDefaultAlignment(Qt.AlignCenter)
+            table.verticalHeader().setDefaultSectionSize(72)
+            table.verticalHeader().setMinimumWidth(24)
+            table.setEditTriggers(
+                QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+            )
+            table.clicked.connect(self.on_subtitle_clicked)
+            table.setContextMenuPolicy(Qt.CustomContextMenu)
+            table.customContextMenuRequested.connect(self.show_context_menu)
+
+        self.content_splitter.addWidget(self.original_table)
+        self.content_splitter.addWidget(self.subtitle_table)
+        self.content_splitter.addWidget(self.log_text)
+        self.content_splitter.setStretchFactor(0, 3)
+        self.content_splitter.setStretchFactor(1, 3)
+        self.content_splitter.setStretchFactor(2, 2)
+        self.main_layout.addWidget(self.content_splitter, 1)
 
     def _setup_bottom_layout(self):
         self.bottom_layout = QHBoxLayout()
@@ -556,6 +550,19 @@ class SubtitleInterface(QWidget):
         dialog = FullScriptDialog(self.model._data, cfg.subtitle_layout.value, self)
         dialog.exec_()
 
+    def _set_subtitle_data(self, data: dict):
+        self.original_model.update_all(data)
+        self.translation_model.update_all(data)
+        self.model = self.translation_model
+        self._update_full_script_button_state()
+
+    def append_task_log(self, message: str):
+        message = str(message or "").strip()
+        if not message:
+            return
+        timestamp = QTime.currentTime().toString("HH:mm:ss")
+        self.log_text.append(f"[{timestamp}] {message}")
+
     def set_task(self, task: SubtitleTask):
         """设置任务并更新UI"""
         if hasattr(self, "subtitle_optimization_thread"):
@@ -569,10 +576,9 @@ class SubtitleInterface(QWidget):
         """更新页面信息"""
         original_subtitle_save_path = Path(self.task.subtitle_path)
         asr_data = ASRData.from_subtitle_file(original_subtitle_save_path)
-        self.model._data = asr_data.to_json()
-        self.model.layoutChanged.emit()
-        self._update_full_script_button_state()
+        self._set_subtitle_data(asr_data.to_json())
         self.status_label.setText(self.tr("已加载文件"))
+        self.append_task_log(self.tr("已加载字幕"))
 
     def start_subtitle_optimization(self, need_create_task=True):
         # 检查是否有任务
@@ -584,6 +590,8 @@ class SubtitleInterface(QWidget):
         self.start_button.setEnabled(False)
         self.progress_bar.reset()
         self.cancel_button.show()
+        self.log_text.clear()
+        self.append_task_log(self.tr("开始字幕处理"))
 
         if need_create_task:
             self.task = TaskFactory.create_subtitle_task(file_path=self.subtitle_path)
@@ -603,9 +611,6 @@ class SubtitleInterface(QWidget):
             self.custom_prompt_text
         )
         self.subtitle_optimization_thread.start()
-        InfoBar.info(
-            self.tr("开始优化"), self.tr("开始优化字幕"), duration=3000, parent=self
-        )
 
     def process(self):
         """主处理函数"""
@@ -617,6 +622,7 @@ class SubtitleInterface(QWidget):
         self.cancel_button.hide()  # 隐藏取消按钮
         if self.task.need_next_task:
             self.finished.emit(video_path, output_path)
+        self.append_task_log(self.tr("任务完成: ") + output_path)
         InfoBar.success(
             self.tr("优化完成"),
             self.tr("优化完成字幕..."),
@@ -629,19 +635,21 @@ class SubtitleInterface(QWidget):
         self.start_button.setEnabled(True)
         self.cancel_button.hide()  # 隐藏取消按钮
         self.progress_bar.error()
+        self.append_task_log(self.tr("错误: ") + str(error))
         InfoBar.error(self.tr("优化失败"), self.tr(error), duration=20000, parent=self)
 
     def on_subtitle_optimization_progress(self, value, status):
         self.progress_bar.setValue(value)
         self.status_label.setText(status)
+        self.append_task_log(status)
 
     def update_data(self, data):
-        self.model.update_data(data)
+        self.original_model.update_data(data)
+        self.translation_model.update_data(data)
         self._update_full_script_button_state()
 
     def update_all(self, data):
-        self.model.update_all(data)
-        self._update_full_script_button_state()
+        self._set_subtitle_data(data)
 
     def remove_widget(self):
         """隐藏顶部开始按钮和底部进度条"""
@@ -694,18 +702,28 @@ class SubtitleInterface(QWidget):
                 asr_data.to_ass(style_str, layout, file_path)
             else:
                 asr_data.save(file_path, layout=layout)
-            success_message = self.tr(f"字幕已保存至:") + file_path
+            self.append_task_log(self.tr("字幕已保存: ") + file_path)
             if layout == "单独输出原文和译文":
                 target_path = Path(file_path)
-                success_message += (
-                    "\n"
-                    + self.tr("并额外输出:")
-                    + f"\n{target_path.with_name(f'{target_path.stem}-仅原文{target_path.suffix}')}"
-                    + f"\n{target_path.with_name(f'{target_path.stem}-仅译文{target_path.suffix}')}"
+                self.append_task_log(
+                    self.tr("额外输出: ")
+                    + str(
+                        target_path.with_name(
+                            f"{target_path.stem}-仅原文{target_path.suffix}"
+                        )
+                    )
+                )
+                self.append_task_log(
+                    self.tr("额外输出: ")
+                    + str(
+                        target_path.with_name(
+                            f"{target_path.stem}-仅译文{target_path.suffix}"
+                        )
+                    )
                 )
             InfoBar.success(
                 self.tr("保存成功"),
-                success_message,
+                self.tr("字幕已保存"),
                 duration=3000,
                 parent=self,
             )
@@ -740,10 +758,9 @@ class SubtitleInterface(QWidget):
     def load_subtitle_file(self, file_path):
         self.subtitle_path = file_path
         asr_data = ASRData.from_subtitle_file(file_path)
-        self.model._data = asr_data.to_json()
-        self.model.layoutChanged.emit()
-        self._update_full_script_button_state()
+        self._set_subtitle_data(asr_data.to_json())
         self.status_label.setText(self.tr("已加载文件"))
+        self.append_task_log(self.tr("已加载字幕: ") + os.path.basename(file_path))
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         files = self._extract_supported_subtitle_paths(event.mimeData().urls())
@@ -784,9 +801,17 @@ class SubtitleInterface(QWidget):
         event.acceptProposedAction()
 
     def eventFilter(self, obj, event):
-        subtitle_table = getattr(self, "subtitle_table", None)
-        subtitle_viewport = subtitle_table.viewport() if subtitle_table else None
-        if obj in {subtitle_table, subtitle_viewport}:
+        tables = [
+            table
+            for table in (
+                getattr(self, "original_table", None),
+                getattr(self, "subtitle_table", None),
+            )
+            if table is not None
+        ]
+        drag_targets = set(tables)
+        drag_targets.update(table.viewport() for table in tables)
+        if obj in drag_targets:
             if event.type() == QEvent.DragEnter:
                 self.dragEnterEvent(event)
                 return event.isAccepted()
@@ -840,6 +865,8 @@ class SubtitleInterface(QWidget):
         signalBus.subtitle_layout_changed.connect(signal_update)
         self.model.dataChanged.connect(signal_update)
         self.model.layoutChanged.connect(signal_update)
+        self.original_model.dataChanged.connect(signal_update)
+        self.original_model.layoutChanged.connect(signal_update)
 
         # 如果有关联的视频文件,则自动加载
         if self.task and hasattr(self.task, "file_path") and self.task.file_path:
@@ -862,9 +889,12 @@ class SubtitleInterface(QWidget):
     def show_context_menu(self, pos):
         """显示右键菜单"""
         menu = RoundMenu(parent=self)
+        table = self.sender()
+        if table not in {self.original_table, self.subtitle_table}:
+            table = self.subtitle_table
 
         # 获取选中的行
-        indexes = self.subtitle_table.selectedIndexes()
+        indexes = table.selectedIndexes()
         if not indexes:
             return
 
@@ -889,7 +919,7 @@ class SubtitleInterface(QWidget):
         merge_action.triggered.connect(lambda: self.merge_selected_rows(rows))
 
         # 显示菜单
-        menu.exec(self.subtitle_table.viewport().mapToGlobal(pos))
+        menu.exec(table.viewport().mapToGlobal(pos))
 
     def merge_selected_rows(self, rows):
         """合并选中的字幕行"""
@@ -944,7 +974,7 @@ class SubtitleInterface(QWidget):
             new_data[new_key] = merged_item
 
         # 更新模型数据
-        self.model.update_all(new_data)
+        self._set_subtitle_data(new_data)
 
         # 显示成功提示
         InfoBar.success(
@@ -958,7 +988,12 @@ class SubtitleInterface(QWidget):
         """处理键盘事件"""
         # 处理 Ctrl+M 快捷键
         if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_M:
-            indexes = self.subtitle_table.selectedIndexes()
+            table = (
+                self.original_table
+                if self.original_table.hasFocus()
+                else self.subtitle_table
+            )
+            indexes = table.selectedIndexes()
             if indexes:
                 rows = sorted(set(index.row() for index in indexes))
                 if len(rows) > 1:
@@ -975,6 +1010,7 @@ class SubtitleInterface(QWidget):
             self.cancel_button.hide()
             self.progress_bar.setValue(0)
             self.status_label.setText(self.tr("已取消校正"))
+            self.append_task_log(self.tr("任务已取消"))
             InfoBar.warning(
                 self.tr("已取消"), self.tr("字幕校正已取消"), duration=3000, parent=self
             )

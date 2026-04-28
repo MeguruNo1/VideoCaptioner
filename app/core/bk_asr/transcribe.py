@@ -97,9 +97,6 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
                 "vad_threshold": config.whisperx_vad_threshold,
                 "local_silero_dir": config.whisperx_local_silero_dir,
                 "align": config.whisperx_align,
-                "diarize": config.whisperx_diarize,
-                "local_diarize_dir": config.whisperx_local_diarize_dir,
-                "hf_token": config.whisperx_hf_token,
                 "model_dir": config.whisperx_model_dir,
             }
         )

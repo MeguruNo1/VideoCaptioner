@@ -149,32 +149,6 @@ class WhisperXSettingWidget(QWidget):
             self.setting_group,
         )
 
-        self.diarize_card = SwitchSettingCard(
-            FIF.PEOPLE,
-            self.tr("Speaker Diarization"),
-            self.tr("Detect different speakers with WhisperX"),
-            cfg.whisperx_diarize,
-            self.setting_group,
-        )
-
-        local_diarize_dir = cfg.get(cfg.whisperx_local_diarize_dir) or self.tr("未设置")
-        self.local_diarize_dir_card = PushSettingCard(
-            self.tr("选择"),
-            FIF.FOLDER,
-            self.tr("Local Diarization Model"),
-            local_diarize_dir,
-            self.setting_group,
-        )
-
-        self.hf_token_card = LineEditSettingCard(
-            cfg.whisperx_hf_token,
-            FIF.FINGERPRINT,
-            self.tr("HF Token"),
-            self.tr("可选，用于需要 HuggingFace 权限的对齐模型"),
-            "hf_",
-            self.setting_group,
-        )
-
         self.language_card.comboBox.setMaxVisibleItems(6)
         self.model_card.comboBox.setMinimumWidth(200)
         self.language_card.comboBox.setMinimumWidth(200)
@@ -183,7 +157,6 @@ class WhisperXSettingWidget(QWidget):
         self.hotwords_card.lineEdit.setMinimumWidth(200)
         self.initial_prompt_card.lineEdit.setMinimumWidth(200)
         self.vad_method_card.comboBox.setMinimumWidth(200)
-        self.hf_token_card.lineEdit.setMinimumWidth(200)
 
         self.setting_group.addSettingCard(self.model_card)
         self.setting_group.addSettingCard(self.language_card)
@@ -198,9 +171,6 @@ class WhisperXSettingWidget(QWidget):
         self.setting_group.addSettingCard(self.local_silero_dir_card)
         self.setting_group.addSettingCard(self.word_timestamps_card)
         self.setting_group.addSettingCard(self.align_card)
-        self.setting_group.addSettingCard(self.diarize_card)
-        self.setting_group.addSettingCard(self.local_diarize_dir_card)
-        self.setting_group.addSettingCard(self.hf_token_card)
 
         self.containerLayout.addWidget(self.setting_group)
         self.containerLayout.addStretch(1)
@@ -211,15 +181,12 @@ class WhisperXSettingWidget(QWidget):
         self.main_layout.addWidget(self.scrollArea)
 
         self.local_silero_dir_card.clicked.connect(self.__on_local_silero_dir_clicked)
-        self.local_diarize_dir_card.clicked.connect(self.__on_local_diarize_dir_clicked)
         self.vad_method_card.comboBox.currentTextChanged.connect(
             self.__update_local_silero_dir_card_state
         )
-        self.diarize_card.checkedChanged.connect(self.__update_local_diarize_dir_card_state)
         self.__update_local_silero_dir_card_state(
             self.vad_method_card.comboBox.currentText()
         )
-        self.__update_local_diarize_dir_card_state(self.diarize_card.isChecked())
 
     def __on_local_silero_dir_clicked(self):
         folder = QFileDialog.getExistingDirectory(
@@ -233,21 +200,6 @@ class WhisperXSettingWidget(QWidget):
         cfg.set(cfg.whisperx_local_silero_dir, folder)
         self.local_silero_dir_card.setContent(folder)
 
-    def __on_local_diarize_dir_clicked(self):
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            self.tr("选择本地说话人分离模型文件夹"),
-            cfg.get(cfg.whisperx_local_diarize_dir) or "./",
-        )
-        if not folder:
-            return
-
-        cfg.set(cfg.whisperx_local_diarize_dir, folder)
-        self.local_diarize_dir_card.setContent(folder)
-
     def __update_local_silero_dir_card_state(self, vad_method: str):
         enabled = (vad_method or "") == "silero"
         self.local_silero_dir_card.setEnabled(enabled)
-
-    def __update_local_diarize_dir_card_state(self, enabled: bool):
-        self.local_diarize_dir_card.setEnabled(bool(enabled))

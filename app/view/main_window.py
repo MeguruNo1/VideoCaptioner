@@ -19,7 +19,6 @@ from app.common.config import cfg
 from app.components.DonateDialog import DonateDialog
 from app.config import ASSETS_PATH, GITHUB_REPO_URL
 from app.thread.version_manager_thread import VersionManager
-from app.view.batch_process_interface import BatchProcessInterface
 from app.view.download_center_interface import DownloadCenterInterface
 from app.view.home_interface import HomeInterface
 from app.view.setting_interface import SettingInterface
@@ -38,7 +37,6 @@ class MainWindow(FluentWindow):
         self.homeInterface = HomeInterface(self)
         self.settingInterface = SettingInterface(self)
         self.subtitleStyleInterface = SubtitleStyleInterface(self)
-        self.batchProcessInterface = BatchProcessInterface(self)
         self.downloadCenterInterface = DownloadCenterInterface(self)
         self.downloadCenterInterface.send_to_transcription.connect(
             self.open_downloaded_video_in_transcription
@@ -71,7 +69,6 @@ class MainWindow(FluentWindow):
         self.addSubInterface(
             self.downloadCenterInterface, FIF.DOWNLOAD, self.tr("下载中心")
         )
-        self.addSubInterface(self.batchProcessInterface, FIF.VIDEO, self.tr("批量处理"))
         self.addSubInterface(self.subtitleStyleInterface, FIF.FONT, self.tr("字幕样式"))
 
         self.navigationInterface.addSeparator()
@@ -185,7 +182,6 @@ class MainWindow(FluentWindow):
     def closeEvent(self, event):
         # 关闭所有子界面
         # self.homeInterface.close()
-        # self.batchProcessInterface.close()
         # self.subtitleStyleInterface.close()
         # self.settingInterface.close()
         super().closeEvent(event)

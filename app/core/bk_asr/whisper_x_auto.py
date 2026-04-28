@@ -76,24 +76,6 @@ def _should_fallback_vad(exc: Exception, vad_method: str) -> bool:
     return any(keyword in message for keyword in keywords)
 
 
-def _should_soft_fail_diarization(exc: Exception) -> bool:
-    message = str(exc).lower()
-    keywords = (
-        "huggingface.co",
-        "requests.exceptions.sslerror",
-        "ssl: certificate_verify_failed",
-        "certificate verify failed",
-        "maxretryerror",
-        "hf_hub_download",
-        "speaker-diarization-community-1",
-        "401 client error",
-        "403 client error",
-        "repository not found",
-        "connection error",
-    )
-    return any(keyword in message for keyword in keywords)
-
-
 def _format_external_log_line(
     line: str, noise_flags: set[str]
 ) -> tuple[str | None, str | None]:
@@ -110,12 +92,6 @@ def _format_external_log_line(
 
     if "using local silero vad repository:" in lowered:
         return "WhisperX: using local Silero VAD", None
-
-    if "loading diarization model:" in lowered:
-        return "WhisperX: loading speaker diarization model", None
-
-    if "speaker diarization skipped:" in lowered:
-        return f"WhisperX: {line}", None
 
     if any(pattern in lowered for pattern in NOISY_EXTERNAL_LOG_PATTERNS):
         if "torchcodec" in lowered or "ffmpeg version " in lowered:
@@ -159,34 +135,6 @@ def _resolve_local_silero_dir(
     return None
 
 
-def _resolve_local_diarize_dir(
-    local_diarize_dir: str | None, strict: bool = False
-) -> str | None:
-    if not local_diarize_dir:
-        return None
-
-    checkpoint = Path(local_diarize_dir)
-    if checkpoint.is_file() and checkpoint.name.lower() == "config.yaml":
-        return str(checkpoint)
-    if checkpoint.is_dir() and (checkpoint / "config.yaml").is_file():
-        return str(checkpoint)
-    if checkpoint.is_dir():
-        nested_configs = []
-        for item in checkpoint.iterdir():
-            if item.is_file() and item.name.lower() == "config.yaml":
-                nested_configs.append(item)
-            elif item.is_dir() and (item / "config.yaml").is_file():
-                nested_configs.append(item)
-        if len(nested_configs) == 1:
-            return str(nested_configs[0])
-
-    if strict:
-        raise RuntimeError(
-            f"Invalid local diarization model directory: {local_diarize_dir}"
-        )
-    return None
-
-
 class WhisperXASR(BaseASR):
     def __init__(
         self,
@@ -202,9 +150,6 @@ class WhisperXASR(BaseASR):
         vad_threshold: float = 0.5,
         local_silero_dir: str = None,
         align: bool = True,
-        diarize: bool = False,
-        local_diarize_dir: str = None,
-        hf_token: str = None,
         model_dir: str = None,
         use_cache: bool = False,
         need_word_time_stamp: bool = False,
@@ -221,9 +166,6 @@ class WhisperXASR(BaseASR):
         self.vad_threshold = vad_threshold if vad_threshold is not None else 0.5
         self.local_silero_dir = local_silero_dir or ""
         self.align = align
-        self.diarize = diarize
-        self.local_diarize_dir = local_diarize_dir or ""
-        self.hf_token = hf_token or ""
         self.model_dir = model_dir
         self.need_word_time_stamp = need_word_time_stamp
 
@@ -280,10 +222,6 @@ class WhisperXASR(BaseASR):
 
     def _run_local(self, whisperx, callback) -> dict:
         apply_download_proxy_environment()
-        if self.hf_token:
-            os.environ["HF_TOKEN"] = self.hf_token
-            os.environ["HUGGINGFACE_TOKEN"] = self.hf_token
-
         model = None
         align_model = None
 
@@ -313,19 +251,6 @@ class WhisperXASR(BaseASR):
                     self.device,
                     return_char_alignments=False,
                 )
-
-            if self.diarize and result.get("segments"):
-                callback(85, "Running speaker diarization")
-                try:
-                    result = self._assign_speakers(audio, result)
-                except Exception as exc:
-                    if _should_soft_fail_diarization(exc):
-                        logger.warning(
-                            "WhisperX speaker diarization skipped: %s", exc
-                        )
-                        callback(90, "Skipping speaker diarization")
-                    else:
-                        raise
 
             callback(100, "WhisperX finished")
             return result
@@ -380,9 +305,6 @@ class WhisperXASR(BaseASR):
                         "vad_threshold": self.vad_threshold,
                         "local_silero_dir": self.local_silero_dir,
                         "align": self.align,
-                        "diarize": self.diarize,
-                        "local_diarize_dir": self.local_diarize_dir,
-                        "hf_token": self.hf_token,
                         "model_dir": self.model_dir,
                         "need_word_time_stamp": self.need_word_time_stamp,
                         "local_align_model_dirs": LOCAL_ALIGN_MODEL_DIRS,
@@ -577,27 +499,6 @@ class WhisperXASR(BaseASR):
             kwargs.pop("language", None)
             return model.transcribe(audio, **kwargs)
 
-    def _assign_speakers(self, audio, result: dict) -> dict:
-        try:
-            from whisperx.diarize import DiarizationPipeline, assign_word_speakers
-        except ImportError as e:
-            raise RuntimeError(
-                "WhisperX speaker diarization dependencies are not available."
-            ) from e
-
-        diarize_device = self.device if self.device in {"cpu", "cuda"} else "cpu"
-        local_diarize_dir = _resolve_local_diarize_dir(
-            self.local_diarize_dir, strict=bool(self.local_diarize_dir)
-        )
-        diarizer = DiarizationPipeline(
-            model_name=local_diarize_dir,
-            token=self.hf_token or None,
-            device=diarize_device,
-            cache_dir=self.model_dir,
-        )
-        diarize_df = diarizer(audio)
-        return assign_word_speakers(diarize_df, result)
-
     def _build_local_silero_vad(
         self, whisperx, repo_dir: str, vad_onset: float, chunk_size: int = 30
     ):
@@ -688,8 +589,6 @@ class WhisperXASR(BaseASR):
                 str(self.vad_threshold),
                 self.local_silero_dir,
                 str(self.align),
-                str(self.diarize),
-                self.local_diarize_dir,
                 str(self.need_word_time_stamp),
             ]
         )

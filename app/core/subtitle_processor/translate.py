@@ -35,6 +35,8 @@ from app.core.utils.openai_compat import (
 
 logger = setup_logger("subtitle_translator")
 
+LONG_CONTEXT_TRANSLATE_ENV = "VIDEO_CAPTIONER_LONG_CONTEXT_TRANSLATE"
+
 
 class TranslatorType(Enum):
     """翻译器类型"""
@@ -54,7 +56,7 @@ class BaseTranslator(ABC):
         batch_num: int = 20,
         target_language: str = "Chinese",
         retry_times: int = 1,
-        timeout: int = 60,
+        timeout: int = 300,
         update_callback: Optional[Callable] = None,
         custom_prompt: Optional[str] = None,
         usage_callback: Optional[Callable] = None,
@@ -229,7 +231,7 @@ class OpenAITranslator(BaseTranslator):
         custom_prompt: str = "",
         is_reflect: bool = False,
         temperature: float = 0.7,
-        timeout: int = 60,
+        timeout: int = 300,
         retry_times: int = 1,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
@@ -250,6 +252,29 @@ class OpenAITranslator(BaseTranslator):
         self.is_reflect = is_reflect
         self.temperature = temperature
 
+    def translate_subtitle(self, subtitle_data: Union[str, ASRData]) -> ASRData:
+        """翻译字幕文件，支持通过环境变量启用长上下文整稿翻译实验"""
+        if os.getenv(LONG_CONTEXT_TRANSLATE_ENV) != "1":
+            return super().translate_subtitle(subtitle_data)
+
+        try:
+            if isinstance(subtitle_data, str):
+                asr_data = ASRData.from_subtitle_file(subtitle_data)
+            else:
+                asr_data = subtitle_data
+
+            translated_dict = self._translate_subtitle_long_context(asr_data)
+            new_segments = self._create_segments(asr_data.segments, translated_dict)
+            if self.update_callback:
+                self.update_callback(translated_dict)
+            return ASRData(new_segments)
+        except Exception as e:
+            logger.warning(
+                "长上下文整稿翻译失败，将回退到批量翻译：%s",
+                format_openai_compat_error(e, model_name=getattr(self, "model", None)),
+            )
+            return super().translate_subtitle(subtitle_data)
+
     def _init_client(self):
         """初始化OpenAI客户端"""
         base_url = os.getenv("OPENAI_BASE_URL")
@@ -258,6 +283,61 @@ class OpenAITranslator(BaseTranslator):
             raise ValueError("环境变量 OPENAI_BASE_URL 和 OPENAI_API_KEY 必须设置")
 
         self.client = OpenAI(base_url=base_url, api_key=api_key)
+
+    def _get_translate_prompt(self) -> str:
+        """获取翻译提示词"""
+        prompt = REFLECT_TRANSLATE_PROMPT if self.is_reflect else TRANSLATE_PROMPT
+        return Template(prompt).safe_substitute(
+            target_language=self.target_language, custom_prompt=self.custom_prompt
+        )
+
+    def _translate_subtitle_long_context(self, asr_data: ASRData) -> Dict[str, str]:
+        """一次性提交完整字幕 JSON 给 LLM 翻译"""
+        subtitle_dict = {
+            str(i): seg.text for i, seg in enumerate(asr_data.segments, 1)
+        }
+        if not subtitle_dict:
+            return {}
+
+        logger.info(
+            "[+]长上下文整稿翻译字幕：1 - %s，共 %s 条",
+            len(subtitle_dict),
+            len(subtitle_dict),
+        )
+
+        user_content = (
+            "Translate the complete subtitle JSON below. "
+            "Return a pure JSON object with exactly the same keys, no missing keys, "
+            "no extra keys, and no explanations.\n\n"
+            f"{json.dumps(subtitle_dict, ensure_ascii=False)}"
+        )
+
+        response = self._call_api(self._get_translate_prompt(), user_content)
+        if self.usage_callback:
+            self.usage_callback("translate", extract_openai_usage(response))
+
+        content = response.choices[0].message.content
+        result = json_repair.loads(content)
+        if not isinstance(result, dict):
+            raise ValueError("长上下文翻译结果不是 JSON 对象")
+
+        normalized_result = {str(k): v for k, v in result.items()}
+        expected_keys = set(subtitle_dict.keys())
+        actual_keys = set(normalized_result.keys())
+        missing_keys = sorted(expected_keys - actual_keys, key=int)
+        extra_keys = sorted(actual_keys - expected_keys)
+        if missing_keys or extra_keys or len(normalized_result) != len(subtitle_dict):
+            raise ValueError(
+                "长上下文翻译结果编号不匹配："
+                f"缺失 {missing_keys[:10]}，额外 {extra_keys[:10]}"
+            )
+
+        if self.is_reflect:
+            return {
+                k: f"{normalized_result[k]['revised_translation']}"
+                for k in sorted(expected_keys, key=int)
+            }
+        return {k: f"{normalized_result[k]}" for k in sorted(expected_keys, key=int)}
 
     def _translate_chunk(
         self, subtitle_chunk: Dict[str, str], context_before: str = ""
@@ -268,13 +348,7 @@ class OpenAITranslator(BaseTranslator):
         )
 
         # 获取提示词
-        if self.is_reflect:
-            prompt = REFLECT_TRANSLATE_PROMPT
-        else:
-            prompt = TRANSLATE_PROMPT
-        prompt = Template(prompt).safe_substitute(
-            target_language=self.target_language, custom_prompt=self.custom_prompt
-        )
+        prompt = self._get_translate_prompt()
         prompt_hash = hashlib.md5(prompt.encode()).hexdigest()
 
         try:
@@ -751,6 +825,7 @@ class TranslatorFactory:
         is_reflect: bool = False,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
+        timeout: int = 300,
     ) -> BaseTranslator:
         """创建翻译器实例"""
         try:
@@ -765,6 +840,7 @@ class TranslatorFactory:
                     temperature=temperature,
                     update_callback=update_callback,
                     usage_callback=usage_callback,
+                    timeout=timeout,
                 )
             elif translator_type == TranslatorType.GOOGLE:
                 batch_num = 5

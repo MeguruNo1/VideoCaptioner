@@ -11,7 +11,7 @@ logger = setup_logger("subtitle_summarizer")
 
 
 class SubtitleSummarizer:
-    def __init__(self, model) -> None:
+    def __init__(self, model, timeout: int = 300) -> None:
         base_url = os.getenv("OPENAI_BASE_URL")
         api_key = os.getenv("OPENAI_API_KEY")
 
@@ -19,6 +19,7 @@ class SubtitleSummarizer:
             raise ValueError("环境变量 OPENAI_BASE_URL 和 OPENAI_API_KEY 必须设置")
 
         self.model = model
+        self.timeout = timeout
         self.client = OpenAI(base_url=base_url, api_key=api_key)
 
     def summarize(self, subtitle_content: str) -> str:
@@ -36,7 +37,7 @@ class SubtitleSummarizer:
                     },
                 ],
                 **get_openai_compat_request_options(
-                    model_name=self.model, default_timeout=60
+                    model_name=self.model, default_timeout=self.timeout
                 ),
             )
             return str(json_repair.loads(response.choices[0].message.content))

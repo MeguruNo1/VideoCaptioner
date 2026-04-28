@@ -25,6 +25,7 @@ from app.common.config import cfg
 from app.common.signal_bus import signalBus
 from app.components.EditComboBoxSettingCard import EditComboBoxSettingCard
 from app.components.LineEditSettingCard import LineEditSettingCard
+from app.components.SpinBoxSettingCard import SpinBoxSettingCard
 from app.config import AUTHOR, FEEDBACK_URL, HELP_URL, RELEASE_URL, VERSION, YEAR
 from app.core.entities import LLMServiceEnum, TranscribeModelEnum, TranslatorServiceEnum
 from app.core.utils.edge_cookie_utils import export_edge_cookies, verify_cookie_file
@@ -33,7 +34,6 @@ from app.core.utils.proxy_utils import (
     PROXY_MODE_OFF,
     get_effective_download_proxy_url,
 )
-from app.core.utils.openai_compat import QWEN_THINKING_TIMEOUT
 from app.core.utils.test_opanai import get_openai_models, test_openai
 from app.thread.version_manager_thread import VersionManager
 from app.components.MySettingCard import ComboBoxSettingCard as MyComboBoxSettingCard
@@ -80,9 +80,9 @@ class SettingInterface(ScrollArea):
         )
         # 翻译与优化组
         self.translateGroup = SettingCardGroup(self.tr("翻译与优化"), self.scrollWidget)
-        # 字幕合成配置组
+        # 字幕输出配置组
         self.subtitleGroup = SettingCardGroup(
-            self.tr("字幕合成配置"), self.scrollWidget
+            self.tr("字幕输出配置"), self.scrollWidget
         )
         # 保存配置组
         self.saveGroup = SettingCardGroup(self.tr("保存配置"), self.scrollWidget)
@@ -160,21 +160,6 @@ class SettingInterface(ScrollArea):
             self.tr("选择字幕的布局（单语、双语）"),
             self.subtitleGroup,
         )
-        self.needVideoCard = SwitchSettingCard(
-            FIF.VIDEO,
-            self.tr("需要合成视频"),
-            self.tr("开启时触发合成视频，关闭时跳过"),
-            cfg.need_video,
-            self.subtitleGroup,
-        )
-        self.softSubtitleCard = SwitchSettingCard(
-            FIF.FONT,
-            self.tr("软字幕"),
-            self.tr("开启时字幕可在播放器中关闭或调整，关闭时字幕烧录到视频画面上"),
-            cfg.soft_subtitle,
-            self.subtitleGroup,
-        )
-
         # 保存配置卡片
         self.savePathCard = PushSettingCard(
             self.tr("工作文件夹"),
@@ -313,8 +298,6 @@ class SettingInterface(ScrollArea):
 
         self.subtitleGroup.addSettingCard(self.subtitleStyleCard)
         self.subtitleGroup.addSettingCard(self.subtitleLayoutCard)
-        self.subtitleGroup.addSettingCard(self.needVideoCard)
-        self.subtitleGroup.addSettingCard(self.softSubtitleCard)
 
         self.saveGroup.addSettingCard(self.savePathCard)
         self.downloadSettingGroup.addSettingCard(self.downloadEngineStrategyCard)
@@ -338,9 +321,18 @@ class SettingInterface(ScrollArea):
         self.llmServiceCard = ComboBoxSettingCard(
             cfg.llm_service,
             FIF.ROBOT,
-            self.tr("LLM服务)"),
-            self.tr("选择大服务，用于字幕断句、字幕优化、字幕翻译（如果选择"),
+            self.tr("LLM服务"),
+            self.tr("选择用于字幕断句、字幕优化、字幕翻译的大模型服务"),
             texts=[service.value for service in cfg.llm_service.validator.options],
+            parent=self.llmGroup,
+        )
+        self.llmTimeoutCard = SpinBoxSettingCard(
+            cfg.llm_request_timeout,
+            FIF.SPEED_HIGH,
+            self.tr("请求超时"),
+            self.tr("LLM API 请求等待时间（秒）"),
+            minimum=30,
+            maximum=900,
             parent=self.llmGroup,
         )
 
@@ -384,7 +376,7 @@ class SettingInterface(ScrollArea):
                 "api_base_cfg": cfg.deepseek_api_base,
                 "model_cfg": cfg.deepseek_model,
                 "default_base": "https://api.deepseek.com/v1",
-                "default_models": ["deepseek-chat"],
+                "default_models": ["v4-pro", "v4-flash"],
             },
             LLMServiceEnum.OLLAMA: {
                 "prefix": "ollama",
@@ -491,9 +483,7 @@ class SettingInterface(ScrollArea):
                 qwen_thinking_card = SwitchSettingCard(
                     FIF.HISTORY,
                     self.tr("启用思考模式"),
-                    self.tr(
-                        f"仅对 Qwen 服务生效；开启后请求更慢，但会自动使用 {QWEN_THINKING_TIMEOUT} 秒超时"
-                    ),
+                    self.tr("仅对 Qwen 服务生效；开启后会在请求体中启用思考模式"),
                     cfg.qwen_enable_thinking,
                     self.llmGroup,
                 )
@@ -618,6 +608,7 @@ class SettingInterface(ScrollArea):
 
         # 添加LLM配置卡片
         self.llmGroup.addSettingCard(self.llmServiceCard)
+        self.llmGroup.addSettingCard(self.llmTimeoutCard)
         # 添加OPENAI官方API链接卡片
         self.llmGroup.addSettingCard(self.openaiOfficialApiCard)
         for config in self.llm_service_configs.values():
@@ -709,8 +700,6 @@ class SettingInterface(ScrollArea):
         self.targetLanguageCard.comboBox.currentTextChanged.connect(
             signalBus.target_language_changed
         )
-        self.softSubtitleCard.checkedChanged.connect(signalBus.soft_subtitle_changed)
-        self.needVideoCard.checkedChanged.connect(signalBus.need_video_changed)
         self.__onDownloadProxyModeChanged(
             self.downloadProxyModeCard.comboBox.currentText()
         )
@@ -886,6 +875,7 @@ class SettingInterface(ScrollArea):
             model,
             current_service.value,
             qwen_enable_thinking,
+            cfg.llm_request_timeout.value,
         )
         self.connection_thread.finished.connect(self.onConnectionCheckFinished)
         self.connection_thread.error.connect(self.onConnectionCheckError)
@@ -999,7 +989,13 @@ class LLMConnectionThread(QThread):
     error = pyqtSignal(str)
 
     def __init__(
-        self, api_base, api_key, model, service_name=None, qwen_enable_thinking=False
+        self,
+        api_base,
+        api_key,
+        model,
+        service_name=None,
+        qwen_enable_thinking=False,
+        timeout=300,
     ):
         super().__init__()
         self.api_base = api_base
@@ -1007,6 +1003,7 @@ class LLMConnectionThread(QThread):
         self.model = model
         self.service_name = service_name
         self.qwen_enable_thinking = qwen_enable_thinking
+        self.timeout = timeout
 
     def run(self):
         """检查 LLM 连接并获取模型列表"""
@@ -1017,8 +1014,9 @@ class LLMConnectionThread(QThread):
                 self.model,
                 self.service_name,
                 self.qwen_enable_thinking,
+                self.timeout,
             )
-            models = get_openai_models(self.api_base, self.api_key)
+            models = get_openai_models(self.api_base, self.api_key, self.timeout)
             self.finished.emit(is_success, message, models)
         except Exception as e:
             self.error.emit(str(e))

@@ -3,6 +3,8 @@
 !/.gitignore
 !/app/
 !/app/**
+!/tests/
+!/tests/**
 !/_pystand_static.int
 !/VideoCaptioner.exe
 

@@ -184,7 +184,7 @@ class SubtitleSplitter:
         thread_num: int = 5,
         model: str = "gpt-4o-mini",
         temperature: float = 0.4,
-        timeout: int = 60,
+        timeout: int = 300,
         retry_times: int = 1,
         split_type: str = "semantic",
         max_word_count_cjk: int = MAX_WORD_COUNT_CJK,

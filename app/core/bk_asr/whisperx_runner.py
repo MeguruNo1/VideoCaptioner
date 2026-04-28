@@ -1,6 +1,5 @@
 import gc
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -40,24 +39,6 @@ def _should_fallback_vad(exc: Exception, vad_method: str) -> bool:
     return any(keyword in message for keyword in keywords)
 
 
-def _should_soft_fail_diarization(exc: Exception) -> bool:
-    message = str(exc).lower()
-    keywords = (
-        "huggingface.co",
-        "requests.exceptions.sslerror",
-        "ssl: certificate_verify_failed",
-        "certificate verify failed",
-        "maxretryerror",
-        "hf_hub_download",
-        "speaker-diarization-community-1",
-        "401 client error",
-        "403 client error",
-        "repository not found",
-        "connection error",
-    )
-    return any(keyword in message for keyword in keywords)
-
-
 def _resolve_local_silero_dir(
     local_silero_dir: str | None, strict: bool = False
 ) -> str | None:
@@ -75,34 +56,6 @@ def _resolve_local_silero_dir(
     if strict:
         raise RuntimeError(
             f"Invalid local Silero repository directory: {local_silero_dir}"
-        )
-    return None
-
-
-def _resolve_local_diarize_dir(
-    local_diarize_dir: str | None, strict: bool = False
-) -> str | None:
-    if not local_diarize_dir:
-        return None
-
-    checkpoint = Path(local_diarize_dir)
-    if checkpoint.is_file() and checkpoint.name.lower() == "config.yaml":
-        return str(checkpoint)
-    if checkpoint.is_dir() and (checkpoint / "config.yaml").is_file():
-        return str(checkpoint)
-    if checkpoint.is_dir():
-        nested_configs = []
-        for item in checkpoint.iterdir():
-            if item.is_file() and item.name.lower() == "config.yaml":
-                nested_configs.append(item)
-            elif item.is_dir() and (item / "config.yaml").is_file():
-                nested_configs.append(item)
-        if len(nested_configs) == 1:
-            return str(nested_configs[0])
-
-    if strict:
-        raise RuntimeError(
-            f"Invalid local diarization model directory: {local_diarize_dir}"
         )
     return None
 
@@ -246,23 +199,6 @@ def load_align_model(whisperx, request: dict, language_code: str):
         return whisperx.load_align_model(**kwargs)
 
 
-def diarize(whisperx, request: dict, audio, result: dict):
-    from whisperx.diarize import DiarizationPipeline, assign_word_speakers
-
-    local_diarize_dir = _resolve_local_diarize_dir(
-        request.get("local_diarize_dir"),
-        strict=bool(request.get("local_diarize_dir")),
-    )
-    diarizer = DiarizationPipeline(
-        model_name=local_diarize_dir,
-        token=(request.get("hf_token") or None),
-        device=request["device"],
-        cache_dir=request.get("model_dir"),
-    )
-    diarize_df = diarizer(audio)
-    return assign_word_speakers(diarize_df, result)
-
-
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("Usage: whisperx_runner.py <request.json> <result.json>")
@@ -270,11 +206,6 @@ def main():
     request_path = Path(sys.argv[1])
     result_path = Path(sys.argv[2])
     request = json.loads(request_path.read_text(encoding="utf-8"))
-
-    hf_token = request.get("hf_token") or ""
-    if hf_token:
-        os.environ["HF_TOKEN"] = hf_token
-        os.environ["HUGGINGFACE_TOKEN"] = hf_token
 
     sanitize_sys_path()
 
@@ -311,20 +242,6 @@ def main():
                 request["device"],
                 return_char_alignments=False,
             )
-
-        if request.get("diarize") and result.get("segments"):
-            progress(88, "Running speaker diarization")
-            try:
-                result = diarize(whisperx, request, audio, result)
-            except Exception as exc:
-                if _should_soft_fail_diarization(exc):
-                    print(
-                        f"WhisperX speaker diarization skipped: {exc}",
-                        flush=True,
-                    )
-                    progress(90, "Skipping speaker diarization")
-                else:
-                    raise
 
         progress(95, "Writing result")
         result_path.write_text(

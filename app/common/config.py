@@ -84,7 +84,7 @@ class Config(QConfig):
         "LLM", "SiliconCloud_API_Base", "https://api.siliconflow.cn/v1"
     )
 
-    deepseek_model = ConfigItem("LLM", "DeepSeek_Model", "deepseek-chat")
+    deepseek_model = ConfigItem("LLM", "DeepSeek_Model", "v4-pro")
     deepseek_api_key = ConfigItem("LLM", "DeepSeek_API_Key", "")
     deepseek_api_base = ConfigItem(
         "LLM", "DeepSeek_API_Base", "https://api.deepseek.com/v1"
@@ -129,6 +129,9 @@ class Config(QConfig):
         "LLM", "Public_API_Key", "please-do-not-use-for-personal-purposes"
     )
     public_api_base = ConfigItem("LLM", "Public_API_Base", "https://ddg.bkfeng.top/v1")
+    llm_request_timeout = RangeConfigItem(
+        "LLM", "RequestTimeout", 300, RangeValidator(30, 900)
+    )
 
     # ------------------- 翻译配置 -------------------
     translator_service = OptionsConfigItem(
@@ -243,14 +246,6 @@ class Config(QConfig):
         "WhisperX", "WordTimestamps", False, BoolValidator()
     )
     whisperx_align = ConfigItem("WhisperX", "Align", True, BoolValidator())
-    whisperx_diarize = ConfigItem("WhisperX", "Diarize", False, BoolValidator())
-    whisperx_local_diarize_dir = ConfigItem(
-        "WhisperX",
-        "LocalDiarizeDir",
-        "",
-    )
-    whisperx_hf_token = ConfigItem("WhisperX", "HFToken", "")
-
     # ------------------- Whisper API 配置 -------------------
     whisper_api_base = ConfigItem("WhisperAPI", "WhisperApiBase", "")
     whisper_api_key = ConfigItem("WhisperAPI", "WhisperApiKey", "")
@@ -288,10 +283,6 @@ class Config(QConfig):
         "Subtitle", "NeedsRemovePunctuation", True, BoolValidator()
     )
     custom_prompt_text = ConfigItem("Subtitle", "CustomPromptText", "")
-
-    # ------------------- 字幕合成配置 -------------------
-    soft_subtitle = ConfigItem("Video", "SoftSubtitle", False, BoolValidator())
-    need_video = ConfigItem("Video", "NeedVideo", True, BoolValidator())
 
     # ------------------- 字幕样式配置 -------------------
     subtitle_style_name = ConfigItem("SubtitleStyle", "StyleName", "default")

@@ -32,7 +32,7 @@ class SubtitleOptimizer:
         model: str = "gpt-4o-mini",
         custom_prompt: str = "",
         temperature: float = 0.7,
-        timeout: int = 60,
+        timeout: int = 300,
         retry_times: int = 1,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,

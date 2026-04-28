@@ -537,9 +537,6 @@ class TranscribeConfig:
     whisperx_vad_threshold: float = 0.5
     whisperx_local_silero_dir: Optional[str] = None
     whisperx_align: bool = True
-    whisperx_diarize: bool = False
-    whisperx_local_diarize_dir: Optional[str] = None
-    whisperx_hf_token: Optional[str] = None
     whisperx_model_dir: Optional[str] = None
 
 
@@ -553,6 +550,7 @@ class SubtitleConfig:
     llm_model: Optional[str] = None
     llm_service: Optional[str] = None
     qwen_enable_thinking: bool = False
+    llm_request_timeout: int = 300
     deeplx_endpoint: Optional[str] = None
     # 翻译服务
     translator_service: Optional[TranslatorServiceEnum] = None
@@ -572,14 +570,6 @@ class SubtitleConfig:
     need_remove_translated_chinese_commas: bool = False
     need_remove_punctuation: bool = False
     custom_prompt_text: Optional[str] = None
-
-
-@dataclass
-class SynthesisConfig:
-    """视频合成配置类"""
-
-    need_video: bool = True
-    soft_subtitle: bool = True
 
 
 @dataclass
@@ -618,31 +608,10 @@ class SubtitleTask:
     # 输出 断句、优化、翻译 后的字幕文件
     output_path: Optional[str] = None
 
-    # 是否需要执行下一个任务（视频合成）
+    # 是否需要执行下一个任务（字幕处理）
     need_next_task: bool = True
 
     subtitle_config: Optional[SubtitleConfig] = None
-
-
-@dataclass
-class SynthesisTask:
-    """视频合成任务类"""
-
-    queued_at: Optional[datetime.datetime] = None
-    started_at: Optional[datetime.datetime] = None
-    completed_at: Optional[datetime.datetime] = None
-
-    # 输入
-    video_path: Optional[str] = None
-    subtitle_path: Optional[str] = None
-
-    # 输出
-    output_path: Optional[str] = None
-
-    # 是否需要执行下一个任务（预留）
-    need_next_task: bool = False
-
-    synthesis_config: Optional[SynthesisConfig] = None
 
 
 @dataclass
@@ -663,43 +632,3 @@ class TranscriptAndSubtitleTask:
     subtitle_config: Optional[SubtitleConfig] = None
 
 
-@dataclass
-class FullProcessTask:
-    """完整处理任务类(转录+字幕+合成)"""
-
-    queued_at: Optional[datetime.datetime] = None
-    started_at: Optional[datetime.datetime] = None
-    completed_at: Optional[datetime.datetime] = None
-
-    # 输入
-    file_path: Optional[str] = None
-    # 输出
-    output_path: Optional[str] = None
-
-    transcribe_config: Optional[TranscribeConfig] = None
-    subtitle_config: Optional[SubtitleConfig] = None
-    synthesis_config: Optional[SynthesisConfig] = None
-
-
-class BatchTaskType(Enum):
-    """批量处理任务类型"""
-
-    TRANSCRIBE = "批量转录"
-    SUBTITLE = "批量字幕"
-    TRANS_SUB = "转录+字幕"
-    FULL_PROCESS = "全流程处理"
-
-    def __str__(self):
-        return self.value
-
-
-class BatchTaskStatus(Enum):
-    """批量处理任务状态"""
-
-    WAITING = "等待中"
-    RUNNING = "处理中"
-    COMPLETED = "已完成"
-    FAILED = "失败"
-
-    def __str__(self):
-        return self.value

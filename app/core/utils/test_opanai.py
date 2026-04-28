@@ -6,7 +6,14 @@ from app.core.utils.openai_compat import (
 )
 
 
-def test_openai(base_url, api_key, model, service_name=None, qwen_enable_thinking=None):
+def test_openai(
+    base_url,
+    api_key,
+    model,
+    service_name=None,
+    qwen_enable_thinking=None,
+    timeout=300,
+):
     """
     这是一个测试OpenAI API的函数。
     它使用指定的API设置与OpenAI的GPT模型进行对话。
@@ -23,7 +30,7 @@ def test_openai(base_url, api_key, model, service_name=None, qwen_enable_thinkin
             service_name=service_name,
             model_name=model,
             qwen_enable_thinking=qwen_enable_thinking,
-            default_timeout=10,
+            default_timeout=timeout,
         )
         # 创建OpenAI客户端并发送请求到OpenAI API
         response = openai.OpenAI(
@@ -48,11 +55,11 @@ def test_openai(base_url, api_key, model, service_name=None, qwen_enable_thinkin
         )
 
 
-def get_openai_models(base_url, api_key):
+def get_openai_models(base_url, api_key, timeout=300):
     try:
         # 创建OpenAI客户端并获取模型列表
         models = openai.OpenAI(
-            base_url=base_url, api_key=api_key, timeout=5
+            base_url=base_url, api_key=api_key, timeout=timeout
         ).models.list()
 
         # 根据不同模型设置权重进行排序
