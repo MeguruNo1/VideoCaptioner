@@ -559,6 +559,7 @@ class SubtitleConfig:
     need_reflect: bool = False
     thread_num: int = 10
     batch_size: int = 10
+    translation_max_length: int = 14
     # 字幕布局和分割
     split_type: Optional[SplitTypeEnum] = None
     subtitle_layout: Optional[str] = None

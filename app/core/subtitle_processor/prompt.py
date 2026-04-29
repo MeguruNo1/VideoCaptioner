@@ -8,7 +8,6 @@ SPLIT_PROMPT_SEMANTIC = """
 - 需要根据语义使用<br>进行分段。
 - 不修改或添加任何内容至原文，仅在每部分之间插入<br>。
 - 直接返回分段后的文本，无需额外解释。
-- 如果文本中包含说话人标记或选框内容，例如 `[SPEAKER_00]`、`Speaker 1:` 或其他类似标记，必须保持原样，不得修改、翻译、删除或移动位置。
 
 ## Examples
 Input:
@@ -145,6 +144,7 @@ TRANSLATE_PROMPT = """
 - 文化相关性：恰当运用成语、网络用语和文化适当的表达方式，使翻译内容更贴近目标受众的语言习惯和文化体验。
 - 严格保持字幕编号的一一对应，不要合并或拆分字幕！
 - 如果原文包含说话人标记或选框内容，例如 `[SPEAKER_00]`、`Speaker 1:` 或其他类似标记，必须保持原样，不得翻译、改写、删除或移动位置。
+${translation_length_instruction}
 
 # 术语或要求:
 - 翻译过程中要遵循术语词汇（如果有）
@@ -185,6 +185,7 @@ REFLECT_TRANSLATE_PROMPT = """
 - 文化相关性：恰当运用成语、网络用语和文化适当的表达方式。
 - 严格保持字幕编号的一一对应，不要合并或拆分字幕。
 - 如果原文包含说话人标记或选框内容，例如 `[SPEAKER_00]`、`Speaker 1:` 或其他类似标记，必须保持原样，不得翻译、改写、删除或移动位置。
+${translation_length_instruction}
 
 ## Constraints:
 - 必须严格遵循四轮翻译流程:直译、意译、改善建议、定稿  
@@ -241,6 +242,163 @@ SINGLE_TRANSLATE_PROMPT = """
 You are a professional ${target_language} translator. 
 Please translate the following text into ${target_language}. 
 If the text contains speaker labels or speaker selector text such as `[SPEAKER_00]`, `Speaker 1:`, or similar markers, preserve them exactly and do not translate, rewrite, remove, or move them.
+${translation_length_instruction}
 Return the translation result directly without any explanation or other content.
 
 """
+
+
+PROMPT_SPLIT_SEMANTIC = "split_semantic"
+PROMPT_SPLIT_SENTENCE = "split_sentence"
+PROMPT_SUMMARIZER = "summarizer"
+PROMPT_OPTIMIZER = "optimizer"
+PROMPT_TRANSLATE = "translate"
+PROMPT_REFLECT_TRANSLATE = "reflect_translate"
+PROMPT_SINGLE_TRANSLATE = "single_translate"
+PROMPT_FASTER_WHISPER = "faster_whisper"
+PROMPT_WHISPERX_INITIAL = "whisperx_initial"
+PROMPT_WHISPER_API = "whisper_api"
+PROMPT_DOCUMENT_CONTEXT = "document_context"
+
+DEFAULT_PROMPTS = {
+    PROMPT_SPLIT_SEMANTIC: SPLIT_PROMPT_SEMANTIC,
+    PROMPT_SPLIT_SENTENCE: SPLIT_PROMPT_SENTENCE,
+    PROMPT_SUMMARIZER: SUMMARIZER_PROMPT,
+    PROMPT_OPTIMIZER: OPTIMIZER_PROMPT,
+    PROMPT_TRANSLATE: TRANSLATE_PROMPT,
+    PROMPT_REFLECT_TRANSLATE: REFLECT_TRANSLATE_PROMPT,
+    PROMPT_SINGLE_TRANSLATE: SINGLE_TRANSLATE_PROMPT,
+    PROMPT_FASTER_WHISPER: "",
+    PROMPT_WHISPERX_INITIAL: "",
+    PROMPT_WHISPER_API: "",
+    PROMPT_DOCUMENT_CONTEXT: "",
+}
+
+PROMPT_CONFIG_ATTRS = {
+    PROMPT_SPLIT_SEMANTIC: "prompt_split_semantic",
+    PROMPT_SPLIT_SENTENCE: "prompt_split_sentence",
+    PROMPT_SUMMARIZER: "prompt_summarizer",
+    PROMPT_OPTIMIZER: "prompt_optimizer",
+    PROMPT_TRANSLATE: "prompt_translate",
+    PROMPT_REFLECT_TRANSLATE: "prompt_reflect_translate",
+    PROMPT_SINGLE_TRANSLATE: "prompt_single_translate",
+    PROMPT_FASTER_WHISPER: "faster_whisper_prompt",
+    PROMPT_WHISPERX_INITIAL: "whisperx_initial_prompt",
+    PROMPT_WHISPER_API: "whisper_api_prompt",
+    PROMPT_DOCUMENT_CONTEXT: "custom_prompt_text",
+}
+
+PROMPT_REQUIRED_VARIABLES = {
+    PROMPT_SPLIT_SEMANTIC: {"max_word_count_cjk", "max_word_count_english"},
+    PROMPT_SPLIT_SENTENCE: {"max_word_count_cjk", "max_word_count_english"},
+    PROMPT_TRANSLATE: {
+        "target_language",
+        "custom_prompt",
+        "translation_length_instruction",
+    },
+    PROMPT_REFLECT_TRANSLATE: {
+        "target_language",
+        "custom_prompt",
+        "translation_length_instruction",
+    },
+    PROMPT_SINGLE_TRANSLATE: {"target_language", "translation_length_instruction"},
+}
+
+PROMPT_CENTER_ITEMS = [
+    {
+        "id": PROMPT_SPLIT_SEMANTIC,
+        "title": "语义分段提示词",
+        "description": "用于把字词级字幕按语义拆成适合显示的字幕段。",
+    },
+    {
+        "id": PROMPT_SPLIT_SENTENCE,
+        "title": "分句/断句提示词",
+        "description": "用于按句意和标点位置拆分字幕。",
+    },
+    {
+        "id": PROMPT_SUMMARIZER,
+        "title": "视频摘要提示词",
+        "description": "用于总结视频内容和提取术语。",
+    },
+    {
+        "id": PROMPT_OPTIMIZER,
+        "title": "字幕校正提示词",
+        "description": "用于修正识别错误、标点和大小写，不做翻译。",
+    },
+    {
+        "id": PROMPT_TRANSLATE,
+        "title": "普通翻译提示词",
+        "description": "用于非反思模式的批量字幕翻译。",
+    },
+    {
+        "id": PROMPT_REFLECT_TRANSLATE,
+        "title": "反思翻译提示词",
+        "description": "用于四轮反思翻译流程。",
+    },
+    {
+        "id": PROMPT_SINGLE_TRANSLATE,
+        "title": "单条翻译回退提示词",
+        "description": "批量翻译失败时逐条翻译使用。",
+    },
+    {
+        "id": PROMPT_FASTER_WHISPER,
+        "title": "Faster Whisper 转录提示词",
+        "description": "传给 Faster Whisper 的可选上下文提示。",
+    },
+    {
+        "id": PROMPT_WHISPERX_INITIAL,
+        "title": "WhisperX Initial Prompt",
+        "description": "传给 WhisperX 的初始上下文提示。",
+    },
+    {
+        "id": PROMPT_WHISPER_API,
+        "title": "Whisper API 提示词",
+        "description": "传给 Whisper API 的可选上下文提示。",
+    },
+    {
+        "id": PROMPT_DOCUMENT_CONTEXT,
+        "title": "文稿提示/术语表",
+        "description": "作为字幕校正和翻译的参考内容，不替代系统提示词。",
+    },
+]
+
+
+def _get_config_value(prompt_id: str) -> str:
+    config_attr = PROMPT_CONFIG_ATTRS.get(prompt_id)
+    if not config_attr:
+        raise KeyError(f"Unknown prompt id: {prompt_id}")
+
+    from app.common.config import cfg
+
+    return str(cfg.get(getattr(cfg, config_attr)) or "")
+
+
+def get_default_prompt_template(prompt_id: str) -> str:
+    if prompt_id not in DEFAULT_PROMPTS:
+        raise KeyError(f"Unknown prompt id: {prompt_id}")
+    return DEFAULT_PROMPTS[prompt_id]
+
+
+def get_prompt_template(prompt_id: str) -> str:
+    custom_prompt = _get_config_value(prompt_id)
+    if custom_prompt.strip():
+        return custom_prompt
+    return get_default_prompt_template(prompt_id)
+
+
+def get_prompt_config_attr(prompt_id: str) -> str:
+    if prompt_id not in PROMPT_CONFIG_ATTRS:
+        raise KeyError(f"Unknown prompt id: {prompt_id}")
+    return PROMPT_CONFIG_ATTRS[prompt_id]
+
+
+def get_required_prompt_variables(prompt_id: str) -> set[str]:
+    return set(PROMPT_REQUIRED_VARIABLES.get(prompt_id, set()))
+
+
+def validate_prompt_template(prompt_id: str, template: str) -> list[str]:
+    missing = []
+    for variable in sorted(get_required_prompt_variables(prompt_id)):
+        if "${" + variable + "}" not in template:
+            missing.append(variable)
+    return missing

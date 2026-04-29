@@ -2,20 +2,25 @@ import webbrowser
 
 from PyQt5.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import QFileDialog, QLabel, QWidget
+from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QSizePolicy, QWidget
 from qfluentwidgets import ComboBoxSettingCard, CustomColorSettingCard, ExpandLayout
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import (
+    BodyLabel,
+    ComboBox,
     HyperlinkCard,
     InfoBar,
     MessageBox,
+    MessageBoxBase,
     OptionsSettingCard,
     PrimaryPushSettingCard,
+    PushButton,
     PushSettingCard,
     RangeSettingCard,
     ScrollArea,
     SettingCardGroup,
     SwitchSettingCard,
+    TextEdit,
     isDarkTheme,
     setTheme,
     setThemeColor,
@@ -28,6 +33,14 @@ from app.components.LineEditSettingCard import LineEditSettingCard
 from app.components.SpinBoxSettingCard import SpinBoxSettingCard
 from app.config import AUTHOR, FEEDBACK_URL, HELP_URL, RELEASE_URL, VERSION, YEAR
 from app.core.entities import LLMServiceEnum, TranscribeModelEnum, TranslatorServiceEnum
+from app.core.subtitle_processor.prompt import (
+    PROMPT_CENTER_ITEMS,
+    get_default_prompt_template,
+    get_prompt_config_attr,
+    get_prompt_template,
+    get_required_prompt_variables,
+    validate_prompt_template,
+)
 from app.core.utils.edge_cookie_utils import export_edge_cookies, verify_cookie_file
 from app.core.utils.proxy_utils import (
     PROXY_MODE_MANUAL,
@@ -37,6 +50,154 @@ from app.core.utils.proxy_utils import (
 from app.core.utils.test_opanai import get_openai_models, test_openai
 from app.thread.version_manager_thread import VersionManager
 from app.components.MySettingCard import ComboBoxSettingCard as MyComboBoxSettingCard
+
+
+class DefaultPromptDialog(MessageBoxBase):
+    def __init__(self, title: str, content: str, parent=None):
+        super().__init__(parent)
+        max_width = self._dialog_width(parent)
+        self.widget.setMaximumWidth(max_width)
+        self.titleLabel = BodyLabel(title, self)
+        self.textEdit = TextEdit(self)
+        self.textEdit.setReadOnly(True)
+        self.textEdit.setPlainText(content)
+        self.textEdit.setMinimumSize(360, 360)
+        self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.textEdit)
+        self.yesButton.setText(self.tr("关闭"))
+        self.cancelButton.hide()
+
+    @staticmethod
+    def _dialog_width(parent=None) -> int:
+        if parent is not None and parent.width() > 0:
+            return min(760, max(420, parent.width() - 80))
+        return 720
+
+
+class PromptCenterDialog(MessageBoxBase):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.widget.setMaximumWidth(self._dialog_width(parent))
+        self.prompt_items = PROMPT_CENTER_ITEMS
+        self.current_prompt_id = self.prompt_items[0]["id"]
+        self.setup_ui()
+        self.load_prompt(self.current_prompt_id)
+
+    @staticmethod
+    def _dialog_width(parent=None) -> int:
+        if parent is not None and parent.width() > 0:
+            return min(780, max(420, parent.width() - 80))
+        return 740
+
+    def setup_ui(self):
+        self.setWindowTitle(self.tr("提示词中心"))
+        self.titleLabel = BodyLabel(self.tr("提示词中心"), self)
+        self.promptCombo = ComboBox(self)
+        self.promptCombo.addItems([item["title"] for item in self.prompt_items])
+        self.descriptionLabel = BodyLabel("", self)
+        self.descriptionLabel.setWordWrap(True)
+        self.variableLabel = BodyLabel("", self)
+        self.variableLabel.setWordWrap(True)
+
+        self.textEdit = TextEdit(self)
+        self.textEdit.setMinimumSize(360, 380)
+        self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        buttonWidget = QWidget(self)
+        buttonLayout = QHBoxLayout(buttonWidget)
+        buttonLayout.setContentsMargins(0, 0, 0, 0)
+        buttonLayout.setSpacing(8)
+        self.saveButton = PushButton(self.tr("保存当前提示词"), self)
+        self.restoreButton = PushButton(self.tr("恢复默认"), self)
+        self.defaultButton = PushButton(self.tr("查看默认"), self)
+        buttonLayout.addWidget(self.saveButton)
+        buttonLayout.addWidget(self.restoreButton)
+        buttonLayout.addWidget(self.defaultButton)
+        buttonLayout.addStretch(1)
+
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.promptCombo)
+        self.viewLayout.addWidget(self.descriptionLabel)
+        self.viewLayout.addWidget(self.variableLabel)
+        self.viewLayout.addWidget(self.textEdit)
+        self.viewLayout.addWidget(buttonWidget)
+        self.viewLayout.setSpacing(10)
+
+        self.yesButton.setText(self.tr("关闭"))
+        self.cancelButton.hide()
+
+        self.promptCombo.currentIndexChanged.connect(self.on_prompt_changed)
+        self.saveButton.clicked.connect(self.save_current_prompt)
+        self.restoreButton.clicked.connect(self.restore_current_prompt)
+        self.defaultButton.clicked.connect(self.show_default_prompt)
+
+    def _current_item(self) -> dict:
+        index = self.promptCombo.currentIndex()
+        if index < 0:
+            index = 0
+        return self.prompt_items[index]
+
+    def on_prompt_changed(self, _=None):
+        self.current_prompt_id = self._current_item()["id"]
+        self.load_prompt(self.current_prompt_id)
+
+    def load_prompt(self, prompt_id: str):
+        item = self._current_item()
+        self.descriptionLabel.setText(item["description"])
+        required_variables = sorted(get_required_prompt_variables(prompt_id))
+        if required_variables:
+            self.variableLabel.setText(
+                self.tr("必需变量：") + ", ".join("${" + v + "}" for v in required_variables)
+            )
+        else:
+            self.variableLabel.setText(self.tr("必需变量：无"))
+        self.textEdit.setPlainText(get_prompt_template(prompt_id))
+
+    def _config_item(self, prompt_id: str):
+        return getattr(cfg, get_prompt_config_attr(prompt_id))
+
+    def save_current_prompt(self):
+        prompt_id = self.current_prompt_id
+        prompt_text = self.textEdit.toPlainText()
+        missing_variables = validate_prompt_template(prompt_id, prompt_text)
+        if prompt_text.strip() and missing_variables:
+            InfoBar.error(
+                self.tr("保存失败"),
+                self.tr("缺少必需变量：")
+                + ", ".join("${" + v + "}" for v in missing_variables),
+                duration=5000,
+                parent=self,
+            )
+            return
+
+        cfg.set(self._config_item(prompt_id), prompt_text)
+        InfoBar.success(
+            self.tr("保存成功"),
+            self.tr("提示词已更新"),
+            duration=2500,
+            parent=self,
+        )
+
+    def restore_current_prompt(self):
+        prompt_id = self.current_prompt_id
+        cfg.set(self._config_item(prompt_id), "")
+        self.load_prompt(prompt_id)
+        InfoBar.success(
+            self.tr("已恢复默认"),
+            self.tr("当前提示词将使用内置默认值"),
+            duration=2500,
+            parent=self,
+        )
+
+    def show_default_prompt(self):
+        item = self._current_item()
+        dialog = DefaultPromptDialog(
+            self.tr(item["title"] + " - 默认内容"),
+            get_default_prompt_template(self.current_prompt_id),
+            self,
+        )
+        dialog.exec_()
 
 
 class SettingInterface(ScrollArea):
@@ -80,6 +241,8 @@ class SettingInterface(ScrollArea):
         )
         # 翻译与优化组
         self.translateGroup = SettingCardGroup(self.tr("翻译与优化"), self.scrollWidget)
+        # 提示词中心组
+        self.promptCenterGroup = SettingCardGroup(self.tr("提示词中心"), self.scrollWidget)
         # 字幕输出配置组
         self.subtitleGroup = SettingCardGroup(
             self.tr("字幕输出配置"), self.scrollWidget
@@ -141,6 +304,13 @@ class SettingInterface(ScrollArea):
             self.tr("选择翻译字幕的目标语言"),
             texts=[lang.value for lang in cfg.target_language.validator.options],
             parent=self.translateGroup,
+        )
+        self.promptCenterCard = PushSettingCard(
+            self.tr("打开"),
+            FIF.DOCUMENT,
+            self.tr("提示词中心"),
+            self.tr("统一编辑断句、校正、翻译、反思翻译和转录提示词"),
+            self.promptCenterGroup,
         )
 
         # 字幕合成配置卡片
@@ -295,6 +465,7 @@ class SettingInterface(ScrollArea):
         self.translateGroup.addSettingCard(self.subtitleCorrectCard)
         self.translateGroup.addSettingCard(self.subtitleTranslateCard)
         self.translateGroup.addSettingCard(self.targetLanguageCard)
+        self.promptCenterGroup.addSettingCard(self.promptCenterCard)
 
         self.subtitleGroup.addSettingCard(self.subtitleStyleCard)
         self.subtitleGroup.addSettingCard(self.subtitleLayoutCard)
@@ -556,6 +727,18 @@ class SettingInterface(ScrollArea):
             parent=self.translate_serviceGroup,
         )
 
+        self.translationMaxLengthCard = SpinBoxSettingCard(
+            cfg.translation_max_length,
+            FIF.SPEED_HIGH,
+            self.tr("译文长度上限"),
+            self.tr(
+                "0 表示不限制；中文/日文等按字数，英文等按词数，引导 AI 输出更适合字幕阅读的短译文"
+            ),
+            minimum=0,
+            maximum=80,
+            parent=self.translate_serviceGroup,
+        )
+
         # 线程数配置
         self.threadNumCard = RangeSettingCard(
             cfg.thread_num,
@@ -572,6 +755,7 @@ class SettingInterface(ScrollArea):
         self.translate_serviceGroup.addSettingCard(self.needReflectTranslateCard)
         self.translate_serviceGroup.addSettingCard(self.deeplxEndpointCard)
         self.translate_serviceGroup.addSettingCard(self.batchSizeCard)
+        self.translate_serviceGroup.addSettingCard(self.translationMaxLengthCard)
         self.translate_serviceGroup.addSettingCard(self.threadNumCard)
 
         # 初始化显示状态
@@ -627,6 +811,7 @@ class SettingInterface(ScrollArea):
         self.expandLayout.addWidget(self.llmGroup)
         self.expandLayout.addWidget(self.translate_serviceGroup)
         self.expandLayout.addWidget(self.translateGroup)
+        self.expandLayout.addWidget(self.promptCenterGroup)
         self.expandLayout.addWidget(self.subtitleGroup)
         self.expandLayout.addWidget(self.saveGroup)
         self.expandLayout.addWidget(self.downloadGroup)
@@ -651,6 +836,7 @@ class SettingInterface(ScrollArea):
 
         # 检查 LLM 连接
         self.checkLLMConnectionCard.clicked.connect(self.checkLLMConnection)
+        self.promptCenterCard.clicked.connect(self.__showPromptCenterDialog)
 
         # 保存路径
         self.savePathCard.clicked.connect(self.__onsavePathCardClicked)
@@ -707,6 +893,10 @@ class SettingInterface(ScrollArea):
     def __onThemeCardChanged(self, config_item):
         setTheme(cfg.get(config_item))
         self.__applyPageStyles()
+
+    def __showPromptCenterDialog(self):
+        dialog = PromptCenterDialog(self)
+        dialog.exec_()
 
     def __applyPageStyles(self):
         label_color = "#F5F5F5" if isDarkTheme() else "#202020"
@@ -964,6 +1154,7 @@ class SettingInterface(ScrollArea):
         openai_cards = [
             self.needReflectTranslateCard,
             self.batchSizeCard,
+            self.translationMaxLengthCard,
         ]
         deeplx_cards = [self.deeplxEndpointCard]
 

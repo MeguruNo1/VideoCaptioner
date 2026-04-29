@@ -48,7 +48,9 @@ from app.core.entities import (
 )
 from app.core.task_factory import TaskFactory
 from app.core.utils.get_subtitle_style import get_subtitle_style
+from app.core.utils.windows_notification import send_windows_notification
 from app.thread.subtitle_thread import SubtitleThread
+from app.view.setting_interface import PromptCenterDialog
 
 
 class SubtitleTableModel(QAbstractTableModel):
@@ -303,11 +305,25 @@ class SubtitleInterface(QWidget):
 
         self.command_bar.addSeparator()
 
-        # 添加文稿提示按钮
-        self.prompt_button = Action(
-            FIF.DOCUMENT, self.tr("文稿提示"), triggered=self.show_prompt_dialog
+        # 添加文稿提示菜单
+        self.prompt_button = TransparentDropDownPushButton(
+            self.tr("文稿提示"), self, FIF.DOCUMENT
         )
-        self.command_bar.addAction(self.prompt_button)
+        self.prompt_button.setFixedHeight(34)
+        self.prompt_button.setMinimumWidth(125)
+        self.prompt_menu = RoundMenu(parent=self)
+        self.prompt_menu.addAction(
+            Action(FIF.DOCUMENT, self.tr("文稿提示"), triggered=self.show_prompt_dialog)
+        )
+        self.prompt_menu.addAction(
+            Action(
+                FIF.SETTING,
+                self.tr("提示词中心"),
+                triggered=self.show_prompt_center_dialog,
+            )
+        )
+        self.prompt_button.setMenu(self.prompt_menu)
+        self.command_bar.addWidget(self.prompt_button)
         self.full_script_button = Action(
             FIF.DOCUMENT, self.tr("查看全文"), triggered=self.show_full_script_dialog
         )
@@ -419,6 +435,12 @@ class SubtitleInterface(QWidget):
         if dialog.exec_():
             self.custom_prompt_text = cfg.custom_prompt_text.value
             self._update_prompt_button_style()
+
+    def show_prompt_center_dialog(self):
+        dialog = PromptCenterDialog(self)
+        dialog.exec_()
+        self.custom_prompt_text = cfg.custom_prompt_text.value
+        self._update_prompt_button_style()
 
     def _update_prompt_button_style(self):
         if self.custom_prompt_text.strip():
@@ -629,6 +651,10 @@ class SubtitleInterface(QWidget):
             duration=3000,
             position=InfoBarPosition.BOTTOM,
             parent=self.parent(),
+        )
+        send_windows_notification(
+            self.tr("字幕处理完成"),
+            self.tr("字幕文件已生成：") + Path(output_path).name,
         )
 
     def on_subtitle_optimization_error(self, error):

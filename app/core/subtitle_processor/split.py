@@ -14,8 +14,9 @@ from app.config import CACHE_PATH
 from app.core.bk_asr.asr_data import ASRData, ASRDataSeg, merge_speakers
 from app.core.storage.cache_manager import CacheManager
 from app.core.subtitle_processor.prompt import (
-    SPLIT_PROMPT_SEMANTIC,
-    SPLIT_PROMPT_SENTENCE,
+    PROMPT_SPLIT_SEMANTIC,
+    PROMPT_SPLIT_SENTENCE,
+    get_prompt_template,
 )
 from app.core.utils.logger import setup_logger
 from app.core.utils.openai_compat import (
@@ -442,9 +443,9 @@ class SubtitleSplitter:
 
         # 构建提示词
         if self.split_type == "semantic":
-            template = Template(SPLIT_PROMPT_SEMANTIC)
+            template = Template(get_prompt_template(PROMPT_SPLIT_SEMANTIC))
         elif self.split_type == "sentence":
-            template = Template(SPLIT_PROMPT_SENTENCE)
+            template = Template(get_prompt_template(PROMPT_SPLIT_SENTENCE))
         else:
             raise ValueError(f"无效的分段类型: {self.split_type}")
 

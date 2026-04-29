@@ -147,6 +147,9 @@ class Config(QConfig):
     deeplx_endpoint = ConfigItem("Translate", "DeeplxEndpoint", "")
     batch_size = RangeConfigItem("Translate", "BatchSize", 10, RangeValidator(5, 30))
     thread_num = RangeConfigItem("Translate", "ThreadNum", 10, RangeValidator(1, 100))
+    translation_max_length = RangeConfigItem(
+        "Translate", "TranslationMaxLength", 14, RangeValidator(0, 80)
+    )
 
     # ------------------- 转录配置 -------------------
     transcribe_model = OptionsConfigItem(
@@ -283,6 +286,15 @@ class Config(QConfig):
         "Subtitle", "NeedsRemovePunctuation", True, BoolValidator()
     )
     custom_prompt_text = ConfigItem("Subtitle", "CustomPromptText", "")
+
+    # ------------------- 提示词中心 -------------------
+    prompt_split_semantic = ConfigItem("PromptCenter", "SplitSemantic", "")
+    prompt_split_sentence = ConfigItem("PromptCenter", "SplitSentence", "")
+    prompt_summarizer = ConfigItem("PromptCenter", "Summarizer", "")
+    prompt_optimizer = ConfigItem("PromptCenter", "Optimizer", "")
+    prompt_translate = ConfigItem("PromptCenter", "Translate", "")
+    prompt_reflect_translate = ConfigItem("PromptCenter", "ReflectTranslate", "")
+    prompt_single_translate = ConfigItem("PromptCenter", "SingleTranslate", "")
 
     # ------------------- 字幕样式配置 -------------------
     subtitle_style_name = ConfigItem("SubtitleStyle", "StyleName", "default")

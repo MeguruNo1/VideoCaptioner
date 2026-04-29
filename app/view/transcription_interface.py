@@ -47,6 +47,7 @@ from app.core.entities import (
     VideoInfo,
 )
 from app.core.task_factory import TaskFactory
+from app.core.utils.windows_notification import send_windows_notification
 from app.thread.transcript_thread_clean import TranscriptThread
 from app.thread.video_info_thread import VideoInfoThread
 
@@ -385,6 +386,10 @@ class TranscriptionInterface(QWidget):
     def _on_transcript_finished(self, task: TranscribeTask):
         """转录完成处理"""
         self.is_processing = False
+        send_windows_notification(
+            self.tr("转录完成"),
+            self.tr("字幕文件已生成：") + Path(task.output_path).name,
+        )
         if task.need_next_task:
             self.finished.emit(task.output_path, task.file_path)
 

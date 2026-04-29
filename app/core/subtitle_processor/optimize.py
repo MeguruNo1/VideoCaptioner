@@ -11,7 +11,7 @@ from openai import OpenAI
 from app.core.bk_asr.asr_data import ASRData, ASRDataSeg
 from app.core.utils import json_repair
 from app.core.subtitle_processor.alignment import SubtitleAligner
-from app.core.subtitle_processor.prompt import OPTIMIZER_PROMPT
+from app.core.subtitle_processor.prompt import PROMPT_OPTIMIZER, get_prompt_template
 from app.core.utils.logger import setup_logger
 from app.core.utils.openai_compat import (
     extract_openai_usage,
@@ -192,13 +192,15 @@ class SubtitleOptimizer:
                 f"\n<context>{context_before}</context>"
             )
 
+        optimizer_prompt = get_prompt_template(PROMPT_OPTIMIZER)
+
         # 检查缓存
         cache_params = {
             "temperature": self.temperature,
             "model": self.model,
         }
         # 构建缓存key
-        cache_key = f"{len(OPTIMIZER_PROMPT)}_{user_prompt}"
+        cache_key = f"{len(optimizer_prompt)}_{user_prompt}"
         cache_result = None
 
         if cache_result:
@@ -207,7 +209,7 @@ class SubtitleOptimizer:
 
         # 构建提示词
         messages = [
-            {"role": "system", "content": OPTIMIZER_PROMPT},
+            {"role": "system", "content": optimizer_prompt},
             {
                 "role": "user",
                 "content": user_prompt,

@@ -227,6 +227,7 @@ class SubtitleThread(QThread):
                     update_callback=self.callback,
                     usage_callback=self.usage_callback,
                     timeout=subtitle_config.llm_request_timeout,
+                    translation_max_length=subtitle_config.translation_max_length,
                 )
                 asr_data = translator.translate_subtitle(asr_data)
                 if (

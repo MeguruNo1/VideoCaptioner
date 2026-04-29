@@ -5,7 +5,7 @@ from openai import OpenAI
 from ..utils import json_repair
 from ..utils.logger import setup_logger
 from ..utils.openai_compat import get_openai_compat_request_options
-from .prompt import SUMMARIZER_PROMPT
+from .prompt import PROMPT_SUMMARIZER, get_prompt_template
 
 logger = setup_logger("subtitle_summarizer")
 
@@ -30,7 +30,10 @@ class SubtitleSummarizer:
                 model=self.model,
                 stream=False,
                 messages=[
-                    {"role": "system", "content": SUMMARIZER_PROMPT},
+                    {
+                        "role": "system",
+                        "content": get_prompt_template(PROMPT_SUMMARIZER),
+                    },
                     {
                         "role": "user",
                         "content": f"summarize the video content:\n{subtitle_content}",

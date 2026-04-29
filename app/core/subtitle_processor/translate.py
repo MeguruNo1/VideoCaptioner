@@ -21,9 +21,10 @@ from urllib.parse import quote
 from app.core.bk_asr.asr_data import ASRData, ASRDataSeg
 from app.core.utils import json_repair
 from app.core.subtitle_processor.prompt import (
-    TRANSLATE_PROMPT,
-    REFLECT_TRANSLATE_PROMPT,
-    SINGLE_TRANSLATE_PROMPT,
+    PROMPT_REFLECT_TRANSLATE,
+    PROMPT_SINGLE_TRANSLATE,
+    PROMPT_TRANSLATE,
+    get_prompt_template,
 )
 from app.core.utils.logger import setup_logger
 from app.core.utils.openai_compat import (
@@ -34,8 +35,6 @@ from app.core.utils.openai_compat import (
 
 
 logger = setup_logger("subtitle_translator")
-
-LONG_CONTEXT_TRANSLATE_ENV = "VIDEO_CAPTIONER_LONG_CONTEXT_TRANSLATE"
 
 
 class TranslatorType(Enum):
@@ -233,6 +232,7 @@ class OpenAITranslator(BaseTranslator):
         temperature: float = 0.7,
         timeout: int = 300,
         retry_times: int = 1,
+        translation_max_length: int = 14,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
     ):
@@ -251,29 +251,7 @@ class OpenAITranslator(BaseTranslator):
         self.custom_prompt = custom_prompt
         self.is_reflect = is_reflect
         self.temperature = temperature
-
-    def translate_subtitle(self, subtitle_data: Union[str, ASRData]) -> ASRData:
-        """翻译字幕文件，支持通过环境变量启用长上下文整稿翻译实验"""
-        if os.getenv(LONG_CONTEXT_TRANSLATE_ENV) != "1":
-            return super().translate_subtitle(subtitle_data)
-
-        try:
-            if isinstance(subtitle_data, str):
-                asr_data = ASRData.from_subtitle_file(subtitle_data)
-            else:
-                asr_data = subtitle_data
-
-            translated_dict = self._translate_subtitle_long_context(asr_data)
-            new_segments = self._create_segments(asr_data.segments, translated_dict)
-            if self.update_callback:
-                self.update_callback(translated_dict)
-            return ASRData(new_segments)
-        except Exception as e:
-            logger.warning(
-                "长上下文整稿翻译失败，将回退到批量翻译：%s",
-                format_openai_compat_error(e, model_name=getattr(self, "model", None)),
-            )
-            return super().translate_subtitle(subtitle_data)
+        self.translation_max_length = max(0, int(translation_max_length or 0))
 
     def _init_client(self):
         """初始化OpenAI客户端"""
@@ -286,58 +264,25 @@ class OpenAITranslator(BaseTranslator):
 
     def _get_translate_prompt(self) -> str:
         """获取翻译提示词"""
-        prompt = REFLECT_TRANSLATE_PROMPT if self.is_reflect else TRANSLATE_PROMPT
+        prompt = get_prompt_template(
+            PROMPT_REFLECT_TRANSLATE if self.is_reflect else PROMPT_TRANSLATE
+        )
         return Template(prompt).safe_substitute(
-            target_language=self.target_language, custom_prompt=self.custom_prompt
+            target_language=self.target_language,
+            custom_prompt=self.custom_prompt,
+            translation_length_instruction=self._get_length_instruction(),
         )
 
-    def _translate_subtitle_long_context(self, asr_data: ASRData) -> Dict[str, str]:
-        """一次性提交完整字幕 JSON 给 LLM 翻译"""
-        subtitle_dict = {
-            str(i): seg.text for i, seg in enumerate(asr_data.segments, 1)
-        }
-        if not subtitle_dict:
-            return {}
-
-        logger.info(
-            "[+]长上下文整稿翻译字幕：1 - %s，共 %s 条",
-            len(subtitle_dict),
-            len(subtitle_dict),
+    def _get_length_instruction(self) -> str:
+        if self.translation_max_length <= 0:
+            return ""
+        return (
+            "\n# 字幕阅读速度要求:\n"
+            "- 在不丢失核心意思的前提下尽量简短，适合人类观看字幕的阅读速度。\n"
+            f"- 如果目标语言属于中文、日文、韩文等 CJK 语言，每条译文不超过 {self.translation_max_length} 个字。\n"
+            f"- 如果目标语言属于英语等非 CJK 语言，每条译文不超过 {self.translation_max_length} 个词。\n"
+            "- 不要为了压缩长度删除专有名词、数字或关键信息。\n"
         )
-
-        user_content = (
-            "Translate the complete subtitle JSON below. "
-            "Return a pure JSON object with exactly the same keys, no missing keys, "
-            "no extra keys, and no explanations.\n\n"
-            f"{json.dumps(subtitle_dict, ensure_ascii=False)}"
-        )
-
-        response = self._call_api(self._get_translate_prompt(), user_content)
-        if self.usage_callback:
-            self.usage_callback("translate", extract_openai_usage(response))
-
-        content = response.choices[0].message.content
-        result = json_repair.loads(content)
-        if not isinstance(result, dict):
-            raise ValueError("长上下文翻译结果不是 JSON 对象")
-
-        normalized_result = {str(k): v for k, v in result.items()}
-        expected_keys = set(subtitle_dict.keys())
-        actual_keys = set(normalized_result.keys())
-        missing_keys = sorted(expected_keys - actual_keys, key=int)
-        extra_keys = sorted(actual_keys - expected_keys)
-        if missing_keys or extra_keys or len(normalized_result) != len(subtitle_dict):
-            raise ValueError(
-                "长上下文翻译结果编号不匹配："
-                f"缺失 {missing_keys[:10]}，额外 {extra_keys[:10]}"
-            )
-
-        if self.is_reflect:
-            return {
-                k: f"{normalized_result[k]['revised_translation']}"
-                for k in sorted(expected_keys, key=int)
-            }
-        return {k: f"{normalized_result[k]}" for k in sorted(expected_keys, key=int)}
 
     def _translate_chunk(
         self, subtitle_chunk: Dict[str, str], context_before: str = ""
@@ -410,8 +355,11 @@ class OpenAITranslator(BaseTranslator):
     ) -> Dict[str, str]:
         """单条翻译模式"""
         result = {}
-        single_prompt = Template(SINGLE_TRANSLATE_PROMPT).safe_substitute(
-            target_language=self.target_language
+        single_prompt = Template(
+            get_prompt_template(PROMPT_SINGLE_TRANSLATE)
+        ).safe_substitute(
+            target_language=self.target_language,
+            translation_length_instruction=self._get_length_instruction(),
         )
         prompt_hash = hashlib.md5(single_prompt.encode()).hexdigest()
         for idx, text in subtitle_chunk.items():
@@ -826,6 +774,7 @@ class TranslatorFactory:
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
         timeout: int = 300,
+        translation_max_length: int = 14,
     ) -> BaseTranslator:
         """创建翻译器实例"""
         try:
@@ -841,6 +790,7 @@ class TranslatorFactory:
                     update_callback=update_callback,
                     usage_callback=usage_callback,
                     timeout=timeout,
+                    translation_max_length=translation_max_length,
                 )
             elif translator_type == TranslatorType.GOOGLE:
                 batch_num = 5

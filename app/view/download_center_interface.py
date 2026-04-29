@@ -46,6 +46,7 @@ from qfluentwidgets import (
 from app.common.config import cfg
 from app.config import APPDATA_PATH
 from app.core.utils.edge_cookie_utils import export_edge_cookies
+from app.core.utils.windows_notification import send_windows_notification
 from app.thread.video_download_thread import VideoDownloadThread, VideoPreviewThread
 
 
@@ -1689,6 +1690,10 @@ class DownloadCenterInterface(QWidget):
         self._adjust_responsive_layout()
         self._set_result_actions_enabled(True, has_video=bool(result.get("video_path")))
         InfoBar.success(self.tr("下载完成"), self.tr("资源已下载完成。"), duration=2500, parent=self)
+        send_windows_notification(
+            self.tr("下载完成"),
+            self.tr("资源已下载完成。"),
+        )
 
     def on_download_cancelled(self, message: str):
         self.last_result = {}
