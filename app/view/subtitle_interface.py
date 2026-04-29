@@ -215,14 +215,13 @@ class SubtitleInterface(QWidget):
 
     def set_values(self):
         self.layout_button.setText(cfg.subtitle_layout.value)
-        self.translate_button.setChecked(cfg.need_translate.value)
         self.optimize_button.setChecked(cfg.need_optimize.value)
-        self.target_language_button.setText(cfg.target_language.value.value)
-        self.target_language_button.setEnabled(cfg.need_translate.value)
+        self._update_translation_button_state()
 
     def _setup_top_layout(self):
         # 创建水平布局
         top_layout = QHBoxLayout()
+        top_layout.setSpacing(8)
 
         # 创建命令栏
         self.command_bar = CommandBar(self)
@@ -247,7 +246,7 @@ class SubtitleInterface(QWidget):
         save_button.setFixedHeight(34)
         save_button.setFixedWidth(46)
         save_button.setToolTip(self.tr("保存"))
-        self.command_bar.addWidget(save_button)
+        top_layout.addWidget(save_button)
 
         # 添加字幕排布下拉按钮
         self.layout_button = TransparentDropDownPushButton(
@@ -276,32 +275,32 @@ class SubtitleInterface(QWidget):
         )
         self.command_bar.addAction(self.optimize_button)
 
-        # 添加字幕翻译按钮
-        self.translate_button = Action(
+        # 添加字幕翻译与目标语种菜单
+        self.translation_button = TransparentDropDownPushButton(
+            self.tr("字幕翻译"), self, FIF.LANGUAGE
+        )
+        self.translation_button.setFixedHeight(34)
+        self.translation_button.setMinimumWidth(160)
+        self.translation_menu = RoundMenu(parent=self)
+        self.translation_menu.setMaxVisibleItems(12)
+        self.translation_enabled_action = Action(
             FIF.LANGUAGE,
-            self.tr("字幕翻译"),
+            self.tr("启用字幕翻译"),
             triggered=self.on_subtitle_translation_changed,
             checkable=True,
         )
-        self.command_bar.addAction(self.translate_button)
-
-        # 添加翻译语言选择
-        self.target_language_button = TransparentDropDownPushButton(
-            self.tr("翻译语言"), self, FIF.LANGUAGE
-        )
-        self.target_language_button.setFixedHeight(34)
-        self.target_language_button.setMinimumWidth(125)
-        self.target_language_menu = RoundMenu(parent=self)
-        self.target_language_menu.setMaxVisibleItems(10)
+        self.translation_menu.addAction(self.translation_enabled_action)
+        self.translation_menu.addSeparator()
+        self.target_language_actions = []
         for lang in TargetLanguageEnum:
-            action = Action(text=lang.value)
+            action = Action(FIF.LANGUAGE, lang.value, checkable=True)
             action.triggered.connect(
-                lambda checked, l=lang.value: signalBus.target_language_changed.emit(l)
+                lambda checked, l=lang.value: self.select_translation_language(l)
             )
-            self.target_language_menu.addAction(action)
-        self.target_language_button.setMenu(self.target_language_menu)
-
-        self.command_bar.addWidget(self.target_language_button)
+            self.target_language_actions.append(action)
+            self.translation_menu.addAction(action)
+        self.translation_button.setMenu(self.translation_menu)
+        self.command_bar.addWidget(self.translation_button)
 
         self.command_bar.addSeparator()
 
@@ -1045,8 +1044,17 @@ class SubtitleInterface(QWidget):
         """处理翻译语言变更"""
         for lang in TargetLanguageEnum:
             if lang.value == language:
-                self.target_language_button.setText(lang.value)
                 cfg.set(cfg.target_language, lang)
+                self._update_translation_button_state()
+                break
+
+    def select_translation_language(self, language: str):
+        """从字幕翻译菜单选择目标语言，并启用字幕翻译。"""
+        for lang in TargetLanguageEnum:
+            if lang.value == language:
+                cfg.set(cfg.target_language, lang)
+                cfg.set(cfg.need_translate, True)
+                self._update_translation_button_state()
                 break
 
     def on_subtitle_optimization_changed(self, checked: bool):
@@ -1057,9 +1065,24 @@ class SubtitleInterface(QWidget):
     def on_subtitle_translation_changed(self, checked: bool):
         """处理字幕翻译开关变更"""
         cfg.set(cfg.need_translate, checked)
-        self.translate_button.setChecked(checked)
-        # 控制翻译语言选择按钮的启用状态
-        self.target_language_button.setEnabled(checked)
+        self._update_translation_button_state()
+
+    def _update_translation_button_state(self):
+        """同步字幕翻译菜单与按钮标题"""
+        enabled = cfg.need_translate.value
+        target_language = cfg.target_language.value.value
+        self.translation_enabled_action.setChecked(enabled)
+        for action in self.target_language_actions:
+            action.setChecked(action.text() == target_language)
+        if enabled:
+            enabled_icon = FIF.LANGUAGE.colored(
+                QColor(76, 255, 165), QColor(76, 255, 165)
+            )
+            self.translation_button.setIcon(enabled_icon)
+            self.translation_button.setText(self.tr("字幕翻译"))
+        else:
+            self.translation_button.setIcon(FIF.LANGUAGE)
+            self.translation_button.setText(self.tr("字幕翻译：关闭"))
 
     def on_subtitle_layout_changed(self, layout: str):
         """处理字幕排布变更"""
