@@ -18,7 +18,9 @@ import re
 import html
 from urllib.parse import quote
 
+from app.config import CACHE_PATH
 from app.core.bk_asr.asr_data import ASRData, ASRDataSeg
+from app.core.storage.cache_manager import CacheManager
 from app.core.utils import json_repair
 from app.core.subtitle_processor.prompt import (
     PROMPT_REFLECT_TRANSLATE,
@@ -56,6 +58,9 @@ class BaseTranslator(ABC):
         target_language: str = "Chinese",
         retry_times: int = 1,
         timeout: int = 300,
+        use_cache: bool = True,
+        batch_context_enabled: bool = True,
+        batch_context_max_chars: int = 300,
         update_callback: Optional[Callable] = None,
         custom_prompt: Optional[str] = None,
         usage_callback: Optional[Callable] = None,
@@ -65,15 +70,20 @@ class BaseTranslator(ABC):
         self.target_language = target_language
         self.retry_times = retry_times
         self.timeout = timeout
+        self.use_cache = use_cache
+        self.batch_context_enabled = batch_context_enabled
+        self.batch_context_max_chars = max(0, int(batch_context_max_chars or 0))
         self.is_running = True
         self.update_callback = update_callback
         self.custom_prompt = custom_prompt
         self.usage_callback = usage_callback
-        self._init_thread_pool()
+        self.cache_manager = CacheManager(str(CACHE_PATH))
+        self.executor = None
 
-    def _init_thread_pool(self):
+    def _init_thread_pool(self, task_count: int):
         """初始化线程池"""
-        self.executor = ThreadPoolExecutor(max_workers=self.thread_num)
+        max_workers = max(1, min(int(self.thread_num or 1), max(1, task_count)))
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
         import atexit
 
         atexit.register(self.stop)
@@ -122,7 +132,7 @@ class BaseTranslator(ABC):
         max_chars: int = 600,
     ) -> str:
         """构建当前批次前文参考，降低后续批次语义漂移"""
-        if index <= 0:
+        if index <= 0 or max_chars <= 0:
             return ""
 
         previous_lines = list(chunks[index - 1].values())[-max_lines:]
@@ -133,13 +143,22 @@ class BaseTranslator(ABC):
 
     def _parallel_translate(self, chunks: List[Dict[str, str]]) -> Dict[str, str]:
         """并行翻译所有块"""
+        if not chunks:
+            return {}
+        self._init_thread_pool(len(chunks))
         futures = {}
         translated_dict = {}
         pending_results = {}
         next_chunk_index = 0
 
         for index, chunk in enumerate(chunks):
-            context_before = self._build_chunk_context(chunks, index)
+            context_before = (
+                self._build_chunk_context(
+                    chunks, index, max_chars=self.batch_context_max_chars
+                )
+                if self.batch_context_enabled
+                else ""
+            )
             future = self.executor.submit(
                 self._safe_translate_chunk, chunk, context_before
             )
@@ -233,6 +252,9 @@ class OpenAITranslator(BaseTranslator):
         timeout: int = 300,
         retry_times: int = 1,
         translation_max_length: int = 14,
+        use_cache: bool = True,
+        batch_context_enabled: bool = True,
+        batch_context_max_chars: int = 300,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
     ):
@@ -242,6 +264,9 @@ class OpenAITranslator(BaseTranslator):
             target_language=target_language,
             retry_times=retry_times,
             timeout=timeout,
+            use_cache=use_cache,
+            batch_context_enabled=batch_context_enabled,
+            batch_context_max_chars=batch_context_max_chars,
             update_callback=update_callback,
             usage_callback=usage_callback,
         )
@@ -304,9 +329,20 @@ class OpenAITranslator(BaseTranslator):
                 "temperature": self.temperature,
                 "prompt_hash": prompt_hash,
                 "context_before": context_before,
+                "batch_context_enabled": self.batch_context_enabled,
+                "batch_context_max_chars": self.batch_context_max_chars,
+                "translation_max_length": self.translation_max_length,
             }
-            cache_key = f"{json.dumps(subtitle_chunk, ensure_ascii=False)}"
-            cache_result = None
+            cache_key = json.dumps(subtitle_chunk, ensure_ascii=False)
+            cache_result = (
+                self.cache_manager.get_llm_result(
+                    prompt=cache_key,
+                    model_name=self.model,
+                    **cache_params,
+                )
+                if self.use_cache
+                else None
+            )
 
             result = {}
             if cache_result:
@@ -326,13 +362,21 @@ class OpenAITranslator(BaseTranslator):
                 if self.usage_callback:
                     self.usage_callback("translate", extract_openai_usage(response))
                 # 解析结果
-                result = json_repair.loads(response.choices[0].message.content)
-                # 检查翻译结果数量是否匹配
-                if len(result) != len(subtitle_chunk):
+                result = self._normalize_batch_result(
+                    json_repair.loads(response.choices[0].message.content),
+                    subtitle_chunk,
+                )
+                if result is None:
                     logger.warning(f"翻译结果数量不匹配，将使用单条翻译模式重试")
                     return self._translate_chunk_single(subtitle_chunk, context_before)
                 # 保存到缓存
-                pass
+                if self.use_cache:
+                    self.cache_manager.set_llm_result(
+                        prompt=cache_key,
+                        result=json.dumps(result, ensure_ascii=False),
+                        model_name=self.model,
+                        **cache_params,
+                    )
 
             if self.is_reflect:
                 result = {k: f"{v['revised_translation']}" for k, v in result.items()}
@@ -349,6 +393,22 @@ class OpenAITranslator(BaseTranslator):
                 )
                 logger.error(f"翻译失败：{formatted_error}")
                 raise RuntimeError(f"OpenAI API调用失败：{formatted_error}")
+
+    @staticmethod
+    def _normalize_batch_result(
+        result: Any, subtitle_chunk: Dict[str, str]
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(result, dict) or len(result) != len(subtitle_chunk):
+            return None
+
+        expected_keys = list(subtitle_chunk.keys())
+        if all(key in result for key in expected_keys):
+            return {key: result[key] for key in expected_keys}
+
+        return {
+            key: value
+            for key, value in zip(expected_keys, result.values())
+        }
 
     def _translate_chunk_single(
         self, subtitle_chunk: Dict[str, str], context_before: str = ""
@@ -371,8 +431,20 @@ class OpenAITranslator(BaseTranslator):
                     "temperature": self.temperature,
                     "prompt_hash": prompt_hash,
                     "context_before": context_before,
+                    "batch_context_enabled": self.batch_context_enabled,
+                    "batch_context_max_chars": self.batch_context_max_chars,
+                    "translation_max_length": self.translation_max_length,
+                    "model": self.model,
                 }
-                cache_result = None
+                cache_result = (
+                    self.cache_manager.get_translation(
+                        text,
+                        "llm",
+                        **cache_params,
+                    )
+                    if self.use_cache
+                    else None
+                )
 
                 if cache_result:
                     result[idx] = cache_result
@@ -399,7 +471,13 @@ class OpenAITranslator(BaseTranslator):
                 translated_text = translated_text.strip()
 
                 # 保存到缓存
-                pass
+                if self.use_cache:
+                    self.cache_manager.set_translation(
+                        text,
+                        translated_text,
+                        "llm",
+                        **cache_params,
+                    )
 
                 result[idx] = translated_text
             except Exception as e:
@@ -447,6 +525,9 @@ class GoogleTranslator(BaseTranslator):
         target_language: str = "Chinese",
         retry_times: int = 1,
         timeout: int = 20,
+        use_cache: bool = True,
+        batch_context_enabled: bool = True,
+        batch_context_max_chars: int = 300,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
     ):
@@ -456,6 +537,9 @@ class GoogleTranslator(BaseTranslator):
             target_language=target_language,
             retry_times=retry_times,
             timeout=timeout,
+            use_cache=use_cache,
+            batch_context_enabled=batch_context_enabled,
+            batch_context_max_chars=batch_context_max_chars,
             update_callback=update_callback,
             usage_callback=usage_callback,
         )
@@ -493,7 +577,15 @@ class GoogleTranslator(BaseTranslator):
             try:
                 # 检查缓存
                 cache_params = {"target_language": target_lang}
-                cache_result = None
+                cache_result = (
+                    self.cache_manager.get_translation(
+                        text,
+                        "google",
+                        **cache_params,
+                    )
+                    if self.use_cache
+                    else None
+                )
 
                 if cache_result:
                     result[idx] = cache_result
@@ -519,7 +611,13 @@ class GoogleTranslator(BaseTranslator):
                 if re_result:
                     translated_text = html.unescape(re_result[0])
                     # 保存到缓存
-                    pass
+                    if self.use_cache:
+                        self.cache_manager.set_translation(
+                            text,
+                            translated_text,
+                            "google",
+                            **cache_params,
+                        )
                     result[idx] = translated_text
                 else:
                     result[idx] = "ERROR"
@@ -540,6 +638,9 @@ class BingTranslator(BaseTranslator):
         target_language: str = "Chinese",
         retry_times: int = 1,
         timeout: int = 20,
+        use_cache: bool = True,
+        batch_context_enabled: bool = True,
+        batch_context_max_chars: int = 300,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
     ):
@@ -549,6 +650,9 @@ class BingTranslator(BaseTranslator):
             target_language=target_language,
             retry_times=retry_times,
             timeout=timeout,
+            use_cache=use_cache,
+            batch_context_enabled=batch_context_enabled,
+            batch_context_max_chars=batch_context_max_chars,
             update_callback=update_callback,
             usage_callback=usage_callback,
         )
@@ -612,13 +716,22 @@ class BingTranslator(BaseTranslator):
         for idx, text in subtitle_chunk.items():
             # 检查缓存
             cache_params = {"target_language": target_lang}
-            cache_result = None
+            original_text = text[:5000]
+            cache_result = (
+                self.cache_manager.get_translation(
+                    original_text,
+                    "bing",
+                    **cache_params,
+                )
+                if self.use_cache
+                else None
+            )
 
             if cache_result:
                 result[idx] = cache_result
                 logger.debug(f"使用缓存的Bing翻译结果：{idx}")
             else:
-                texts_to_translate.append({"Text": text[:5000]})  # 限制文本长度
+                texts_to_translate.append({"Text": original_text})  # 限制文本长度
                 idx_map.append(idx)
 
         if texts_to_translate:
@@ -646,7 +759,13 @@ class BingTranslator(BaseTranslator):
 
                     # 保存到缓存
                     original_text = texts_to_translate[i]["Text"]
-                    pass
+                    if self.use_cache:
+                        self.cache_manager.set_translation(
+                            original_text,
+                            translated_text,
+                            "bing",
+                            **cache_params,
+                        )
 
                     result[idx] = translated_text
 
@@ -676,6 +795,9 @@ class DeepLXTranslator(BaseTranslator):
         target_language: str = "Chinese",
         retry_times: int = 1,
         timeout: int = 20,
+        use_cache: bool = True,
+        batch_context_enabled: bool = True,
+        batch_context_max_chars: int = 300,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
     ):
@@ -685,6 +807,9 @@ class DeepLXTranslator(BaseTranslator):
             target_language=target_language,
             retry_times=retry_times,
             timeout=timeout,
+            use_cache=use_cache,
+            batch_context_enabled=batch_context_enabled,
+            batch_context_max_chars=batch_context_max_chars,
             update_callback=update_callback,
             usage_callback=usage_callback,
         )
@@ -729,7 +854,15 @@ class DeepLXTranslator(BaseTranslator):
                     "target_language": target_lang,
                     "endpoint": self.endpoint,
                 }
-                cache_result = None
+                cache_result = (
+                    self.cache_manager.get_translation(
+                        text,
+                        "deeplx",
+                        **cache_params,
+                    )
+                    if self.use_cache
+                    else None
+                )
 
                 if cache_result:
                     result[idx] = cache_result
@@ -749,7 +882,13 @@ class DeepLXTranslator(BaseTranslator):
                 translated_text = response.json()["data"]
 
                 # 保存到缓存
-                pass
+                if self.use_cache:
+                    self.cache_manager.set_translation(
+                        text,
+                        translated_text,
+                        "deeplx",
+                        **cache_params,
+                    )
 
                 result[idx] = translated_text
             except Exception as e:
@@ -775,6 +914,9 @@ class TranslatorFactory:
         usage_callback: Optional[Callable] = None,
         timeout: int = 300,
         translation_max_length: int = 14,
+        use_cache: bool = True,
+        batch_context_enabled: bool = True,
+        batch_context_max_chars: int = 300,
     ) -> BaseTranslator:
         """创建翻译器实例"""
         try:
@@ -791,6 +933,9 @@ class TranslatorFactory:
                     usage_callback=usage_callback,
                     timeout=timeout,
                     translation_max_length=translation_max_length,
+                    use_cache=use_cache,
+                    batch_context_enabled=batch_context_enabled,
+                    batch_context_max_chars=batch_context_max_chars,
                 )
             elif translator_type == TranslatorType.GOOGLE:
                 batch_num = 5
@@ -800,6 +945,9 @@ class TranslatorFactory:
                     target_language=target_language,
                     update_callback=update_callback,
                     usage_callback=usage_callback,
+                    use_cache=use_cache,
+                    batch_context_enabled=batch_context_enabled,
+                    batch_context_max_chars=batch_context_max_chars,
                 )
             elif translator_type == TranslatorType.BING:
                 batch_num = 10
@@ -809,6 +957,9 @@ class TranslatorFactory:
                     target_language=target_language,
                     update_callback=update_callback,
                     usage_callback=usage_callback,
+                    use_cache=use_cache,
+                    batch_context_enabled=batch_context_enabled,
+                    batch_context_max_chars=batch_context_max_chars,
                 )
             elif translator_type == TranslatorType.DEEPLX:
                 batch_num = 5
@@ -818,6 +969,9 @@ class TranslatorFactory:
                     target_language=target_language,
                     update_callback=update_callback,
                     usage_callback=usage_callback,
+                    use_cache=use_cache,
+                    batch_context_enabled=batch_context_enabled,
+                    batch_context_max_chars=batch_context_max_chars,
                 )
             else:
                 raise ValueError(f"不支持的翻译器类型：{translator_type}")

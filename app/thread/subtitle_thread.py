@@ -177,7 +177,7 @@ class SubtitleThread(QThread):
                     split_type=subtitle_config.split_type,
                     max_word_count_cjk=subtitle_config.max_word_count_cjk,
                     max_word_count_english=subtitle_config.max_word_count_english,
-                    use_cache=False,
+                    use_cache=subtitle_config.llm_cache_enabled,
                     usage_callback=self.usage_callback,
                 )
                 asr_data = splitter.split_subtitle(asr_data)
@@ -200,7 +200,11 @@ class SubtitleThread(QThread):
                     update_callback=self.callback,
                     usage_callback=self.usage_callback,
                     timeout=subtitle_config.llm_request_timeout,
+                    use_cache=subtitle_config.llm_cache_enabled,
+                    batch_context_enabled=subtitle_config.llm_batch_context_enabled,
+                    batch_context_max_chars=subtitle_config.llm_batch_context_max_chars,
                 )
+                self.optimizer = optimizer
                 asr_data = optimizer.optimize_subtitle(asr_data)
                 self.update_all.emit(asr_data.to_json())
 
@@ -228,7 +232,11 @@ class SubtitleThread(QThread):
                     usage_callback=self.usage_callback,
                     timeout=subtitle_config.llm_request_timeout,
                     translation_max_length=subtitle_config.translation_max_length,
+                    use_cache=subtitle_config.llm_cache_enabled,
+                    batch_context_enabled=subtitle_config.llm_batch_context_enabled,
+                    batch_context_max_chars=subtitle_config.llm_batch_context_max_chars,
                 )
+                self.translator = translator
                 asr_data = translator.translate_subtitle(asr_data)
                 if (
                     subtitle_config.need_remove_translated_chinese_commas

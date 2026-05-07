@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -8,7 +9,9 @@ from typing import Callable, Dict, List, Optional, Union
 import retry
 from openai import OpenAI
 
+from app.config import CACHE_PATH
 from app.core.bk_asr.asr_data import ASRData, ASRDataSeg
+from app.core.storage.cache_manager import CacheManager
 from app.core.utils import json_repair
 from app.core.subtitle_processor.alignment import SubtitleAligner
 from app.core.subtitle_processor.prompt import PROMPT_OPTIMIZER, get_prompt_template
@@ -34,6 +37,9 @@ class SubtitleOptimizer:
         temperature: float = 0.7,
         timeout: int = 300,
         retry_times: int = 1,
+        use_cache: bool = True,
+        batch_context_enabled: bool = True,
+        batch_context_max_chars: int = 300,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
     ):
@@ -45,10 +51,14 @@ class SubtitleOptimizer:
         self.temperature = temperature
         self.timeout = timeout
         self.retry_times = retry_times
+        self.use_cache = use_cache
+        self.batch_context_enabled = batch_context_enabled
+        self.batch_context_max_chars = max(0, int(batch_context_max_chars or 0))
         self.is_running = True
         self.update_callback = update_callback
         self.usage_callback = usage_callback
-        self._init_thread_pool()
+        self.cache_manager = CacheManager(str(CACHE_PATH))
+        self.executor = None
 
     def _init_client(self):
         """初始化OpenAI客户端"""
@@ -59,9 +69,10 @@ class SubtitleOptimizer:
 
         self.client = OpenAI(base_url=base_url, api_key=api_key)
 
-    def _init_thread_pool(self):
+    def _init_thread_pool(self, task_count: int):
         """初始化线程池"""
-        self.executor = ThreadPoolExecutor(max_workers=self.thread_num)
+        max_workers = max(1, min(int(self.thread_num or 1), max(1, task_count)))
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
         import atexit
 
         atexit.register(self.stop)
@@ -110,7 +121,7 @@ class SubtitleOptimizer:
         max_chars: int = 600,
     ) -> str:
         """构建当前批次前文参考，降低后续批次风格漂移"""
-        if index <= 0:
+        if index <= 0 or max_chars <= 0:
             return ""
 
         previous_lines = list(chunks[index - 1].values())[-max_lines:]
@@ -121,6 +132,9 @@ class SubtitleOptimizer:
 
     def _parallel_optimize(self, chunks: List[Dict[str, str]]) -> Dict[str, str]:
         """并行优化所有块"""
+        if not chunks:
+            return {}
+        self._init_thread_pool(len(chunks))
         futures = {}
         optimized_dict = {}
         pending_results = {}
@@ -129,7 +143,13 @@ class SubtitleOptimizer:
         for index, chunk in enumerate(chunks):
             if not self.executor:
                 raise ValueError("线程池未初始化")
-            context_before = self._build_chunk_context(chunks, index)
+            context_before = (
+                self._build_chunk_context(
+                    chunks, index, max_chars=self.batch_context_max_chars
+                )
+                if self.batch_context_enabled
+                else ""
+            )
             future = self.executor.submit(
                 self._safe_optimize_chunk, chunk, context_before
             )
@@ -198,10 +218,25 @@ class SubtitleOptimizer:
         cache_params = {
             "temperature": self.temperature,
             "model": self.model,
+            "prompt_hash": hashlib.md5(optimizer_prompt.encode("utf-8")).hexdigest(),
+            "custom_prompt_hash": hashlib.md5(
+                (self.custom_prompt or "").encode("utf-8")
+            ).hexdigest(),
+            "context_before": context_before,
+            "batch_context_enabled": self.batch_context_enabled,
+            "batch_context_max_chars": self.batch_context_max_chars,
         }
         # 构建缓存key
-        cache_key = f"{len(optimizer_prompt)}_{user_prompt}"
-        cache_result = None
+        cache_key = json.dumps(subtitle_chunk, ensure_ascii=False)
+        cache_result = (
+            self.cache_manager.get_llm_result(
+                prompt=cache_key,
+                model_name=self.model,
+                **cache_params,
+            )
+            if self.use_cache
+            else None
+        )
 
         if cache_result:
             logger.info("使用缓存的优化结果")
@@ -234,8 +269,13 @@ class SubtitleOptimizer:
         # 修复字幕对齐
         aligned_result = self._repair_subtitle(subtitle_chunk, result)
 
-        # 保存到缓存
-        # Disabled subtitle optimization cache: always return fresh API results.
+        if self.use_cache:
+            self.cache_manager.set_llm_result(
+                prompt=cache_key,
+                result=json.dumps(aligned_result, ensure_ascii=False),
+                model_name=self.model,
+                **cache_params,
+            )
 
         return aligned_result
 

@@ -551,6 +551,9 @@ class SubtitleConfig:
     llm_service: Optional[str] = None
     qwen_enable_thinking: bool = False
     llm_request_timeout: int = 300
+    llm_cache_enabled: bool = True
+    llm_batch_context_enabled: bool = True
+    llm_batch_context_max_chars: int = 300
     deeplx_endpoint: Optional[str] = None
     # 翻译服务
     translator_service: Optional[TranslatorServiceEnum] = None

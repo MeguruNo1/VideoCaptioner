@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import difflib
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from string import Template
 from typing import Callable, List, Optional, Union
@@ -216,10 +217,10 @@ class SubtitleSplitter:
         self.split_type = split_type
         self.max_word_count_cjk = max_word_count_cjk
         self.max_word_count_english = max_word_count_english
-        self.use_cache = False
+        self.use_cache = use_cache
         self.usage_callback = usage_callback
         self.is_running = True
-        self._init_thread_pool()
+        self.executor = None
         self.cache_manager = CacheManager(str(CACHE_PATH))
 
         # 验证分段类型
@@ -237,9 +238,10 @@ class SubtitleSplitter:
 
         self.client = OpenAI(base_url=base_url, api_key=api_key)
 
-    def _init_thread_pool(self):
+    def _init_thread_pool(self, task_count: int):
         """初始化线程池"""
-        self.executor = ThreadPoolExecutor(max_workers=self.thread_num)
+        max_workers = max(1, min(int(self.thread_num or 1), max(1, task_count)))
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
         import atexit
 
         atexit.register(self.stop)
@@ -376,6 +378,9 @@ class SubtitleSplitter:
 
     def _process_segments(self, asr_data_list: List[ASRData]) -> List[List[ASRDataSeg]]:
         """并行处理所有分段"""
+        if not asr_data_list:
+            return []
+        self._init_thread_pool(len(asr_data_list))
         futures = []
         for asr_data in asr_data_list:
             if not self.executor:
@@ -459,10 +464,13 @@ class SubtitleSplitter:
         )
 
         # 检查缓存
-        cache_key = f"{len(system_prompt)}_{user_prompt}"
+        cache_key = txt
         param = {
             "temperature": self.temperature,
             "split_type": self.split_type,
+            "prompt_hash": hashlib.md5(system_prompt.encode("utf-8")).hexdigest(),
+            "max_word_count_cjk": self.max_word_count_cjk,
+            "max_word_count_english": self.max_word_count_english,
         }
         if self.use_cache:
             cached_result = self.cache_manager.get_llm_result(

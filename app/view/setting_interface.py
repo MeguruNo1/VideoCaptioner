@@ -506,6 +506,29 @@ class SettingInterface(ScrollArea):
             maximum=900,
             parent=self.llmGroup,
         )
+        self.llmCacheEnabledCard = SwitchSettingCard(
+            FIF.HISTORY,
+            self.tr("启用 API 结果缓存"),
+            self.tr("相同字幕、模型和提示词配置会复用结果，减少重复请求和 token 消耗"),
+            cfg.llm_cache_enabled,
+            self.llmGroup,
+        )
+        self.llmBatchContextEnabledCard = SwitchSettingCard(
+            FIF.CHAT,
+            self.tr("启用批次上下文"),
+            self.tr("每批请求附带上一批字幕上下文，提高术语一致性但会增加 token"),
+            cfg.llm_batch_context_enabled,
+            self.llmGroup,
+        )
+        self.llmBatchContextMaxCharsCard = SpinBoxSettingCard(
+            cfg.llm_batch_context_max_chars,
+            FIF.ALIGNMENT,
+            self.tr("批次上下文最大字符数"),
+            self.tr("0 表示不附带上下文；数值越大一致性越好但 token 消耗越高"),
+            minimum=0,
+            maximum=1000,
+            parent=self.llmGroup,
+        )
 
         # 创建OPENAI官方API链接卡片
         self.openaiOfficialApiCard = HyperlinkCard(
@@ -722,8 +745,8 @@ class SettingInterface(ScrollArea):
         self.batchSizeCard = RangeSettingCard(
             cfg.batch_size,
             FIF.ALIGNMENT,
-            self.tr("批处理大小"),
-            self.tr("每批处理字幕的数量，建议为 10 的倍数"),
+            self.tr("每次请求字幕条数"),
+            self.tr("每次 API 请求包含的字幕条数；越大请求次数越少，但单次 token 更多"),
             parent=self.translate_serviceGroup,
         )
 
@@ -743,9 +766,9 @@ class SettingInterface(ScrollArea):
         self.threadNumCard = RangeSettingCard(
             cfg.thread_num,
             FIF.SPEED_HIGH,
-            self.tr("线程数"),
+            self.tr("API 并发数"),
             self.tr(
-                "请求并行处理的数量，模型服务商允许的情况下建议尽可能大，数值越大速度越快"
+                "同时发送的 API 请求数量；实际并发不会超过当前任务批次数"
             ),
             parent=self.translate_serviceGroup,
         )
@@ -779,6 +802,7 @@ class SettingInterface(ScrollArea):
         self.__onTranslatorServiceChanged(
             self.translatorServiceCard.comboBox.currentText()
         )
+        self.__onLLMBatchContextChanged(cfg.llm_batch_context_enabled.value)
         self.__applyPageStyles()
         self.__refreshDownloadCenterOutputDir()
         self.__refreshCookieStatus()
@@ -793,6 +817,9 @@ class SettingInterface(ScrollArea):
         # 添加LLM配置卡片
         self.llmGroup.addSettingCard(self.llmServiceCard)
         self.llmGroup.addSettingCard(self.llmTimeoutCard)
+        self.llmGroup.addSettingCard(self.llmCacheEnabledCard)
+        self.llmGroup.addSettingCard(self.llmBatchContextEnabledCard)
+        self.llmGroup.addSettingCard(self.llmBatchContextMaxCharsCard)
         # 添加OPENAI官方API链接卡片
         self.llmGroup.addSettingCard(self.openaiOfficialApiCard)
         for config in self.llm_service_configs.values():
@@ -847,6 +874,9 @@ class SettingInterface(ScrollArea):
         self.downloadProxyUrlCard.textChanged.connect(
             lambda _: self.__refreshDownloadProxyStatus()
         )
+        self.llmBatchContextEnabledCard.checkedChanged.connect(
+            self.__onLLMBatchContextChanged
+        )
         self.downloadCenterOutputDirCard.clicked.connect(
             self.__showDownloadCenterOutputDir
         )
@@ -897,6 +927,9 @@ class SettingInterface(ScrollArea):
     def __showPromptCenterDialog(self):
         dialog = PromptCenterDialog(self)
         dialog.exec_()
+
+    def __onLLMBatchContextChanged(self, checked: bool):
+        self.llmBatchContextMaxCharsCard.setEnabled(bool(checked))
 
     def __applyPageStyles(self):
         label_color = "#F5F5F5" if isDarkTheme() else "#202020"

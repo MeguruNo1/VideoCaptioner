@@ -197,6 +197,9 @@ class TaskFactory:
             llm_service=current_service.value,
             qwen_enable_thinking=cfg.qwen_enable_thinking.value,
             llm_request_timeout=cfg.llm_request_timeout.value,
+            llm_cache_enabled=cfg.llm_cache_enabled.value,
+            llm_batch_context_enabled=cfg.llm_batch_context_enabled.value,
+            llm_batch_context_max_chars=cfg.llm_batch_context_max_chars.value,
             deeplx_endpoint=cfg.deeplx_endpoint.value,
             # 翻译服务
             translator_service=cfg.translator_service.value,

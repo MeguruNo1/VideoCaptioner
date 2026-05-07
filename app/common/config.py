@@ -132,6 +132,13 @@ class Config(QConfig):
     llm_request_timeout = RangeConfigItem(
         "LLM", "RequestTimeout", 300, RangeValidator(30, 900)
     )
+    llm_cache_enabled = ConfigItem("LLM", "CacheEnabled", True, BoolValidator())
+    llm_batch_context_enabled = ConfigItem(
+        "LLM", "BatchContextEnabled", True, BoolValidator()
+    )
+    llm_batch_context_max_chars = RangeConfigItem(
+        "LLM", "BatchContextMaxChars", 300, RangeValidator(0, 1000)
+    )
 
     # ------------------- 翻译配置 -------------------
     translator_service = OptionsConfigItem(
