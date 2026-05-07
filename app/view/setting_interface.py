@@ -969,6 +969,10 @@ class SettingInterface(ScrollArea):
             content = f"{content} | {result['updated_at']}"
         if result.get("has_youtube"):
             content = f"{content} | YouTube 域已覆盖"
+        if result.get("has_bilibili_login"):
+            content = f"{content} | B站登录已覆盖"
+        elif result.get("has_bilibili"):
+            content = f"{content} | B站仅访客 Cookie"
         return content
 
     def __showDownloadCenterOutputDir(self):
