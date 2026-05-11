@@ -753,9 +753,9 @@ class SettingInterface(ScrollArea):
         self.translationMaxLengthCard = SpinBoxSettingCard(
             cfg.translation_max_length,
             FIF.SPEED_HIGH,
-            self.tr("译文长度上限"),
+            self.tr("译文长度建议"),
             self.tr(
-                "0 表示不限制；中文/日文等按字数，英文等按词数，引导 AI 输出更适合字幕阅读的短译文"
+                "0 表示不限制；系统会结合字幕时长给出阅读建议，完整准确优先"
             ),
             minimum=0,
             maximum=80,

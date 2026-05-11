@@ -1,6 +1,9 @@
 import unittest
 
-from app.core.subtitle_processor.translate import OpenAITranslator
+from app.core.subtitle_processor.translate import (
+    OpenAITranslator,
+    TRANSLATION_READABILITY_POLICY_VERSION,
+)
 from app.core.subtitle_processor.optimize import SubtitleOptimizer
 
 
@@ -108,6 +111,10 @@ class LLMAPITokenOptimizationTests(unittest.TestCase):
             first_params["batch_context_max_chars"],
             second_params["batch_context_max_chars"],
         )
+        self.assertEqual(
+            first_params["translation_readability_policy_version"],
+            TRANSLATION_READABILITY_POLICY_VERSION,
+        )
 
     def test_batch_translate_aligns_mismatched_keys_before_single_fallback(self):
         translator = build_translator(FakeCacheManager())
@@ -133,6 +140,64 @@ class LLMAPITokenOptimizationTests(unittest.TestCase):
         self.assertEqual(
             SubtitleOptimizer._build_chunk_context(chunks, 1, max_chars=0),
             "",
+        )
+
+    def test_length_instruction_is_soft_not_hard_limit(self):
+        translator = build_translator(FakeCacheManager())
+        translator.translation_max_length = 14
+
+        instruction = translator._get_length_instruction()
+
+        self.assertNotIn("不超过 14", instruction)
+        self.assertIn("软约束", instruction)
+        self.assertIn("可以超过", instruction)
+        self.assertIn("不得省略", instruction)
+
+    def test_zero_length_instruction_has_no_numeric_length_suggestion(self):
+        translator = build_translator(FakeCacheManager())
+        translator.translation_max_length = 0
+
+        instruction = translator._get_length_instruction()
+
+        self.assertNotIn("长度建议以", instruction)
+        self.assertNotIn("不超过", instruction)
+        self.assertIn("完整准确", instruction)
+
+    def test_reading_budget_scales_with_subtitle_duration(self):
+        translator = build_translator(FakeCacheManager())
+        translator.translation_max_length = 14
+        translator._subtitle_timing_by_key = {
+            "1": {"duration_ms": 2000},
+            "2": {"duration_ms": 5000},
+            "3": {"duration_ms": 10000},
+        }
+
+        budgets = [
+            translator._build_reading_budget(str(index))["suggested_length"]
+            for index in range(1, 4)
+        ]
+
+        self.assertEqual(budgets, [24, 60, 120])
+
+    def test_suspicious_compression_detects_missing_key_information(self):
+        translator = build_translator(FakeCacheManager())
+        subtitle_chunk = {
+            "1": "The OpenAI API did not return 404 because the gateway retried twice."
+        }
+        translated = {"1": "网关重试了"}
+
+        suspicious = translator._find_suspicious_compressions(
+            subtitle_chunk, translated
+        )
+
+        self.assertIn("1", suspicious)
+        self.assertTrue(
+            any("numbers" in reason for reason in suspicious["1"]),
+            suspicious["1"],
+        )
+        self.assertTrue(
+            any("negation" in reason for reason in suspicious["1"]),
+            suspicious["1"],
         )
 
 

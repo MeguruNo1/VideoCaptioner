@@ -155,7 +155,7 @@ class Config(QConfig):
     batch_size = RangeConfigItem("Translate", "BatchSize", 10, RangeValidator(5, 30))
     thread_num = RangeConfigItem("Translate", "ThreadNum", 10, RangeValidator(1, 100))
     translation_max_length = RangeConfigItem(
-        "Translate", "TranslationMaxLength", 14, RangeValidator(0, 80)
+        "Translate", "TranslationMaxLength", 0, RangeValidator(0, 80)
     )
 
     # ------------------- 转录配置 -------------------

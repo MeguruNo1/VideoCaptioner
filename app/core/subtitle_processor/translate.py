@@ -1,4 +1,5 @@
 import hashlib
+import math
 from string import Template
 from typing import Callable, Dict, Optional, List, Any, Union
 import logging
@@ -37,6 +38,12 @@ from app.core.utils.openai_compat import (
 
 
 logger = setup_logger("subtitle_translator")
+
+TRANSLATION_READABILITY_POLICY_VERSION = 1
+CJK_READING_CHARS_PER_SECOND = 12
+NON_CJK_READING_WORDS_PER_SECOND = 3
+MIN_CJK_READING_BUDGET = 18
+MIN_NON_CJK_READING_BUDGET = 6
 
 
 class TranslatorType(Enum):
@@ -100,6 +107,14 @@ class BaseTranslator(ABC):
             # 将ASRData转换为字典格式
             subtitle_dict = {
                 str(i): seg.text for i, seg in enumerate(asr_data.segments, 1)
+            }
+            self._subtitle_timing_by_key = {
+                str(i): {
+                    "start_time": seg.start_time,
+                    "end_time": seg.end_time,
+                    "duration_ms": max(0, seg.end_time - seg.start_time),
+                }
+                for i, seg in enumerate(asr_data.segments, 1)
             }
 
             # 分批处理字幕
@@ -251,7 +266,7 @@ class OpenAITranslator(BaseTranslator):
         temperature: float = 0.7,
         timeout: int = 300,
         retry_times: int = 1,
-        translation_max_length: int = 14,
+        translation_max_length: int = 0,
         use_cache: bool = True,
         batch_context_enabled: bool = True,
         batch_context_max_chars: int = 300,
@@ -300,14 +315,231 @@ class OpenAITranslator(BaseTranslator):
 
     def _get_length_instruction(self) -> str:
         if self.translation_max_length <= 0:
-            return ""
+            return (
+                "\n# 字幕翻译优先级:\n"
+                "- 完整准确 > 阅读流畅 > 简短凝练。\n"
+                "- 不要把翻译改写成摘要；不得省略否定、数字、时间、条件、因果、专有名词、动作对象或术语。\n"
+                "- 如果译文较长，优先使用自然、完整的表达，必要时可在译文内部使用换行，而不是删除信息。\n"
+            )
         return (
-            "\n# 字幕阅读速度要求:\n"
-            "- 在不丢失核心意思的前提下尽量简短，适合人类观看字幕的阅读速度。\n"
-            f"- 如果目标语言属于中文、日文、韩文等 CJK 语言，每条译文不超过 {self.translation_max_length} 个字。\n"
-            f"- 如果目标语言属于英语等非 CJK 语言，每条译文不超过 {self.translation_max_length} 个词。\n"
-            "- 不要为了压缩长度删除专有名词、数字或关键信息。\n"
+            "\n# 字幕阅读速度建议:\n"
+            "- 完整准确 > 阅读流畅 > 简短凝练。\n"
+            "- 不要把翻译改写成摘要；不得省略否定、数字、时间、条件、因果、专有名词、动作对象或术语。\n"
+            f"- 译文长度建议以 {self.translation_max_length} 作为基础参考，并结合每条字幕时长动态调整。\n"
+            "- 长度建议是软约束；如果压缩会丢失信息，可以超过建议长度。\n"
+            "- 如果译文较长，优先使用自然、完整的表达，必要时可在译文内部使用换行，而不是删除信息。\n"
         )
+
+    def _is_cjk_target_language(self) -> bool:
+        language = str(self.target_language or "").lower()
+        cjk_markers = (
+            "中文",
+            "简体",
+            "繁体",
+            "漢",
+            "汉",
+            "日本",
+            "日语",
+            "韓",
+            "韩",
+            "粤",
+            "粵",
+            "chinese",
+            "japanese",
+            "korean",
+            "cantonese",
+            "zh",
+            "ja",
+            "ko",
+            "yue",
+        )
+        return any(marker in language for marker in cjk_markers)
+
+    def _build_reading_budget(self, subtitle_key: str) -> Optional[Dict[str, Any]]:
+        timing = getattr(self, "_subtitle_timing_by_key", {}).get(str(subtitle_key))
+        if not timing:
+            return None
+
+        duration_ms = max(0, int(timing.get("duration_ms", 0)))
+        duration_seconds = duration_ms / 1000
+        is_cjk = self._is_cjk_target_language()
+        budget: Dict[str, Any] = {
+            "duration_seconds": duration_seconds,
+            "unit": "字" if is_cjk else "词",
+            "suggested_length": None,
+        }
+
+        if self.translation_max_length <= 0:
+            return budget
+
+        if is_cjk:
+            dynamic_budget = math.ceil(duration_seconds * CJK_READING_CHARS_PER_SECOND)
+            minimum = MIN_CJK_READING_BUDGET
+        else:
+            dynamic_budget = math.ceil(
+                duration_seconds * NON_CJK_READING_WORDS_PER_SECOND
+            )
+            minimum = MIN_NON_CJK_READING_BUDGET
+
+        budget["suggested_length"] = max(
+            minimum,
+            int(self.translation_max_length),
+            dynamic_budget,
+        )
+        return budget
+
+    def _build_timing_instruction(self, subtitle_chunk: Dict[str, str]) -> str:
+        lines = []
+        for key in subtitle_chunk:
+            budget = self._build_reading_budget(key)
+            if not budget:
+                continue
+            if budget["suggested_length"] is None:
+                lines.append(
+                    f"{key}: duration={budget['duration_seconds']:.2f}s, no length target"
+                )
+            else:
+                lines.append(
+                    f"{key}: duration={budget['duration_seconds']:.2f}s, "
+                    f"suggested_length≈{budget['suggested_length']}{budget['unit']}"
+                )
+
+        if not lines:
+            return ""
+
+        return (
+            "Read-only timing and readability reference for the subtitles below. "
+            "Use it only as a soft readability guide. Completeness and accuracy "
+            "take priority over these suggestions. Do not output this block.\n"
+            "<subtitle_timing>\n"
+            + "\n".join(lines)
+            + "\n</subtitle_timing>\n\n"
+        )
+
+    @staticmethod
+    def _count_text_units(text: str) -> int:
+        cjk_chars = re.findall(r"[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]", text)
+        words = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", text)
+        return len(cjk_chars) + len(words)
+
+    @staticmethod
+    def _extract_numbers(text: str) -> List[str]:
+        return re.findall(r"\d+(?:[.,:%:/-]\d+)*%?", text or "")
+
+    @staticmethod
+    def _extract_proper_terms(text: str) -> List[str]:
+        terms = []
+        common_words = {
+            "A",
+            "An",
+            "And",
+            "But",
+            "For",
+            "I",
+            "If",
+            "It",
+            "So",
+            "The",
+            "This",
+            "That",
+            "We",
+            "You",
+        }
+        source = text or ""
+        first_text_index = len(source) - len(source.lstrip())
+        for match in re.finditer(r"\b[A-Z][A-Za-z0-9._+-]{1,}\b", source):
+            term = match.group(0)
+            if term in common_words:
+                continue
+            if match.start() == first_text_index and not term.isupper():
+                continue
+            terms.append(term)
+        return sorted(set(terms))
+
+    @staticmethod
+    def _has_source_negation(text: str) -> bool:
+        return bool(
+            re.search(
+                r"\b(?:not|no|never|cannot|can't|don't|doesn't|didn't|without|won't|isn't|aren't|n't)\b|不|未|无|沒|没|不能|不会|不要",
+                text or "",
+                flags=re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _has_target_negation(text: str) -> bool:
+        return bool(
+            re.search(
+                r"\b(?:not|no|never|cannot|can't|without|won't|isn't|aren't|n't)\b|不|未|无|沒|没|非|勿|别|不能|不会|不要",
+                text or "",
+                flags=re.IGNORECASE,
+            )
+        )
+
+    def _extract_custom_prompt_terms(self) -> List[str]:
+        prompt = self.custom_prompt or ""
+        terms = re.findall(r"[`'\"“”‘’]([^`'\"“”‘’]{2,40})[`'\"“”‘’]", prompt)
+        terms.extend(
+            re.findall(
+                r"^\s*[-*]?\s*([A-Za-z][A-Za-z0-9._ +/#-]{1,40})\s*(?:=|->|:|：)",
+                prompt,
+                flags=re.MULTILINE,
+            )
+        )
+        return sorted({term.strip() for term in terms if term.strip()})
+
+    def _find_suspicious_compressions(
+        self, subtitle_chunk: Dict[str, str], translated_dict: Dict[str, str]
+    ) -> Dict[str, List[str]]:
+        suspicious = {}
+        custom_terms = self._extract_custom_prompt_terms()
+
+        for key, source_text in subtitle_chunk.items():
+            translated_text = str(translated_dict.get(key, "") or "")
+            reasons = []
+            source_units = self._count_text_units(source_text)
+            translated_units = self._count_text_units(translated_text)
+
+            if source_units >= 8 and translated_units <= max(4, int(source_units * 0.35)):
+                reasons.append("translated text is much shorter than the source")
+
+            normalized_translation = translated_text.lower()
+            missing_numbers = [
+                number
+                for number in self._extract_numbers(source_text)
+                if number and number not in translated_text
+            ]
+            if missing_numbers:
+                reasons.append("numbers may be missing: " + ", ".join(missing_numbers))
+
+            missing_terms = [
+                term
+                for term in self._extract_proper_terms(source_text)
+                if term.lower() not in normalized_translation
+            ]
+            if missing_terms:
+                reasons.append("proper nouns may be missing: " + ", ".join(missing_terms))
+
+            custom_prompt_terms = [
+                term
+                for term in custom_terms
+                if term in source_text and term.lower() not in normalized_translation
+            ]
+            if custom_prompt_terms:
+                reasons.append(
+                    "custom prompt terms may be missing: "
+                    + ", ".join(custom_prompt_terms)
+                )
+
+            if self._has_source_negation(source_text) and not self._has_target_negation(
+                translated_text
+            ):
+                reasons.append("source negation may be missing")
+
+            if reasons:
+                suspicious[key] = reasons
+
+        return suspicious
 
     def _translate_chunk(
         self, subtitle_chunk: Dict[str, str], context_before: str = ""
@@ -320,6 +552,10 @@ class OpenAITranslator(BaseTranslator):
         # 获取提示词
         prompt = self._get_translate_prompt()
         prompt_hash = hashlib.md5(prompt.encode()).hexdigest()
+        timing_instruction = self._build_timing_instruction(subtitle_chunk)
+        timing_instruction_hash = hashlib.md5(
+            timing_instruction.encode()
+        ).hexdigest()
 
         try:
             # 检查缓存
@@ -332,6 +568,8 @@ class OpenAITranslator(BaseTranslator):
                 "batch_context_enabled": self.batch_context_enabled,
                 "batch_context_max_chars": self.batch_context_max_chars,
                 "translation_max_length": self.translation_max_length,
+                "translation_readability_policy_version": TRANSLATION_READABILITY_POLICY_VERSION,
+                "timing_instruction_hash": timing_instruction_hash,
             }
             cache_key = json.dumps(subtitle_chunk, ensure_ascii=False)
             cache_result = (
@@ -349,6 +587,8 @@ class OpenAITranslator(BaseTranslator):
                 result = json.loads(cache_result)
             else:
                 user_content = json.dumps(subtitle_chunk, ensure_ascii=False)
+                if timing_instruction:
+                    user_content = timing_instruction + user_content
                 if context_before:
                     user_content = (
                         "Reference context from the immediately preceding subtitles. "
@@ -383,6 +623,34 @@ class OpenAITranslator(BaseTranslator):
             else:
                 result = {k: f"{v}" for k, v in result.items()}
 
+            suspicious = self._find_suspicious_compressions(subtitle_chunk, result)
+            if suspicious:
+                logger.info(
+                    "检测到疑似过度缩句，正在单条重译: %s",
+                    ", ".join(suspicious.keys()),
+                )
+                retry_chunk = {key: subtitle_chunk[key] for key in suspicious}
+                retry_result = self._translate_chunk_single(
+                    retry_chunk,
+                    context_before=context_before,
+                    extra_instruction=(
+                        "The previous translation looked like it may have omitted "
+                        "important information. Translate fully and faithfully. "
+                        "Do not summarize, and keep numbers, negation, named entities, "
+                        "conditions, causal relations, actions, objects, and terms."
+                    ),
+                )
+                for key, translated_text in retry_result.items():
+                    if translated_text and translated_text != "ERROR":
+                        result[key] = translated_text
+                if self.use_cache and not self.is_reflect:
+                    self.cache_manager.set_llm_result(
+                        prompt=cache_key,
+                        result=json.dumps(result, ensure_ascii=False),
+                        model_name=self.model,
+                        **cache_params,
+                    )
+
             return result
         except Exception as e:
             try:
@@ -411,7 +679,10 @@ class OpenAITranslator(BaseTranslator):
         }
 
     def _translate_chunk_single(
-        self, subtitle_chunk: Dict[str, str], context_before: str = ""
+        self,
+        subtitle_chunk: Dict[str, str],
+        context_before: str = "",
+        extra_instruction: str = "",
     ) -> Dict[str, str]:
         """单条翻译模式"""
         result = {}
@@ -422,8 +693,15 @@ class OpenAITranslator(BaseTranslator):
             translation_length_instruction=self._get_length_instruction(),
         )
         prompt_hash = hashlib.md5(single_prompt.encode()).hexdigest()
+        extra_instruction_hash = hashlib.md5(
+            (extra_instruction or "").encode()
+        ).hexdigest()
         for idx, text in subtitle_chunk.items():
             try:
+                timing_instruction = self._build_timing_instruction({idx: text})
+                timing_instruction_hash = hashlib.md5(
+                    timing_instruction.encode()
+                ).hexdigest()
                 # 检查缓存
                 cache_params = {
                     "target_language": self.target_language,
@@ -435,6 +713,10 @@ class OpenAITranslator(BaseTranslator):
                     "batch_context_max_chars": self.batch_context_max_chars,
                     "translation_max_length": self.translation_max_length,
                     "model": self.model,
+                    "translation_readability_policy_version": TRANSLATION_READABILITY_POLICY_VERSION,
+                    "timing_instruction_hash": timing_instruction_hash,
+                    "compression_retry": bool(extra_instruction),
+                    "extra_instruction_hash": extra_instruction_hash,
                 }
                 cache_result = (
                     self.cache_manager.get_translation(
@@ -451,6 +733,10 @@ class OpenAITranslator(BaseTranslator):
                     continue
 
                 user_content = text
+                if extra_instruction:
+                    user_content = extra_instruction + "\n\n" + user_content
+                if timing_instruction:
+                    user_content = timing_instruction + user_content
                 if context_before:
                     user_content = (
                         "Reference context from the immediately preceding subtitles. "
@@ -913,7 +1199,7 @@ class TranslatorFactory:
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
         timeout: int = 300,
-        translation_max_length: int = 14,
+        translation_max_length: int = 0,
         use_cache: bool = True,
         batch_context_enabled: bool = True,
         batch_context_max_chars: int = 300,
