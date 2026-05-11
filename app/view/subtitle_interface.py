@@ -654,6 +654,7 @@ class SubtitleInterface(QWidget):
         send_windows_notification(
             self.tr("字幕处理完成"),
             self.tr("字幕文件已生成：") + Path(output_path).name,
+            target="subtitle",
         )
 
     def on_subtitle_optimization_error(self, error):

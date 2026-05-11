@@ -389,6 +389,7 @@ class TranscriptionInterface(QWidget):
         send_windows_notification(
             self.tr("转录完成"),
             self.tr("字幕文件已生成：") + Path(task.output_path).name,
+            target="transcription",
         )
         if task.need_next_task:
             self.finished.emit(task.output_path, task.file_path)

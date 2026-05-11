@@ -12,6 +12,8 @@ class SignalBus(QObject):
     target_language_changed = pyqtSignal(str)
     # 转录模型
     transcription_model_changed = pyqtSignal(str)
+    # 系统通知点击导航
+    notification_clicked = pyqtSignal(str)
     # 新增视频控制相关信号
     video_play = pyqtSignal()  # 播放信号
     video_pause = pyqtSignal()  # 暂停信号

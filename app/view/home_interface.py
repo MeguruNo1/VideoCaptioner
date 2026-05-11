@@ -79,6 +79,9 @@ class HomeInterface(QWidget):
             file_path, need_next_task=need_next_task
         )
         self.transcription_interface.set_task(transcribe_task)
+        self.show_transcription_page()
+
+    def show_transcription_page(self):
         self.stackedWidget.setCurrentWidget(self.transcription_interface)
         self.pivot.setCurrentItem("TranscriptionInterface")
 
@@ -89,6 +92,9 @@ class HomeInterface(QWidget):
         )
         self.subtitle_optimization_interface.set_task(subtitle_task)
         self.subtitle_optimization_interface.process()
+        self.show_subtitle_optimization_page()
+
+    def show_subtitle_optimization_page(self):
         self.stackedWidget.setCurrentWidget(self.subtitle_optimization_interface)
         self.pivot.setCurrentItem("SubtitleInterface")
 

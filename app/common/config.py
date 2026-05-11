@@ -322,6 +322,73 @@ class Config(QConfig):
     download_auto_refresh_edge_cookies = ConfigItem(
         "Download", "AutoRefreshEdgeCookies", False, BoolValidator()
     )
+    download_center_mode = OptionsConfigItem(
+        "Download",
+        "CenterMode",
+        "simple",
+        OptionsValidator(["simple", "professional"]),
+    )
+    download_center_simple_preset = OptionsConfigItem(
+        "Download",
+        "CenterSimplePreset",
+        "best_quality",
+        OptionsValidator(
+            [
+                "best_quality",
+                "mp4_compatible",
+                "pr_smart",
+                "custom_preferences",
+                "audio_only",
+                "subtitle_only",
+                "thumbnail_only",
+            ]
+        ),
+    )
+    download_center_professional_mode = OptionsConfigItem(
+        "Download",
+        "CenterProfessionalMode",
+        "video_audio",
+        OptionsValidator(["video_audio", "video", "audio"]),
+    )
+    download_center_need_subtitle = ConfigItem(
+        "Download", "CenterNeedSubtitle", False, BoolValidator()
+    )
+    download_center_need_thumbnail = ConfigItem(
+        "Download", "CenterNeedThumbnail", True, BoolValidator()
+    )
+    download_center_need_metadata = ConfigItem(
+        "Download", "CenterNeedMetadata", False, BoolValidator()
+    )
+    download_center_need_description_txt = ConfigItem(
+        "Download", "CenterNeedDescriptionTxt", True, BoolValidator()
+    )
+    download_center_subtitle_mode = OptionsConfigItem(
+        "Download",
+        "CenterSubtitleMode",
+        "manual",
+        OptionsValidator(["manual", "auto"]),
+    )
+    download_center_custom_video_codec = OptionsConfigItem(
+        "Download",
+        "CenterCustomVideoCodec",
+        "auto",
+        OptionsValidator(["auto", "avc1", "av01", "vp9"]),
+    )
+    download_center_custom_container = OptionsConfigItem(
+        "Download",
+        "CenterCustomContainer",
+        "auto",
+        OptionsValidator(["auto", "mp4", "webm"]),
+    )
+    download_center_custom_audio_codec = OptionsConfigItem(
+        "Download",
+        "CenterCustomAudioCodec",
+        "auto",
+        OptionsValidator(["auto", "mp4a", "opus"]),
+    )
+    download_center_pr_smart_postprocess = ConfigItem(
+        "Download", "CenterPRSmartPostprocess", False, BoolValidator()
+    )
 
     # ------------------- 软件页面配置 -------------------
     micaEnabled = ConfigItem("MainWindow", "MicaEnabled", False, BoolValidator())

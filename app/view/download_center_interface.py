@@ -122,12 +122,15 @@ class DownloadCenterInterface(QWidget):
         self.time_range_rows = []
         self.controls_enabled = True
         self.download_action_state = "idle"
+        self._restoring_download_preferences = True
 
         self.setObjectName("DownloadCenterInterface")
         self.setWindowTitle(self.tr("下载中心"))
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setup_ui()
+        self._restore_download_preferences()
         self.setup_signals()
+        self._restoring_download_preferences = False
         cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
         self._refresh_download_strategy_hint()
         self._refresh_output_dir_labels()
@@ -648,6 +651,10 @@ class DownloadCenterInterface(QWidget):
         self.thumbnail_checkbox.toggled.connect(self._refresh_selection_summary)
         self.metadata_checkbox.toggled.connect(self._refresh_selection_summary)
         self.description_txt_checkbox.toggled.connect(self._refresh_selection_summary)
+        self.subtitle_checkbox.toggled.connect(self._save_download_preferences)
+        self.thumbnail_checkbox.toggled.connect(self._save_download_preferences)
+        self.metadata_checkbox.toggled.connect(self._save_download_preferences)
+        self.description_txt_checkbox.toggled.connect(self._save_download_preferences)
         self.choose_output_dir_button.clicked.connect(self._choose_output_dir)
         self.reset_output_dir_button.clicked.connect(self._reset_output_dir)
         self.simple_preset_combo.currentIndexChanged.connect(self._on_simple_preset_changed)
@@ -659,6 +666,11 @@ class DownloadCenterInterface(QWidget):
         self.custom_container_combo.currentIndexChanged.connect(self._refresh_selection_summary)
         self.custom_audio_codec_combo.currentIndexChanged.connect(self._refresh_selection_summary)
         self.pr_smart_postprocess_checkbox.toggled.connect(self._refresh_selection_summary)
+        self.subtitle_mode_combo.currentIndexChanged.connect(self._save_download_preferences)
+        self.custom_video_codec_combo.currentIndexChanged.connect(self._save_download_preferences)
+        self.custom_container_combo.currentIndexChanged.connect(self._save_download_preferences)
+        self.custom_audio_codec_combo.currentIndexChanged.connect(self._save_download_preferences)
+        self.pr_smart_postprocess_checkbox.toggled.connect(self._save_download_preferences)
         self.download_detail_button.clicked.connect(self._toggle_download_detail_panel)
 
     def showEvent(self, event):
@@ -750,11 +762,86 @@ class DownloadCenterInterface(QWidget):
         """)
 
     def _switch_download_mode(self, mode_key: str):
+        if mode_key not in {"simple", "professional"}:
+            mode_key = "simple"
         self.current_mode_key = mode_key
         self.mode_switch.setCurrentItem(mode_key)
         self.mode_stack.setCurrentWidget(self.simple_panel if mode_key == "simple" else self.professional_panel)
         self._update_custom_preferences_visibility()
         self._refresh_selection_summary()
+        self._save_download_preferences()
+
+    @staticmethod
+    def _set_combo_current_data(combo: ComboBox, value: str, default: str):
+        target = str(value or default)
+        default_index = 0
+        for index in range(combo.count()):
+            item_data = str(combo.itemData(index) or "")
+            if item_data == default:
+                default_index = index
+            if item_data == target:
+                combo.setCurrentIndex(index)
+                return
+        combo.setCurrentIndex(default_index)
+
+    def _restore_download_preferences(self):
+        self._set_combo_current_data(
+            self.simple_preset_combo,
+            str(cfg.get(cfg.download_center_simple_preset) or "best_quality"),
+            "best_quality",
+        )
+        self._set_combo_current_data(
+            self.professional_mode_combo,
+            str(cfg.get(cfg.download_center_professional_mode) or "video_audio"),
+            "video_audio",
+        )
+        self._set_combo_current_data(
+            self.subtitle_mode_combo,
+            str(cfg.get(cfg.download_center_subtitle_mode) or "manual"),
+            "manual",
+        )
+        self._set_combo_current_data(
+            self.custom_video_codec_combo,
+            str(cfg.get(cfg.download_center_custom_video_codec) or "auto"),
+            "auto",
+        )
+        self._set_combo_current_data(
+            self.custom_container_combo,
+            str(cfg.get(cfg.download_center_custom_container) or "auto"),
+            "auto",
+        )
+        self._set_combo_current_data(
+            self.custom_audio_codec_combo,
+            str(cfg.get(cfg.download_center_custom_audio_codec) or "auto"),
+            "auto",
+        )
+
+        self.subtitle_checkbox.setChecked(bool(cfg.get(cfg.download_center_need_subtitle)))
+        self.thumbnail_checkbox.setChecked(bool(cfg.get(cfg.download_center_need_thumbnail)))
+        self.metadata_checkbox.setChecked(bool(cfg.get(cfg.download_center_need_metadata)))
+        self.description_txt_checkbox.setChecked(bool(cfg.get(cfg.download_center_need_description_txt)))
+        self.pr_smart_postprocess_checkbox.setChecked(bool(cfg.get(cfg.download_center_pr_smart_postprocess)))
+
+        mode_key = str(cfg.get(cfg.download_center_mode) or "simple")
+        self._switch_download_mode(mode_key)
+        self._on_professional_mode_changed()
+        self._toggle_subtitle_mode_row(self.subtitle_checkbox.isChecked())
+
+    def _save_download_preferences(self, *_args):
+        if self._restoring_download_preferences:
+            return
+        cfg.set(cfg.download_center_mode, self.current_mode_key)
+        cfg.set(cfg.download_center_simple_preset, self.simple_preset_combo.currentData() or "best_quality")
+        cfg.set(cfg.download_center_professional_mode, self.professional_mode_combo.currentData() or "video_audio")
+        cfg.set(cfg.download_center_need_subtitle, self.subtitle_checkbox.isChecked())
+        cfg.set(cfg.download_center_need_thumbnail, self.thumbnail_checkbox.isChecked())
+        cfg.set(cfg.download_center_need_metadata, self.metadata_checkbox.isChecked())
+        cfg.set(cfg.download_center_need_description_txt, self.description_txt_checkbox.isChecked())
+        cfg.set(cfg.download_center_subtitle_mode, self._selected_subtitle_mode())
+        cfg.set(cfg.download_center_custom_video_codec, self.custom_video_codec_combo.currentData() or "auto")
+        cfg.set(cfg.download_center_custom_container, self.custom_container_combo.currentData() or "auto")
+        cfg.set(cfg.download_center_custom_audio_codec, self.custom_audio_codec_combo.currentData() or "auto")
+        cfg.set(cfg.download_center_pr_smart_postprocess, self.pr_smart_postprocess_checkbox.isChecked())
 
     def _set_preview_visible(self, visible: bool):
         self.preview_card.setVisible(visible)
@@ -976,6 +1063,7 @@ class DownloadCenterInterface(QWidget):
     def _on_simple_preset_changed(self, *_args):
         self._update_custom_preferences_visibility()
         self._refresh_selection_summary()
+        self._save_download_preferences()
 
     def _create_time_range_row(self, start_text: str = "", end_text: str = "") -> dict:
         row_widget = QWidget(self.time_ranges_container)
@@ -1332,6 +1420,7 @@ class DownloadCenterInterface(QWidget):
         self.audio_table.setVisible(needs_audio)
         self._adjust_responsive_layout()
         self._refresh_selection_summary()
+        self._save_download_preferences()
 
     def _describe_stream(self, stream: dict | None) -> str:
         if not stream:
@@ -1708,6 +1797,7 @@ class DownloadCenterInterface(QWidget):
         send_windows_notification(
             self.tr("下载完成"),
             self.tr("资源已下载完成。"),
+            target="download_center",
         )
 
     def on_download_cancelled(self, message: str):

@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import psutil
-from PyQt5.QtCore import QSize, QThread, QUrl
+from PyQt5.QtCore import Qt, QSize, QThread, QUrl
 from PyQt5.QtGui import QDesktopServices, QIcon
 from PyQt5.QtWidgets import QApplication
 from qfluentwidgets import FluentIcon as FIF
@@ -16,6 +16,7 @@ from qfluentwidgets import (
 )
 
 from app.common.config import cfg
+from app.common.signal_bus import signalBus
 from app.components.DonateDialog import DonateDialog
 from app.config import ASSETS_PATH, GITHUB_REPO_URL
 from app.thread.version_manager_thread import VersionManager
@@ -41,6 +42,7 @@ class MainWindow(FluentWindow):
         self.downloadCenterInterface.send_to_transcription.connect(
             self.open_downloaded_video_in_transcription
         )
+        signalBus.notification_clicked.connect(self.on_notification_clicked)
 
         # 初始化版本管理器
         self.versionManager = VersionManager()
@@ -154,6 +156,28 @@ class MainWindow(FluentWindow):
                 duration=4000,
                 parent=self,
             )
+
+    def on_notification_clicked(self, target: str):
+        target = str(target or "").strip()
+        if target == "download_center":
+            self.switchTo(self.downloadCenterInterface)
+        elif target == "transcription":
+            self.switchTo(self.homeInterface)
+            self.homeInterface.show_transcription_page()
+        elif target == "subtitle":
+            self.switchTo(self.homeInterface)
+            self.homeInterface.show_subtitle_optimization_page()
+        else:
+            return
+        self._activate_from_notification()
+
+    def _activate_from_notification(self):
+        if self.windowState() & Qt.WindowMinimized:
+            self.showNormal()
+        else:
+            self.show()
+        self.raise_()
+        self.activateWindow()
 
     def onNewVersion(self, version, force_update, update_info, download_url):
         """新版本提示"""
