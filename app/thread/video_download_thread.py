@@ -12,6 +12,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from app.config import APPDATA_PATH
 from app.core.utils.logger import setup_logger
+from app.core.utils.download_description import write_description_txt_file
 from app.core.utils.proxy_utils import (
     apply_download_proxy_environment,
     get_effective_download_proxy_url,
@@ -519,6 +520,7 @@ class VideoDownloadThread(QThread):
         selected_audio_format_id: str = "",
         format_selector: str = "",
         need_metadata: bool = False,
+        need_description_txt: bool = False,
         enable_time_ranges: bool = False,
         download_sections: list[str] | None = None,
         pr_smart_transcode_hevc_on_av1: bool = False,
@@ -536,6 +538,7 @@ class VideoDownloadThread(QThread):
         self.selected_audio_format_id = selected_audio_format_id
         self.format_selector = format_selector
         self.need_metadata = need_metadata
+        self.need_description_txt = need_description_txt
         self.enable_time_ranges = enable_time_ranges
         self.download_sections = list(download_sections or [])
         self.pr_smart_transcode_hevc_on_av1 = pr_smart_transcode_hevc_on_av1
@@ -556,6 +559,7 @@ class VideoDownloadThread(QThread):
                 need_thumbnail=self.need_thumbnail,
                 subtitle_mode=self.subtitle_mode,
                 need_metadata=self.need_metadata,
+                need_description_txt=self.need_description_txt,
                 enable_time_ranges=self.enable_time_ranges,
                 download_sections=self.download_sections,
                 pr_smart_transcode_hevc_on_av1=self.pr_smart_transcode_hevc_on_av1,
@@ -727,7 +731,7 @@ class VideoDownloadThread(QThread):
             suffix = file.suffix.lower()
             if suffix in IMAGE_EXTENSIONS or suffix in SUBTITLE_EXTENSIONS:
                 continue
-            if suffix in {".json", ".part", ".ytdl", ".tmp"}:
+            if suffix in {".json", ".part", ".ytdl", ".tmp", ".txt"}:
                 continue
             candidates.append(file)
 
@@ -757,6 +761,13 @@ class VideoDownloadThread(QThread):
             json.dump(info_dict, file, ensure_ascii=False, indent=2, default=str)
         return str(metadata_path)
 
+    def _write_description_txt_file(self, info_dict: dict, work_dir: Path) -> str:
+        return write_description_txt_file(
+            info_dict,
+            work_dir,
+            sanitize_filename(info_dict.get("title", "video")),
+        )
+
     def _postprocess_pr_smart_hevc(self, video_path: str | None) -> tuple[str | None, str | None, str]:
         if not self.pr_smart_transcode_hevc_on_av1:
             return None, None, "未启用"
@@ -783,6 +794,7 @@ class VideoDownloadThread(QThread):
         need_thumbnail: bool = False,
         subtitle_mode: str = "auto",
         need_metadata: bool = False,
+        need_description_txt: bool = False,
         enable_time_ranges: bool = False,
         download_sections: list[str] | None = None,
         pr_smart_transcode_hevc_on_av1: bool = False,
@@ -884,6 +896,11 @@ class VideoDownloadThread(QThread):
             )
 
         metadata_path = self._write_metadata_file(info_dict, work_dir) if need_metadata else None
+        description_txt_path = (
+            self._write_description_txt_file(info_dict, work_dir)
+            if need_video and need_description_txt
+            else None
+        )
         multi_media = len(media_files) > 1
         original_video_path = media_files[0] if self.download_mode != "audio" and len(media_files) == 1 else None
         transcoded_video_path = None
@@ -913,6 +930,7 @@ class VideoDownloadThread(QThread):
             "subtitle_path": subtitle_path,
             "thumbnail_path": thumbnail_path,
             "metadata_path": metadata_path,
+            "description_txt_path": description_txt_path,
             "info_dict": info_dict,
             "work_dir": str(work_dir),
             "url": self.url,
@@ -922,11 +940,12 @@ class VideoDownloadThread(QThread):
             "has_multiple_media_files": multi_media,
         }
         logger.info(
-            "下载完成: media=%s media_count=%s subtitle=%s thumbnail=%s metadata=%s",
+            "下载完成: media=%s media_count=%s subtitle=%s thumbnail=%s metadata=%s description_txt=%s",
             result["media_path"],
             len(media_files),
             subtitle_path,
             thumbnail_path,
             metadata_path,
+            description_txt_path,
         )
         return result

@@ -430,12 +430,14 @@ class DownloadCenterInterface(QWidget):
         self.subtitle_checkbox = QCheckBox(self.tr("下载字幕"), self.options_section)
         self.thumbnail_checkbox = QCheckBox(self.tr("下载封面"), self.options_section)
         self.metadata_checkbox = QCheckBox(self.tr("下载元数据"), self.options_section)
-        self.subtitle_checkbox.setChecked(True)
+        self.description_txt_checkbox = QCheckBox(self.tr("生成说明TXT"), self.options_section)
+        self.description_txt_checkbox.setChecked(True)
         self.thumbnail_checkbox.setChecked(True)
         options_header.addWidget(options_title)
         options_header.addWidget(self.subtitle_checkbox)
         options_header.addWidget(self.thumbnail_checkbox)
         options_header.addWidget(self.metadata_checkbox)
+        options_header.addWidget(self.description_txt_checkbox)
         options_header.addStretch(1)
 
         self.subtitle_mode_row = QWidget(self.options_section)
@@ -571,6 +573,10 @@ class DownloadCenterInterface(QWidget):
         self.result_metadata.setWordWrap(True)
         self.result_metadata.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.result_metadata.setObjectName("downloadPathValueLabel")
+        self.result_description_txt = BodyLabel("", self.result_card)
+        self.result_description_txt.setWordWrap(True)
+        self.result_description_txt.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.result_description_txt.setObjectName("downloadPathValueLabel")
         self.result_transcoded = BodyLabel("", self.result_card)
         self.result_transcoded.setWordWrap(True)
         self.result_transcoded.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -583,6 +589,7 @@ class DownloadCenterInterface(QWidget):
         result_files2.setSpacing(16)
         result_files2.addWidget(self.result_thumbnail, 1)
         result_files2.addWidget(self.result_metadata, 1)
+        result_files2.addWidget(self.result_description_txt, 1)
         result_files2.addWidget(self.result_transcoded, 1)
 
         result_layout.addLayout(result_header)
@@ -640,6 +647,7 @@ class DownloadCenterInterface(QWidget):
         self.subtitle_checkbox.toggled.connect(self._refresh_selection_summary)
         self.thumbnail_checkbox.toggled.connect(self._refresh_selection_summary)
         self.metadata_checkbox.toggled.connect(self._refresh_selection_summary)
+        self.description_txt_checkbox.toggled.connect(self._refresh_selection_summary)
         self.choose_output_dir_button.clicked.connect(self._choose_output_dir)
         self.reset_output_dir_button.clicked.connect(self._reset_output_dir)
         self.simple_preset_combo.currentIndexChanged.connect(self._on_simple_preset_changed)
@@ -792,6 +800,7 @@ class DownloadCenterInterface(QWidget):
         self.subtitle_checkbox.setEnabled(enabled)
         self.thumbnail_checkbox.setEnabled(enabled)
         self.metadata_checkbox.setEnabled(enabled)
+        self.description_txt_checkbox.setEnabled(enabled)
         self.subtitle_mode_combo.setEnabled(enabled and self.subtitle_checkbox.isChecked())
         self.choose_output_dir_button.setEnabled(enabled)
         self.reset_output_dir_button.setEnabled(enabled)
@@ -911,6 +920,7 @@ class DownloadCenterInterface(QWidget):
         self.result_subtitle.setText(self.tr("字幕：暂无"))
         self.result_thumbnail.setText(self.tr("封面：暂无"))
         self.result_metadata.setText(self.tr("元数据：暂无"))
+        self.result_description_txt.setText(self.tr("说明TXT：暂无"))
         self.result_transcoded.setText(self.tr("H.265后处理：暂无"))
 
     def _reset_preview_labels(self):
@@ -1510,6 +1520,8 @@ class DownloadCenterInterface(QWidget):
             extras.append(self.tr("封面"))
         if self.metadata_checkbox.isChecked():
             extras.append(self.tr("元数据"))
+        if self.description_txt_checkbox.isChecked():
+            extras.append(self.tr("说明TXT"))
         if extras:
             parts.append(self.tr("附加项：") + self.tr("、").join(extras))
 
@@ -1526,6 +1538,7 @@ class DownloadCenterInterface(QWidget):
             "need_subtitle": self.subtitle_checkbox.isChecked(),
             "need_thumbnail": self.thumbnail_checkbox.isChecked(),
             "need_metadata": self.metadata_checkbox.isChecked(),
+            "need_description_txt": self.description_txt_checkbox.isChecked(),
             "download_mode": "video_audio",
             "selected_video_format_id": "",
             "selected_audio_format_id": "",
@@ -1633,6 +1646,7 @@ class DownloadCenterInterface(QWidget):
             selected_audio_format_id=request["selected_audio_format_id"],
             format_selector=request["format_selector"],
             need_metadata=request["need_metadata"],
+            need_description_txt=request["need_description_txt"],
             enable_time_ranges=request["enable_time_ranges"],
             download_sections=request["download_sections"],
             pr_smart_transcode_hevc_on_av1=request["pr_smart_transcode_hevc_on_av1"],
@@ -1670,6 +1684,7 @@ class DownloadCenterInterface(QWidget):
         self.result_subtitle.setText(self.tr("字幕：") + str(result.get("subtitle_path") or self.tr("未下载或不存在")))
         self.result_thumbnail.setText(self.tr("封面：") + str(result.get("thumbnail_path") or self.tr("未下载或不存在")))
         self.result_metadata.setText(self.tr("元数据：") + str(result.get("metadata_path") or self.tr("未下载或不存在")))
+        self.result_description_txt.setText(self.tr("说明TXT：") + str(result.get("description_txt_path") or self.tr("未生成或不存在")))
         transcoded_path = result.get("transcoded_video_path")
         transcoded_codec = result.get("transcoded_video_codec") or self.tr("未触发")
         original_video_path = result.get("original_video_path") or self.tr("未下载或不存在")
