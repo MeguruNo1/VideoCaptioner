@@ -40,10 +40,47 @@ from app.core.utils.openai_compat import (
 logger = setup_logger("subtitle_translator")
 
 TRANSLATION_READABILITY_POLICY_VERSION = 1
+REFLECT_POSTPROCESS_POLICY_VERSION = 1
 CJK_READING_CHARS_PER_SECOND = 12
 NON_CJK_READING_WORDS_PER_SECOND = 3
 MIN_CJK_READING_BUDGET = 18
 MIN_NON_CJK_READING_BUDGET = 6
+
+REFLECT_POSTPROCESS_PROMPT = """
+# Role: 字幕反思润色与时间轴分割专家
+
+你需要根据字幕时间轴、原文和现有译文，对译文做最终润色，并在译文过长或阅读负担过高时，将同一条字幕拆成多条更易阅读的字幕。
+
+要求：
+- 输出必须是纯 JSON 数组，不要解释，不要 Markdown。
+- 必须保留所有输入字幕的语义，不得摘要、删减数字、否定、条件、因果、动作对象、专有名词或术语。
+- 可以润色所有译文，使其更自然、连贯、符合${target_language}阅读习惯。
+- 只有在更利于阅读时才拆分字幕；不需要拆分时保留一条输出。
+- 拆分时必须同步拆分 original_subtitle 与 translated_subtitle，不能只拆译文。
+- 每个输出项必须带 source_key，并且 start_time/end_time 必须位于该 source_key 原字幕时间范围内。
+- 同一 source_key 拆出的多条字幕必须按时间递增，且 start_time < end_time。
+- 如果输入包含说话人标记，例如 [SPEAKER_00]、Speaker 1:，应保留在第一条相关子字幕中。
+
+${length_instruction}
+
+输入 JSON 数组字段：
+- source_key: 原字幕编号
+- start_time: 开始时间，毫秒
+- end_time: 结束时间，毫秒
+- duration_ms: 持续时间，毫秒
+- original_subtitle: 原文
+- translated_subtitle: 当前反思定稿译文
+- suggested_length: 建议译文长度，可能为空
+- length_unit: 建议长度单位
+- is_overlong: 当前译文是否超过建议长度
+
+输出 JSON 数组字段：
+- source_key
+- start_time
+- end_time
+- original_subtitle
+- translated_subtitle
+"""
 
 
 class TranslatorType(Enum):
@@ -71,6 +108,7 @@ class BaseTranslator(ABC):
         update_callback: Optional[Callable] = None,
         custom_prompt: Optional[str] = None,
         usage_callback: Optional[Callable] = None,
+        status_callback: Optional[Callable] = None,
     ):
         self.thread_num = thread_num
         self.batch_num = batch_num
@@ -84,6 +122,7 @@ class BaseTranslator(ABC):
         self.update_callback = update_callback
         self.custom_prompt = custom_prompt
         self.usage_callback = usage_callback
+        self.status_callback = status_callback
         self.cache_manager = CacheManager(str(CACHE_PATH))
         self.executor = None
 
@@ -126,10 +165,19 @@ class BaseTranslator(ABC):
             # 创建新的ASRDataSeg列表
             new_segments = self._create_segments(asr_data.segments, translated_dict)
 
-            return ASRData(new_segments)
+            translated_asr_data = ASRData(new_segments)
+            return self._postprocess_translated_asr_data(translated_asr_data)
         except Exception as e:
             logger.error(f"翻译失败：{str(e)}")
             raise RuntimeError(f"翻译失败：{str(e)}")
+
+    def _emit_status(self, message: str):
+        logger.info(message)
+        if self.status_callback:
+            self.status_callback(message)
+
+    def _postprocess_translated_asr_data(self, asr_data: ASRData) -> ASRData:
+        return asr_data
 
     def _split_chunks(self, subtitle_dict: Dict[str, str]) -> List[Dict[str, str]]:
         """将字幕分割成块"""
@@ -272,6 +320,7 @@ class OpenAITranslator(BaseTranslator):
         batch_context_max_chars: int = 300,
         update_callback: Optional[Callable] = None,
         usage_callback: Optional[Callable] = None,
+        status_callback: Optional[Callable] = None,
     ):
         super().__init__(
             thread_num=thread_num,
@@ -284,6 +333,7 @@ class OpenAITranslator(BaseTranslator):
             batch_context_max_chars=batch_context_max_chars,
             update_callback=update_callback,
             usage_callback=usage_callback,
+            status_callback=status_callback,
         )
 
         self._init_client()
@@ -540,6 +590,297 @@ class OpenAITranslator(BaseTranslator):
                 suspicious[key] = reasons
 
         return suspicious
+
+    def _postprocess_translated_asr_data(self, asr_data: ASRData) -> ASRData:
+        if not self.is_reflect or not asr_data.segments:
+            return asr_data
+
+        try:
+            self._emit_status("开始反思后处理：检查时间轴、原文与译文")
+            items = self._build_reflect_postprocess_items(asr_data)
+            overlong_count = sum(1 for item in items if item["is_overlong"])
+            self._emit_status(
+                f"反思后处理：检测到 {overlong_count} 条可能过长字幕"
+            )
+
+            processed_segments = []
+            chunks = [
+                items[i : i + self.batch_num]
+                for i in range(0, len(items), self.batch_num)
+            ]
+            for index, chunk in enumerate(chunks, 1):
+                if not self.is_running:
+                    self._emit_status("反思后处理已停止，保留当前反思翻译结果")
+                    return asr_data
+
+                self._emit_status(
+                    f"反思后处理：AI 润色/拆分第 {index}/{len(chunks)} 批"
+                )
+                chunk_segments = self._reflect_postprocess_chunk(chunk)
+                if chunk_segments is None:
+                    chunk_segments = self._items_to_segments(chunk)
+                processed_segments.extend(chunk_segments)
+
+            split_delta = len(processed_segments) - len(items)
+            self._emit_status(
+                f"反思后处理完成：输出 {len(processed_segments)} 条字幕，新增 {max(0, split_delta)} 条"
+            )
+            return ASRData(processed_segments)
+        except Exception as e:
+            logger.warning("反思后处理失败，保留原反思翻译结果: %s", str(e))
+            self._emit_status(f"反思后处理失败，已回退：{str(e)}")
+            return asr_data
+
+    def _build_reflect_postprocess_items(self, asr_data: ASRData) -> List[Dict[str, Any]]:
+        items = []
+        if not hasattr(self, "_subtitle_timing_by_key"):
+            self._subtitle_timing_by_key = {}
+        for index, seg in enumerate(asr_data.segments, 1):
+            key = str(index)
+            timing = {
+                "start_time": seg.start_time,
+                "end_time": seg.end_time,
+                "duration_ms": max(0, seg.end_time - seg.start_time),
+            }
+            self._subtitle_timing_by_key[key] = timing
+            budget = self._build_reading_budget(key) or {}
+            suggested_length = budget.get("suggested_length")
+            translated_text = seg.translated_text or ""
+            translated_units = self._count_text_units(translated_text)
+            is_overlong = (
+                suggested_length is not None and translated_units > suggested_length
+            )
+            items.append(
+                {
+                    "source_key": key,
+                    "start_time": seg.start_time,
+                    "end_time": seg.end_time,
+                    "duration_ms": timing["duration_ms"],
+                    "original_subtitle": seg.text or "",
+                    "translated_subtitle": translated_text,
+                    "suggested_length": suggested_length,
+                    "length_unit": budget.get("unit"),
+                    "is_overlong": is_overlong,
+                    "speaker": seg.speaker,
+                }
+            )
+        return items
+
+    def _reflect_postprocess_chunk(
+        self, chunk: List[Dict[str, Any]]
+    ) -> Optional[List[ASRDataSeg]]:
+        try:
+            cached_segments = self._get_reflect_postprocess_cache(chunk)
+            if cached_segments is not None:
+                self._emit_status(
+                    f"反思后处理：使用缓存结果，{len(chunk)} 条输入 -> {len(cached_segments)} 条输出"
+                )
+                return cached_segments
+
+            response = self._call_api(
+                self._get_reflect_postprocess_prompt(),
+                self._get_reflect_postprocess_user_content(chunk),
+            )
+            if self.usage_callback:
+                self.usage_callback("translate", extract_openai_usage(response))
+
+            content = re.sub(
+                r"<think>.*?</think>",
+                "",
+                response.choices[0].message.content,
+                flags=re.DOTALL,
+            ).strip()
+            parsed = json_repair.loads(content)
+            segments = self._parse_reflect_postprocess_result(parsed, chunk)
+            if segments is None:
+                self._emit_status("反思后处理：AI 返回无效，已回退当前批次")
+                return None
+
+            self._set_reflect_postprocess_cache(chunk, segments)
+            self._emit_status(
+                f"反思后处理：当前批次 {len(chunk)} 条输入 -> {len(segments)} 条输出"
+            )
+            return segments
+        except Exception as e:
+            logger.warning("反思后处理当前批次失败，已回退: %s", str(e))
+            self._emit_status(f"反思后处理：当前批次失败，已回退：{str(e)}")
+            return None
+
+    def _get_reflect_postprocess_prompt(self) -> str:
+        length_instruction = (
+            "没有固定长度上限；以时间轴可读性为准，只在明显过长时拆分。"
+            if self.translation_max_length <= 0
+            else (
+                f"建议参考每条字幕的 suggested_length，并结合 duration_ms 判断是否拆分。"
+                f"基础长度参考值为 {self.translation_max_length}。"
+            )
+        )
+        return Template(REFLECT_POSTPROCESS_PROMPT).safe_substitute(
+            target_language=self.target_language,
+            length_instruction=length_instruction,
+        )
+
+    @staticmethod
+    def _get_reflect_postprocess_user_content(
+        chunk: List[Dict[str, Any]]
+    ) -> str:
+        public_items = [
+            {key: value for key, value in item.items() if key != "speaker"}
+            for item in chunk
+        ]
+        return json.dumps(public_items, ensure_ascii=False)
+
+    def _get_reflect_postprocess_cache(
+        self, chunk: List[Dict[str, Any]]
+    ) -> Optional[List[ASRDataSeg]]:
+        if not self.use_cache:
+            return None
+        cache_result = self.cache_manager.get_llm_result(
+            prompt=self._get_reflect_postprocess_user_content(chunk),
+            model_name=self.model,
+            **self._get_reflect_postprocess_cache_params(),
+        )
+        if not cache_result:
+            return None
+        try:
+            parsed = json.loads(cache_result)
+            return self._parse_reflect_postprocess_result(parsed, chunk)
+        except Exception as e:
+            logger.warning("反思后处理缓存解析失败，忽略缓存: %s", str(e))
+            return None
+
+    def _set_reflect_postprocess_cache(
+        self, chunk: List[Dict[str, Any]], segments: List[ASRDataSeg]
+    ):
+        if not self.use_cache:
+            return
+        try:
+            result = [
+                {
+                    "source_key": self._find_source_key_for_segment(seg, chunk),
+                    "start_time": seg.start_time,
+                    "end_time": seg.end_time,
+                    "original_subtitle": seg.text,
+                    "translated_subtitle": seg.translated_text,
+                }
+                for seg in segments
+            ]
+            self.cache_manager.set_llm_result(
+                prompt=self._get_reflect_postprocess_user_content(chunk),
+                result=json.dumps(result, ensure_ascii=False),
+                model_name=self.model,
+                **self._get_reflect_postprocess_cache_params(),
+            )
+        except Exception as e:
+            logger.warning("反思后处理缓存写入失败，继续使用当前结果: %s", str(e))
+
+    def _get_reflect_postprocess_cache_params(self) -> Dict[str, Any]:
+        prompt_hash = hashlib.md5(
+            self._get_reflect_postprocess_prompt().encode()
+        ).hexdigest()
+        return {
+            "target_language": self.target_language,
+            "temperature": self.temperature,
+            "prompt_hash": prompt_hash,
+            "translation_max_length": self.translation_max_length,
+            "reflect_postprocess_policy_version": REFLECT_POSTPROCESS_POLICY_VERSION,
+        }
+
+    @staticmethod
+    def _find_source_key_for_segment(seg: ASRDataSeg, chunk: List[Dict[str, Any]]) -> str:
+        for item in chunk:
+            if item["start_time"] <= seg.start_time and seg.end_time <= item["end_time"]:
+                return str(item["source_key"])
+        return str(chunk[0]["source_key"]) if chunk else ""
+
+    def _parse_reflect_postprocess_result(
+        self, result: Any, chunk: List[Dict[str, Any]]
+    ) -> Optional[List[ASRDataSeg]]:
+        if isinstance(result, dict) and isinstance(result.get("subtitles"), list):
+            result = result["subtitles"]
+        if not isinstance(result, list):
+            logger.warning("反思后处理返回值不是 JSON 数组")
+            return None
+
+        source_items = {str(item["source_key"]): item for item in chunk}
+        grouped: Dict[str, List[Dict[str, Any]]] = {
+            str(item["source_key"]): [] for item in chunk
+        }
+
+        for entry in result:
+            if not isinstance(entry, dict):
+                logger.warning("反思后处理包含非对象条目")
+                return None
+            source_key = str(entry.get("source_key", "")).strip()
+            if source_key not in source_items:
+                logger.warning("反思后处理返回未知 source_key: %s", source_key)
+                return None
+
+            try:
+                start_time = int(float(entry["start_time"]))
+                end_time = int(float(entry["end_time"]))
+            except Exception:
+                logger.warning("反思后处理返回无效时间轴: %s", entry)
+                return None
+
+            source = source_items[source_key]
+            original = str(entry.get("original_subtitle", "") or "").strip()
+            translated = str(entry.get("translated_subtitle", "") or "").strip()
+            if not original or not translated:
+                logger.warning("反思后处理返回缺失原文或译文: %s", source_key)
+                return None
+            if (
+                start_time < int(source["start_time"])
+                or end_time > int(source["end_time"])
+                or start_time >= end_time
+            ):
+                logger.warning("反思后处理返回越界时间轴: %s", entry)
+                return None
+
+            grouped[source_key].append(
+                {
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "original_subtitle": original,
+                    "translated_subtitle": translated,
+                }
+            )
+
+        segments = []
+        for source_key, source in source_items.items():
+            entries = sorted(grouped[source_key], key=lambda item: item["start_time"])
+            if not entries:
+                logger.warning("反思后处理缺失 source_key: %s", source_key)
+                return None
+            previous_end = int(source["start_time"])
+            for entry in entries:
+                if entry["start_time"] < previous_end:
+                    logger.warning("反思后处理返回乱序或重叠时间轴: %s", source_key)
+                    return None
+                previous_end = entry["end_time"]
+                segments.append(
+                    ASRDataSeg(
+                        entry["original_subtitle"],
+                        entry["start_time"],
+                        entry["end_time"],
+                        translated_text=entry["translated_subtitle"],
+                        speaker=source.get("speaker", ""),
+                    )
+                )
+        return segments
+
+    @staticmethod
+    def _items_to_segments(chunk: List[Dict[str, Any]]) -> List[ASRDataSeg]:
+        return [
+            ASRDataSeg(
+                item["original_subtitle"],
+                int(item["start_time"]),
+                int(item["end_time"]),
+                translated_text=item["translated_subtitle"],
+                speaker=item.get("speaker", ""),
+            )
+            for item in chunk
+        ]
 
     def _translate_chunk(
         self, subtitle_chunk: Dict[str, str], context_before: str = ""
@@ -1203,6 +1544,7 @@ class TranslatorFactory:
         use_cache: bool = True,
         batch_context_enabled: bool = True,
         batch_context_max_chars: int = 300,
+        status_callback: Optional[Callable] = None,
     ) -> BaseTranslator:
         """创建翻译器实例"""
         try:
@@ -1222,6 +1564,7 @@ class TranslatorFactory:
                     use_cache=use_cache,
                     batch_context_enabled=batch_context_enabled,
                     batch_context_max_chars=batch_context_max_chars,
+                    status_callback=status_callback,
                 )
             elif translator_type == TranslatorType.GOOGLE:
                 batch_num = 5

@@ -235,6 +235,7 @@ class SubtitleThread(QThread):
                     use_cache=subtitle_config.llm_cache_enabled,
                     batch_context_enabled=subtitle_config.llm_batch_context_enabled,
                     batch_context_max_chars=subtitle_config.llm_batch_context_max_chars,
+                    status_callback=self.status_callback,
                 )
                 self.translator = translator
                 asr_data = translator.translate_subtitle(asr_data)
@@ -298,6 +299,10 @@ class SubtitleThread(QThread):
         if self.last_progress_status:
             self._emit_progress(self.last_progress_value, self.last_progress_status)
 
+    def status_callback(self, message: str):
+        logger.info(message)
+        self._emit_progress(self.last_progress_value, self.tr(message))
+
     def _format_usage_suffix(self) -> str:
         total = self.token_usage["total_tokens"]
         if total <= 0:
@@ -322,6 +327,12 @@ class SubtitleThread(QThread):
                     self.optimizer.stop()
                 except Exception as e:
                     logger.error(f"停止优化器时出错：{str(e)}")
+
+            if hasattr(self, "translator"):
+                try:
+                    self.translator.stop()
+                except Exception as e:
+                    logger.error(f"停止翻译器时出错：{str(e)}")
 
             # 终止线程
             self.terminate()
