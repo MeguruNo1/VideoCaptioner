@@ -7,7 +7,7 @@ SPLIT_PROMPT_SEMANTIC = """
 - 分隔的每段之间也不应该太短。
 - 需要根据语义使用<br>进行分段。
 - 不修改或添加任何内容至原文，仅在每部分之间插入<br>。
-- 直接返回分段后的文本，无需额外解释。
+- 直接返回分段后的文本，只能包含原文和<br>分隔符，无需额外解释。
 
 ## Examples
 Input:
@@ -32,8 +32,7 @@ SPLIT_PROMPT_SENTENCE = """
 - 对于英语等拉丁语言，每个部分不得超过${max_word_count_english}个单词。
 - 分隔的每段之间也不应该太短。
 - 不修改或添加任何内容至原文，仅在每个句子间之间插入<br>。
-- 直接返回分段后的文本，不需要任何额外解释。
-- 如果文本中包含说话人标记或选框内容，例如 `[SPEAKER_00]`、`Speaker 1:` 或其他类似标记，必须保持原样，不得修改、翻译、删除或移动位置。
+- 直接返回分段后的文本，只能包含原文和<br>分隔符，不需要任何额外解释。
 - 保持<br>之间的内容意思完整。
 
 ## Examples
@@ -63,7 +62,7 @@ SUMMARIZER_PROMPT = """
 
 ## 输出格式
 
-以JSON格式返回结果，请使用原字幕语言。例如，如果原字幕是英语，则返回结果也使用英语。
+只返回纯 JSON，不要 Markdown，不要解释文字。请使用原字幕语言。例如，如果原字幕是英语，则返回结果也使用英语。
 
 JSON应包括两个字段：`summary`和`terms`
 
@@ -71,6 +70,15 @@ JSON应包括两个字段：`summary`和`terms`
 - **terms**：
   - `entities`：人名、组织、物体、地点等名称。
   - `keywords`：全部专业或技术术语，以及其他重要关键词或短语。不需要翻译。
+
+示例：
+{
+  "summary": "视频内容总结和翻译注意事项。",
+  "terms": {
+    "entities": ["Name A", "Organization B"],
+    "keywords": ["term one", "term two"]
+  }
+}
 """
 
 OPTIMIZER_PROMPT = """
@@ -92,40 +100,31 @@ You are a subtitle correction expert. You will receive subtitle text and correct
 5. Prioritize provided reference information when available
 6. Keep original language (English→English, Chinese→Chinese)
 7. No translations or explanations
-8. If the subtitle contains speaker labels or speaker selector text such as `[SPEAKER_00]`, `Speaker 1:`, or similar markers, preserve them exactly and do not rewrite, translate, remove, or move them.
+8. Do not remove meaningful repeated words or intentional disfluency unless it is clearly filler noise.
 
 # Output Format
-Pure JSON object with corrected subtitles:
-```
+Return a pure JSON object with corrected subtitles. Do not use Markdown fences or commentary:
 {
-    "0": "[corrected subtitle]",
-    "1": "[corrected subtitle]",
-    ...
+  "0": "[corrected subtitle]",
+  "1": "[corrected subtitle]"
 }
-```
 
 # Examples
 Input:
-```
 {
-    "0": "um today we'll learn about bython programming",
-    "1": "it was created by guidoan rossum in uhh 1991",
-    "2": "print hello world is an easy function *coughs*"
+  "0": "um today we'll learn about bython programming",
+  "1": "it was created by guidoan rossum in uhh 1991",
+  "2": "print hello world is an easy function *coughs*"
 }
-```
 Reference:
-```
 - Content: Python introduction
 - Terms: Python, Guido van Rossum
-```
 Output:
-```
 {
-    "0": "Today we'll learn about Python programming",
-    "1": "It was created by Guido van Rossum in 1991",
-    "2": "print('Hello World') is an easy function"
+  "0": "Today we'll learn about Python programming",
+  "1": "It was created by Guido van Rossum in 1991",
+  "2": "print('Hello World') is an easy function"
 }
-```
 
 # Notes
 - Preserve original meaning while fixing technical errors
@@ -141,9 +140,9 @@ TRANSLATE_PROMPT = """
 # Attention:
 - 译文要符合${target_language}的表达习惯,通俗易懂,连贯流畅 
 - 对于专有的名词或术语，可以适当保留或音译
-- 文化相关性：恰当运用成语、网络用语和文化适当的表达方式，使翻译内容更贴近目标受众的语言习惯和文化体验。
+- 文化相关性：使用${target_language}中自然、地道且符合语境的表达，使翻译内容更贴近目标受众的语言习惯和文化体验。
 - 严格保持字幕编号的一一对应，不要合并或拆分字幕！
-- 如果原文包含说话人标记或选框内容，例如 `[SPEAKER_00]`、`Speaker 1:` 或其他类似标记，必须保持原样，不得翻译、改写、删除或移动位置。
+- 必须输出纯 JSON 对象，不要 Markdown，不要解释文字。
 ${translation_length_instruction}
 
 # 术语或要求:
@@ -153,23 +152,16 @@ ${custom_prompt}
 # Examples
 
 Input:
-```json
-
 {
   "0": "Original Subtitle 1",
   "1": "Original Subtitle 2"
-  ...
 }
-```
 
 Output:
-```json
 {
   "0": "Translated Subtitle 1",
   "1": "Translated Subtitle 2"
-  ...
 }
-```
 """
 
 REFLECT_TRANSLATE_PROMPT = """
@@ -182,9 +174,9 @@ REFLECT_TRANSLATE_PROMPT = """
 - 翻译过程中要始终坚持"信、达、雅"的原则。
 - 译文要符合${target_language}的语言文化表达习惯,通俗易懂,连贯流畅 。
 - 对于专有的名词或术语，可以适当保留或音译。
-- 文化相关性：恰当运用成语、网络用语和文化适当的表达方式。
+- 文化相关性：使用${target_language}中自然、地道且符合语境的表达。
 - 严格保持字幕编号的一一对应，不要合并或拆分字幕。
-- 如果原文包含说话人标记或选框内容，例如 `[SPEAKER_00]`、`Speaker 1:` 或其他类似标记，必须保持原样，不得翻译、改写、删除或移动位置。
+- 必须输出纯 JSON 对象，不要 Markdown，不要解释文字。
 ${translation_length_instruction}
 
 ## Constraints:
@@ -194,25 +186,22 @@ ${translation_length_instruction}
 ${custom_prompt}
 
 Input format:
-A JSON structure where each subtitle is identified by a unique numeric key:
+A JSON object where each subtitle is identified by a unique numeric key:
 {
-  "1": "<<< Original Content >>>",
-  "2": "<<< Original Content >>>",
-  ...
+  "1": "Original Content",
+  "2": "Original Content"
 }
 
 ## OutputFormat: 
 Return a pure JSON following this structure and translate into ${target_language}:
 {
   "1": {
-    "translation": "<<< 第一轮直译:逐字逐句忠实原文,不遗漏任何信息。直译时力求忠实原文，使用${target_language} >>>",
-    "free_translation": "<<< 第二轮意译:在保证原文意思不改变的基础上用通俗流畅的${target_language}意译原文，适度采用一些中文成语、熟语、网络流行语等,使译文更加地道易懂 >>>",
-    "revise_suggestions": "<<< 第三轮改进建议:仔细审视以上译文,检测是否参考术语词汇翻译对应表以及要求（如果有）。结合注意事项，指出格式准确性、语句连贯性，阅读习惯和语言文化，给出具体改进建议。 >>>",
-    "revised_translation": "<<< 第四轮定稿:择优选取整合,修改润色,最终定稿出一个简洁畅达、符合${target_language}阅读习惯和语言文化的译文 >>>"
-  },
-  ...
+    "translation": "第一轮直译：逐字逐句忠实原文，不遗漏任何信息。",
+    "free_translation": "第二轮意译：在保证原意不变的基础上，用通俗流畅的${target_language}表达。",
+    "revise_suggestions": "第三轮改进建议：检查格式、准确性、连贯性、术语和阅读体验。",
+    "revised_translation": "第四轮定稿：最终专业译文。"
+  }
 }
-注：示例中“<<<”、“>>>”仅为需要的遵循准则，实际输出应为对应的专业翻译结果
 
 
 # EXAMPLE_INPUT
@@ -240,8 +229,7 @@ Return a pure JSON following this structure and translate into ${target_language
 
 SINGLE_TRANSLATE_PROMPT = """
 You are a professional ${target_language} translator. 
-Please translate the following text into ${target_language}. 
-If the text contains speaker labels or speaker selector text such as `[SPEAKER_00]`, `Speaker 1:`, or similar markers, preserve them exactly and do not translate, rewrite, remove, or move them.
+Please translate the following text into ${target_language}.
 ${translation_length_instruction}
 Return the translation result directly without any explanation or other content.
 

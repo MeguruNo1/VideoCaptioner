@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+from string import Template
 from typing import List, Optional
 
 import openai
@@ -11,7 +12,7 @@ from app.config import CACHE_PATH
 from app.core.utils.openai_compat import get_openai_compat_request_options
 
 from ..utils.logger import setup_logger
-from .prompt import SPLIT_SYSTEM_PROMPT
+from .prompt import PROMPT_SPLIT_SEMANTIC, get_prompt_template
 
 logger = setup_logger("split_by_llm")
 
@@ -88,8 +89,12 @@ def split_by_llm_retry(text: str,
     """
     使用LLM进行文本断句
     """
-    system_prompt = SPLIT_SYSTEM_PROMPT.replace("[max_word_count_cjk]", str(max_word_count_cjk))
-    system_prompt = system_prompt.replace("[max_word_count_english]", str(max_word_count_english))
+    system_prompt = Template(
+        get_prompt_template(PROMPT_SPLIT_SEMANTIC)
+    ).safe_substitute(
+        max_word_count_cjk=max_word_count_cjk,
+        max_word_count_english=max_word_count_english,
+    )
     user_prompt = f"Please use multiple <br> tags to separate the following sentence:\n{text}"
 
     if use_cache:

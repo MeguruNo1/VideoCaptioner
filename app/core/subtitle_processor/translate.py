@@ -59,7 +59,7 @@ REFLECT_POSTPROCESS_PROMPT = """
 - 拆分时必须同步拆分 original_subtitle 与 translated_subtitle，不能只拆译文。
 - 每个输出项必须带 source_key，并且 start_time/end_time 必须位于该 source_key 原字幕时间范围内。
 - 同一 source_key 拆出的多条字幕必须按时间递增，且 start_time < end_time。
-- 如果输入包含说话人标记，例如 [SPEAKER_00]、Speaker 1:，应保留在第一条相关子字幕中。
+- 同一 source_key 的输出应覆盖原始 start_time 到 end_time，除非原文确有明显停顿或空白。
 
 ${length_instruction}
 
@@ -80,6 +80,39 @@ ${length_instruction}
 - end_time
 - original_subtitle
 - translated_subtitle
+
+示例输入：
+[
+  {
+    "source_key": "1",
+    "start_time": 1000,
+    "end_time": 5000,
+    "duration_ms": 4000,
+    "original_subtitle": "We need to finish the design today and send it to the client before the meeting.",
+    "translated_subtitle": "我们需要今天完成设计，并在会议前发给客户。",
+    "suggested_length": 18,
+    "length_unit": "字",
+    "is_overlong": true
+  }
+]
+
+示例输出：
+[
+  {
+    "source_key": "1",
+    "start_time": 1000,
+    "end_time": 3000,
+    "original_subtitle": "We need to finish the design today",
+    "translated_subtitle": "我们今天要完成设计"
+  },
+  {
+    "source_key": "1",
+    "start_time": 3000,
+    "end_time": 5000,
+    "original_subtitle": "and send it to the client before the meeting.",
+    "translated_subtitle": "并在会前发给客户"
+  }
+]
 """
 
 

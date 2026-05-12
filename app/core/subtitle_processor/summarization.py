@@ -1,3 +1,4 @@
+import json
 import os
 
 from openai import OpenAI
@@ -43,7 +44,8 @@ class SubtitleSummarizer:
                     model_name=self.model, default_timeout=self.timeout
                 ),
             )
-            return str(json_repair.loads(response.choices[0].message.content))
+            summary_data = json_repair.loads(response.choices[0].message.content)
+            return json.dumps(summary_data, ensure_ascii=False)
         except Exception as e:
             logger.exception(f"摘要化字幕内容失败: {e}")
             return ""
