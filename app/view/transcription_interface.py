@@ -248,6 +248,8 @@ class VideoInfoCard(CardWidget):
 
     def on_transcript_error(self, error):
         """处理转录错误"""
+        if self.transcription_interface:
+            self.transcription_interface.is_processing = False
         self.start_button.setEnabled(True)
         self.start_button.setText(self.tr("重新转录"))
         self.start_button.setEnabled(True)
@@ -284,6 +286,7 @@ class TranscriptionInterface(QWidget):
     """转录界面类,用于显示视频信息和转录进度"""
 
     finished = pyqtSignal(str, str)
+    send_to_translate = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -349,6 +352,13 @@ class TranscriptionInterface(QWidget):
         self.model_button.setMenu(self.model_menu)
         self.command_bar.addWidget(self.model_button)
 
+        self.send_to_translate_action = Action(
+            FluentIcon.LANGUAGE,
+            self.tr("送去翻译"),
+            triggered=self._on_send_to_translate_clicked,
+        )
+        self.command_bar.addAction(self.send_to_translate_action)
+
         self.main_layout.addWidget(self.command_bar)
 
     def _setup_signals(self):
@@ -386,6 +396,7 @@ class TranscriptionInterface(QWidget):
     def _on_transcript_finished(self, task: TranscribeTask):
         """转录完成处理"""
         self.is_processing = False
+        self.task = task
         send_windows_notification(
             self.tr("转录完成"),
             self.tr("字幕文件已生成：") + Path(task.output_path).name,
@@ -402,6 +413,36 @@ class TranscriptionInterface(QWidget):
                 parent=self.parent(),
             )
 
+    def _on_send_to_translate_clicked(self):
+        """将已生成的转录字幕发送到字幕优化与翻译页。"""
+        if self.is_processing:
+            InfoBar.warning(
+                self.tr("提示"),
+                self.tr("正在处理中，请等待当前任务完成"),
+                duration=3000,
+                parent=self,
+            )
+            return
+
+        task = self.video_info_card.task or self.task
+        subtitle_path = Path(task.output_path) if task and task.output_path else None
+        if not task or not subtitle_path or not subtitle_path.exists():
+            InfoBar.warning(
+                self.tr("提示"),
+                self.tr("请先完成转录后再送去翻译"),
+                duration=3000,
+                parent=self,
+            )
+            return
+
+        self.send_to_translate.emit(str(subtitle_path), task.file_path or "")
+        InfoBar.success(
+            self.tr("已发送"),
+            self.tr("已将字幕发送到字幕优化与翻译页面。"),
+            duration=2500,
+            parent=self,
+        )
+
     def _on_file_select(self):
         """文件选择处理"""
         desktop_path = QStandardPaths.writableLocation(QStandardPaths.DesktopLocation)
@@ -415,7 +456,13 @@ class TranscriptionInterface(QWidget):
             self, self.tr("选择媒体文件"), desktop_path, filter_str
         )
         if file_path:
+            self._clear_current_task()
             self.update_info(file_path)
+
+    def _clear_current_task(self):
+        """清理旧任务，避免新文件复用上一份转录结果。"""
+        self.task = None
+        self.video_info_card.task = None
 
     def update_info(self, file_path):
         """设置UI"""
@@ -470,6 +517,7 @@ class TranscriptionInterface(QWidget):
             is_supported = file_ext in supported_formats
 
             if is_supported:
+                self._clear_current_task()
                 self.update_info(file_path)
                 InfoBar.success(
                     self.tr("导入成功"),

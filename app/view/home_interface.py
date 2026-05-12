@@ -58,6 +58,9 @@ class HomeInterface(QWidget):
         self.transcription_interface.finished.connect(
             self.switch_to_subtitle_optimization
         )
+        self.transcription_interface.send_to_translate.connect(
+            self.open_subtitle_optimization
+        )
 
     def switch_to_transcription(self, file_path):
         # 切换到转录界面
@@ -92,6 +95,16 @@ class HomeInterface(QWidget):
         )
         self.subtitle_optimization_interface.set_task(subtitle_task)
         self.subtitle_optimization_interface.process()
+        self.show_subtitle_optimization_page()
+
+    def open_subtitle_optimization(self, file_path, video_path):
+        # 只加载字幕并切换页面，不自动开始字幕处理
+        if not file_path or not Path(file_path).exists():
+            raise FileNotFoundError(f"字幕文件不存在: {file_path}")
+        subtitle_task = TaskFactory.create_subtitle_task(
+            file_path, video_path, need_next_task=False
+        )
+        self.subtitle_optimization_interface.set_task(subtitle_task)
         self.show_subtitle_optimization_page()
 
     def show_subtitle_optimization_page(self):
