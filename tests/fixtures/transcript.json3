@@ -1,0 +1,22 @@
+{
+  "events": [
+    {
+      "tStartMs": 0,
+      "dDurationMs": 1000,
+      "segs": [
+        {
+          "utf8": "JSON3 line."
+        }
+      ]
+    },
+    {
+      "tStartMs": 1000,
+      "dDurationMs": 1000,
+      "segs": [
+        {
+          "utf8": "Next JSON3 line."
+        }
+      ]
+    }
+  ]
+}

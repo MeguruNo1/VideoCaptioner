@@ -374,6 +374,12 @@ class DownloadCenterInterface(QWidget):
         )
         self.pr_smart_postprocess_checkbox.setVisible(False)
         simple_layout.addWidget(self.pr_smart_postprocess_checkbox)
+        self.pr_smart_transcript_checkbox = QCheckBox(
+            self.tr("生成视频文稿（使用 YouTube 字幕）"),
+            self.simple_panel,
+        )
+        self.pr_smart_transcript_checkbox.setVisible(False)
+        simple_layout.addWidget(self.pr_smart_transcript_checkbox)
 
         self.professional_panel = QWidget(self.selection_section)
         professional_layout = QVBoxLayout(self.professional_panel)
@@ -580,6 +586,10 @@ class DownloadCenterInterface(QWidget):
         self.result_description_txt.setWordWrap(True)
         self.result_description_txt.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.result_description_txt.setObjectName("downloadPathValueLabel")
+        self.result_transcript_txt = BodyLabel("", self.result_card)
+        self.result_transcript_txt.setWordWrap(True)
+        self.result_transcript_txt.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.result_transcript_txt.setObjectName("downloadPathValueLabel")
         self.result_transcoded = BodyLabel("", self.result_card)
         self.result_transcoded.setWordWrap(True)
         self.result_transcoded.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -593,13 +603,18 @@ class DownloadCenterInterface(QWidget):
         result_files2.addWidget(self.result_thumbnail, 1)
         result_files2.addWidget(self.result_metadata, 1)
         result_files2.addWidget(self.result_description_txt, 1)
-        result_files2.addWidget(self.result_transcoded, 1)
+
+        result_files3 = QHBoxLayout()
+        result_files3.setSpacing(16)
+        result_files3.addWidget(self.result_transcript_txt, 1)
+        result_files3.addWidget(self.result_transcoded, 1)
 
         result_layout.addLayout(result_header)
         result_layout.addWidget(self.result_summary)
         result_layout.addLayout(result_details)
         result_layout.addLayout(result_files)
         result_layout.addLayout(result_files2)
+        result_layout.addLayout(result_files3)
 
         self.result_card.setVisible(False)
         self.main_layout.addWidget(self.result_card)
@@ -666,11 +681,13 @@ class DownloadCenterInterface(QWidget):
         self.custom_container_combo.currentIndexChanged.connect(self._refresh_selection_summary)
         self.custom_audio_codec_combo.currentIndexChanged.connect(self._refresh_selection_summary)
         self.pr_smart_postprocess_checkbox.toggled.connect(self._refresh_selection_summary)
+        self.pr_smart_transcript_checkbox.toggled.connect(self._on_pr_smart_transcript_toggled)
         self.subtitle_mode_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.custom_video_codec_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.custom_container_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.custom_audio_codec_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.pr_smart_postprocess_checkbox.toggled.connect(self._save_download_preferences)
+        self.pr_smart_transcript_checkbox.toggled.connect(self._save_download_preferences)
         self.download_detail_button.clicked.connect(self._toggle_download_detail_panel)
 
     def showEvent(self, event):
@@ -821,6 +838,7 @@ class DownloadCenterInterface(QWidget):
         self.metadata_checkbox.setChecked(bool(cfg.get(cfg.download_center_need_metadata)))
         self.description_txt_checkbox.setChecked(bool(cfg.get(cfg.download_center_need_description_txt)))
         self.pr_smart_postprocess_checkbox.setChecked(bool(cfg.get(cfg.download_center_pr_smart_postprocess)))
+        self.pr_smart_transcript_checkbox.setChecked(bool(cfg.get(cfg.download_center_pr_smart_transcript_txt)))
 
         mode_key = str(cfg.get(cfg.download_center_mode) or "simple")
         self._switch_download_mode(mode_key)
@@ -842,6 +860,7 @@ class DownloadCenterInterface(QWidget):
         cfg.set(cfg.download_center_custom_container, self.custom_container_combo.currentData() or "auto")
         cfg.set(cfg.download_center_custom_audio_codec, self.custom_audio_codec_combo.currentData() or "auto")
         cfg.set(cfg.download_center_pr_smart_postprocess, self.pr_smart_postprocess_checkbox.isChecked())
+        cfg.set(cfg.download_center_pr_smart_transcript_txt, self.pr_smart_transcript_checkbox.isChecked())
 
     def _set_preview_visible(self, visible: bool):
         self.preview_card.setVisible(visible)
@@ -888,7 +907,10 @@ class DownloadCenterInterface(QWidget):
         self.thumbnail_checkbox.setEnabled(enabled)
         self.metadata_checkbox.setEnabled(enabled)
         self.description_txt_checkbox.setEnabled(enabled)
-        self.subtitle_mode_combo.setEnabled(enabled and self.subtitle_checkbox.isChecked())
+        subtitle_source_needed = self.subtitle_checkbox.isChecked() or (
+            self._is_pr_smart_preset_selected() and self.pr_smart_transcript_checkbox.isChecked()
+        )
+        self.subtitle_mode_combo.setEnabled(enabled and subtitle_source_needed)
         self.choose_output_dir_button.setEnabled(enabled)
         self.reset_output_dir_button.setEnabled(enabled)
         self.custom_video_codec_combo.setEnabled(enabled and self._is_custom_simple_preset_selected())
@@ -1008,6 +1030,7 @@ class DownloadCenterInterface(QWidget):
         self.result_thumbnail.setText(self.tr("封面：暂无"))
         self.result_metadata.setText(self.tr("元数据：暂无"))
         self.result_description_txt.setText(self.tr("说明TXT：暂无"))
+        self.result_transcript_txt.setText(self.tr("视频文稿：暂无"))
         self.result_transcoded.setText(self.tr("H.265后处理：暂无"))
 
     def _reset_preview_labels(self):
@@ -1039,9 +1062,12 @@ class DownloadCenterInterface(QWidget):
             self.status_label.setText(self.tr("链接已变更，请重新解析"))
             self._clear_preview()
 
-    def _toggle_subtitle_mode_row(self, checked: bool):
-        self.subtitle_mode_row.setVisible(checked)
-        self.subtitle_mode_combo.setEnabled(checked)
+    def _toggle_subtitle_mode_row(self, checked: bool | None = None):
+        subtitle_source_needed = self.subtitle_checkbox.isChecked() or (
+            self._is_pr_smart_preset_selected() and self.pr_smart_transcript_checkbox.isChecked()
+        )
+        self.subtitle_mode_row.setVisible(subtitle_source_needed)
+        self.subtitle_mode_combo.setEnabled(self.controls_enabled and subtitle_source_needed)
         self._refresh_selection_summary()
 
     def _is_custom_simple_preset_selected(self) -> bool:
@@ -1059,11 +1085,18 @@ class DownloadCenterInterface(QWidget):
         is_pr_smart = self._is_pr_smart_preset_selected()
         self.pr_smart_postprocess_checkbox.setVisible(is_pr_smart)
         self.pr_smart_postprocess_checkbox.setEnabled(self.controls_enabled and is_pr_smart)
+        self.pr_smart_transcript_checkbox.setVisible(is_pr_smart)
+        self.pr_smart_transcript_checkbox.setEnabled(self.controls_enabled and is_pr_smart)
+        self._toggle_subtitle_mode_row()
 
     def _on_simple_preset_changed(self, *_args):
         self._update_custom_preferences_visibility()
         self._refresh_selection_summary()
         self._save_download_preferences()
+
+    def _on_pr_smart_transcript_toggled(self, *_args):
+        self._toggle_subtitle_mode_row()
+        self._refresh_selection_summary()
 
     def _create_time_range_row(self, start_text: str = "", end_text: str = "") -> dict:
         row_widget = QWidget(self.time_ranges_container)
@@ -1593,6 +1626,8 @@ class DownloadCenterInterface(QWidget):
                     parts.append(self.tr("音频策略：") + str(audio_summary))
                 if self.pr_smart_postprocess_checkbox.isChecked():
                     parts.append(self.tr("AV1->H.265 后处理：开启"))
+                if self.pr_smart_transcript_checkbox.isChecked():
+                    parts.append(self.tr("视频文稿：开启"))
         else:
             mode_text = self.professional_mode_combo.currentText() or self.tr("暂无模式")
             parts.append(mode_text)
@@ -1611,6 +1646,8 @@ class DownloadCenterInterface(QWidget):
             extras.append(self.tr("元数据"))
         if self.description_txt_checkbox.isChecked():
             extras.append(self.tr("说明TXT"))
+        if self._is_pr_smart_preset_selected() and self.pr_smart_transcript_checkbox.isChecked():
+            extras.append(self.tr("视频文稿"))
         if extras:
             parts.append(self.tr("附加项：") + self.tr("、").join(extras))
 
@@ -1628,6 +1665,7 @@ class DownloadCenterInterface(QWidget):
             "need_thumbnail": self.thumbnail_checkbox.isChecked(),
             "need_metadata": self.metadata_checkbox.isChecked(),
             "need_description_txt": self.description_txt_checkbox.isChecked(),
+            "need_transcript_txt": False,
             "download_mode": "video_audio",
             "selected_video_format_id": "",
             "selected_audio_format_id": "",
@@ -1647,6 +1685,9 @@ class DownloadCenterInterface(QWidget):
             elif preset in {"pr_smart", "pr_editing"}:
                 request.update(self._build_pr_smart_request())
                 request["pr_smart_transcode_hevc_on_av1"] = self.pr_smart_postprocess_checkbox.isChecked()
+                request["need_transcript_txt"] = self.pr_smart_transcript_checkbox.isChecked()
+                if request["need_transcript_txt"]:
+                    request["need_subtitle"] = True
             elif preset == "custom_preferences":
                 request.update(need_video=True, download_mode="video_audio", format_selector=self._build_custom_preferences_selector())
             elif preset == "audio_only":
@@ -1736,6 +1777,7 @@ class DownloadCenterInterface(QWidget):
             format_selector=request["format_selector"],
             need_metadata=request["need_metadata"],
             need_description_txt=request["need_description_txt"],
+            need_transcript_txt=request["need_transcript_txt"],
             enable_time_ranges=request["enable_time_ranges"],
             download_sections=request["download_sections"],
             pr_smart_transcode_hevc_on_av1=request["pr_smart_transcode_hevc_on_av1"],
@@ -1774,6 +1816,10 @@ class DownloadCenterInterface(QWidget):
         self.result_thumbnail.setText(self.tr("封面：") + str(result.get("thumbnail_path") or self.tr("未下载或不存在")))
         self.result_metadata.setText(self.tr("元数据：") + str(result.get("metadata_path") or self.tr("未下载或不存在")))
         self.result_description_txt.setText(self.tr("说明TXT：") + str(result.get("description_txt_path") or self.tr("未生成或不存在")))
+        self.result_transcript_txt.setText(
+            self.tr("视频文稿：")
+            + str(result.get("transcript_txt_path") or result.get("transcript_message") or self.tr("未生成或不存在"))
+        )
         transcoded_path = result.get("transcoded_video_path")
         transcoded_codec = result.get("transcoded_video_codec") or self.tr("未触发")
         original_video_path = result.get("original_video_path") or self.tr("未下载或不存在")

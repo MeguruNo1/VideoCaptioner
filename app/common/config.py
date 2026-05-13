@@ -389,6 +389,9 @@ class Config(QConfig):
     download_center_pr_smart_postprocess = ConfigItem(
         "Download", "CenterPRSmartPostprocess", False, BoolValidator()
     )
+    download_center_pr_smart_transcript_txt = ConfigItem(
+        "Download", "CenterPRSmartTranscriptTxt", False, BoolValidator()
+    )
 
     # ------------------- 软件页面配置 -------------------
     micaEnabled = ConfigItem("MainWindow", "MicaEnabled", False, BoolValidator())

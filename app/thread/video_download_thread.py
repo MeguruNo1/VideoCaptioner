@@ -13,6 +13,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from app.config import APPDATA_PATH
 from app.core.utils.logger import setup_logger
 from app.core.utils.download_description import write_description_txt_file
+from app.core.utils.subtitle_transcript import write_transcript_txt_file
 from app.core.utils.proxy_utils import (
     apply_download_proxy_environment,
     get_effective_download_proxy_url,
@@ -521,6 +522,7 @@ class VideoDownloadThread(QThread):
         format_selector: str = "",
         need_metadata: bool = False,
         need_description_txt: bool = False,
+        need_transcript_txt: bool = False,
         enable_time_ranges: bool = False,
         download_sections: list[str] | None = None,
         pr_smart_transcode_hevc_on_av1: bool = False,
@@ -539,6 +541,7 @@ class VideoDownloadThread(QThread):
         self.format_selector = format_selector
         self.need_metadata = need_metadata
         self.need_description_txt = need_description_txt
+        self.need_transcript_txt = need_transcript_txt
         self.enable_time_ranges = enable_time_ranges
         self.download_sections = list(download_sections or [])
         self.pr_smart_transcode_hevc_on_av1 = pr_smart_transcode_hevc_on_av1
@@ -560,6 +563,7 @@ class VideoDownloadThread(QThread):
                 subtitle_mode=self.subtitle_mode,
                 need_metadata=self.need_metadata,
                 need_description_txt=self.need_description_txt,
+                need_transcript_txt=self.need_transcript_txt,
                 enable_time_ranges=self.enable_time_ranges,
                 download_sections=self.download_sections,
                 pr_smart_transcode_hevc_on_av1=self.pr_smart_transcode_hevc_on_av1,
@@ -768,6 +772,13 @@ class VideoDownloadThread(QThread):
             sanitize_filename(info_dict.get("title", "video")),
         )
 
+    def _write_transcript_txt_file(self, subtitle_path: str, info_dict: dict, work_dir: Path) -> str:
+        return write_transcript_txt_file(
+            subtitle_path,
+            work_dir,
+            sanitize_filename(info_dict.get("title", "video")),
+        )
+
     def _postprocess_pr_smart_hevc(self, video_path: str | None) -> tuple[str | None, str | None, str]:
         if not self.pr_smart_transcode_hevc_on_av1:
             return None, None, "未启用"
@@ -795,6 +806,7 @@ class VideoDownloadThread(QThread):
         subtitle_mode: str = "auto",
         need_metadata: bool = False,
         need_description_txt: bool = False,
+        need_transcript_txt: bool = False,
         enable_time_ranges: bool = False,
         download_sections: list[str] | None = None,
         pr_smart_transcode_hevc_on_av1: bool = False,
@@ -827,7 +839,9 @@ class VideoDownloadThread(QThread):
 
         subtitle_download_link = None
         subtitle_ext = "vtt"
-        if need_subtitle:
+        effective_need_subtitle = need_subtitle or need_transcript_txt
+
+        if effective_need_subtitle:
             subtitle_download_link, subtitle_ext = _pick_subtitle_item(
                 info_dict, subtitle_mode, subtitle_language
             )
@@ -843,8 +857,8 @@ class VideoDownloadThread(QThread):
                     "subtitle": "【下载字幕】.%(ext)s",
                     "thumbnail": "thumbnail",
                 },
-                "writesubtitles": need_subtitle and subtitle_mode == "manual",
-                "writeautomaticsub": need_subtitle and subtitle_mode == "auto",
+                "writesubtitles": effective_need_subtitle and subtitle_mode == "manual",
+                "writeautomaticsub": effective_need_subtitle and subtitle_mode == "auto",
                 "writethumbnail": need_thumbnail,
                 "thumbnail_format": "jpg",
                 "skip_download": not need_video,
@@ -875,7 +889,7 @@ class VideoDownloadThread(QThread):
             break
 
         fallback_proxy = proxy_url or get_effective_download_proxy_url()
-        if need_subtitle and not subtitle_path:
+        if effective_need_subtitle and not subtitle_path:
             subtitle_path = _download_subtitle_fallback(
                 subtitle_download_link,
                 subtitle_ext,
@@ -901,6 +915,20 @@ class VideoDownloadThread(QThread):
             if need_video and need_description_txt
             else None
         )
+        transcript_txt_path = None
+        transcript_message = "未触发"
+        if need_transcript_txt:
+            if subtitle_path:
+                try:
+                    transcript_txt_path = self._write_transcript_txt_file(
+                        subtitle_path, info_dict, work_dir
+                    )
+                    transcript_message = "已生成"
+                except Exception as exc:
+                    logger.exception("视频文稿生成失败: %s", exc)
+                    transcript_message = f"视频文稿生成失败: {exc}"
+            else:
+                transcript_message = "未下载到字幕，无法生成视频文稿"
         multi_media = len(media_files) > 1
         original_video_path = media_files[0] if self.download_mode != "audio" and len(media_files) == 1 else None
         transcoded_video_path = None
@@ -931,6 +959,8 @@ class VideoDownloadThread(QThread):
             "thumbnail_path": thumbnail_path,
             "metadata_path": metadata_path,
             "description_txt_path": description_txt_path,
+            "transcript_txt_path": transcript_txt_path,
+            "transcript_message": transcript_message,
             "info_dict": info_dict,
             "work_dir": str(work_dir),
             "url": self.url,
@@ -940,12 +970,13 @@ class VideoDownloadThread(QThread):
             "has_multiple_media_files": multi_media,
         }
         logger.info(
-            "下载完成: media=%s media_count=%s subtitle=%s thumbnail=%s metadata=%s description_txt=%s",
+            "下载完成: media=%s media_count=%s subtitle=%s thumbnail=%s metadata=%s description_txt=%s transcript_txt=%s",
             result["media_path"],
             len(media_files),
             subtitle_path,
             thumbnail_path,
             metadata_path,
             description_txt_path,
+            transcript_txt_path,
         )
         return result
