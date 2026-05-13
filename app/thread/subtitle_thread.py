@@ -35,6 +35,7 @@ CHINESE_TARGET_LANGUAGES = {
 class SubtitleThread(QThread):
     finished = pyqtSignal(str, str)
     progress = pyqtSignal(int, str)
+    token_progress = pyqtSignal(str)
     update = pyqtSignal(dict)
     update_all = pyqtSignal(dict)
     error = pyqtSignal(str)
@@ -288,16 +289,10 @@ class SubtitleThread(QThread):
             usage.get("completion_tokens", 0) or 0
         )
         self.token_usage["total_tokens"] += int(usage.get("total_tokens", 0) or 0)
-        logger.info(
-            "Token usage [%s] prompt=%s completion=%s total=%s | accumulated total=%s",
-            stage,
-            usage.get("prompt_tokens", 0) or 0,
-            usage.get("completion_tokens", 0) or 0,
-            usage.get("total_tokens", 0) or 0,
-            self.token_usage["total_tokens"],
-        )
         if self.last_progress_status:
-            self._emit_progress(self.last_progress_value, self.last_progress_status)
+            self.token_progress.emit(
+                f"{self.last_progress_status}{self._format_usage_suffix()}"
+            )
 
     def status_callback(self, message: str):
         logger.info(message)
@@ -316,7 +311,7 @@ class SubtitleThread(QThread):
     def _emit_progress(self, value: int, status: str):
         self.last_progress_value = value
         self.last_progress_status = status
-        self.progress.emit(value, f"{status}{self._format_usage_suffix()}")
+        self.progress.emit(value, status)
 
     def stop(self):
         """停止所有处理"""

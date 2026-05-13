@@ -181,6 +181,66 @@ def preprocess_segments(
 class SubtitleSplitter:
     """字幕分割器，支持缓存功能"""
 
+    PUNCTUATION_SPLIT_SUFFIXES = (
+        ".",
+        ",",
+        "!",
+        "?",
+        ";",
+        ":",
+        "。",
+        "，",
+        "！",
+        "？",
+        "；",
+        "：",
+        "、",
+    )
+    ENGLISH_PREFIX_SPLIT_WORDS = {
+        "and",
+        "or",
+        "but",
+        "if",
+        "then",
+        "because",
+        "as",
+        "until",
+        "while",
+        "when",
+        "where",
+        "so",
+        "however",
+        "therefore",
+        "although",
+        "though",
+        "which",
+        "that",
+        "who",
+    }
+    CJK_PREFIX_SPLIT_WORDS = (
+        "但是",
+        "所以",
+        "然后",
+        "因为",
+        "如果",
+        "而且",
+        "不过",
+        "同时",
+        "接着",
+        "另外",
+        "最后",
+        "首先",
+        "其次",
+        "也就是",
+        "或者",
+        "以及",
+        "并且",
+        "虽然",
+        "因此",
+        "那么",
+        "其实",
+    )
+
     def __init__(
         self,
         thread_num: int = 5,
@@ -228,6 +288,13 @@ class SubtitleSplitter:
             raise ValueError(
                 f"无效的分段类型: {split_type}，必须是 'semantic' 或 'sentence'"
             )
+
+    @staticmethod
+    def _join_segment_texts(segments: List[ASRDataSeg]) -> str:
+        raw_text = "".join(seg.text for seg in segments).strip()
+        if is_mainly_cjk(raw_text):
+            return raw_text
+        return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
 
     def _init_client(self):
         """初始化OpenAI客户端"""
@@ -557,12 +624,13 @@ class SubtitleSplitter:
         # 2. 按常用词分割, 只处理长句
         common_result_groups = []
         for group in segment_groups:
+            group_text = self._join_segment_texts(group)
             max_word_count = (
                 self.max_word_count_cjk
-                if is_mainly_cjk("".join(seg.text for seg in group))
+                if is_mainly_cjk(group_text)
                 else self.max_word_count_english
             )
-            if count_words("".join(seg.text for seg in group)) > max_word_count:
+            if count_words(group_text) > max_word_count:
                 split_groups = self._split_by_common_words(group)
                 common_result_groups.extend(split_groups)
             else:
@@ -760,7 +828,9 @@ class SubtitleSplitter:
 
         return result
 
-    def _split_long_segment(self, segments: List[ASRDataSeg]) -> List[ASRDataSeg]:
+    def _split_long_segment(
+        self, segments: List[ASRDataSeg], hint_text: str = ""
+    ) -> List[ASRDataSeg]:
         """
         基于最大时间间隔拆分长分段，根据文本类型使用不同的最大词数限制
 
@@ -779,7 +849,7 @@ class SubtitleSplitter:
             if not current_segments:
                 continue
 
-            merged_text = "".join(seg.text for seg in current_segments)
+            merged_text = self._join_segment_texts(current_segments)
             max_word_count = (
                 self.max_word_count_cjk
                 if is_mainly_cjk(merged_text)
@@ -798,28 +868,34 @@ class SubtitleSplitter:
                 result_segs.append(merged_seg)
                 continue
 
-            # 检查时间间隔是否都相等
-            gaps = [
-                current_segments[i + 1].start_time - current_segments[i].end_time
-                for i in range(n - 1)
-            ]
-            all_equal = all(abs(gap - gaps[0]) < 1e-6 for gap in gaps)
-
-            if all_equal:
-                # 如果时间间隔都相等，在中间位置断句
-                split_index = n // 2
+            natural_split_index = self._find_natural_split_index(
+                current_segments, max_word_count, hint_text
+            )
+            if natural_split_index is not None:
+                split_index = natural_split_index
             else:
-                # 在分段中间2/3部分寻找最大时间间隔点
-                start_idx = max(n // 6, 1)
-                end_idx = min((5 * n) // 6, n - 2)
-                split_index = max(
-                    range(start_idx, end_idx),
-                    key=lambda i: current_segments[i + 1].start_time
-                    - current_segments[i].end_time,
-                    default=n // 2,
-                )
-                if split_index == 0 or split_index == n - 1:
+                # 检查时间间隔是否都相等
+                gaps = [
+                    current_segments[i + 1].start_time - current_segments[i].end_time
+                    for i in range(n - 1)
+                ]
+                all_equal = all(abs(gap - gaps[0]) < 1e-6 for gap in gaps)
+
+                if all_equal:
+                    # 如果时间间隔都相等，在中间位置断句
                     split_index = n // 2
+                else:
+                    # 在分段中间2/3部分寻找最大时间间隔点
+                    start_idx = max(n // 6, 1)
+                    end_idx = min((5 * n) // 6, n - 2)
+                    split_index = max(
+                        range(start_idx, end_idx),
+                        key=lambda i: current_segments[i + 1].start_time
+                        - current_segments[i].end_time,
+                        default=n // 2,
+                    )
+                    if split_index == 0 or split_index == n - 1:
+                        split_index = n // 2
 
             # 将分割后的两部分添加到处理队列中
             first_segs = current_segments[: split_index + 1]
@@ -830,6 +906,106 @@ class SubtitleSplitter:
         # 按时间排序
         result_segs.sort(key=lambda seg: seg.start_time)
         return result_segs
+
+    def _find_natural_split_index(
+        self,
+        segments: List[ASRDataSeg],
+        max_word_count: int,
+        hint_text: str = "",
+    ) -> Optional[int]:
+        """
+        优先在标点或连接词边界拆分长字幕。
+
+        返回值是左侧分组的最后一个索引；None 表示没有合适自然断点。
+        """
+        if len(segments) < 2:
+            return None
+
+        full_text = self._join_segment_texts(segments)
+        is_cjk_text = is_mainly_cjk(full_text)
+        min_left_count = max(2 if is_cjk_text else 3, int(max_word_count * 0.35))
+        target_count = max(min_left_count, int(max_word_count * 0.8))
+        candidates: list[tuple[int, int, int]] = []
+        hint_boundary_counts = self._hint_boundary_counts(hint_text, is_cjk_text)
+
+        for index in range(len(segments) - 1):
+            left = segments[: index + 1]
+            right = segments[index + 1 :]
+            left_text = self._join_segment_texts(left)
+            right_text = self._join_segment_texts(right)
+            left_count = count_words(left_text)
+            right_count = count_words(right_text)
+            if (
+                left_count < min_left_count
+                or left_count > max_word_count
+                or right_count <= 0
+            ):
+                continue
+
+            current_text = segments[index].text.strip()
+            next_text = segments[index + 1].text.strip()
+            if left_count in hint_boundary_counts:
+                candidates.append((0, abs(left_count - target_count), index))
+                continue
+
+            if current_text.endswith(self.PUNCTUATION_SPLIT_SUFFIXES):
+                candidates.append((1, abs(left_count - target_count), index))
+                continue
+
+            if is_cjk_text:
+                if any(
+                    right_text.startswith(word)
+                    for word in self.CJK_PREFIX_SPLIT_WORDS
+                ):
+                    candidates.append((2, abs(left_count - target_count), index))
+                continue
+
+            normalized_next = next_text.lower().strip(" \t\r\n.,!?;:\"'()[]{}")
+            if normalized_next in self.ENGLISH_PREFIX_SPLIT_WORDS:
+                candidates.append((2, abs(left_count - target_count), index))
+
+        if not candidates:
+            return None
+
+        candidates.sort()
+        return candidates[0][2]
+
+    def _hint_boundary_counts(self, hint_text: str, is_cjk_text: bool) -> set[int]:
+        """从 LLM 返回文本中的标点和连接词推断建议断点位置。"""
+        if not hint_text:
+            return set()
+
+        boundaries: set[int] = set()
+        if is_cjk_text:
+            visible_count = 0
+            for char in hint_text:
+                if char in self.PUNCTUATION_SPLIT_SUFFIXES:
+                    if visible_count > 0:
+                        boundaries.add(visible_count)
+                    continue
+                if not char.isspace():
+                    visible_count += 1
+
+            clean_text = re.sub(
+                "[" + re.escape("".join(self.PUNCTUATION_SPLIT_SUFFIXES)) + r"\s]+",
+                "",
+                hint_text,
+            )
+            for word in self.CJK_PREFIX_SPLIT_WORDS:
+                start = clean_text.find(word)
+                if start > 0:
+                    boundaries.add(start)
+            return boundaries
+
+        words = [word for word in hint_text.split() if word.strip()]
+        for index, word in enumerate(words):
+            stripped = word.strip()
+            normalized = stripped.lower().strip(" \t\r\n.,!?;:\"'()[]{}")
+            if stripped.endswith(self.PUNCTUATION_SPLIT_SUFFIXES):
+                boundaries.add(index + 1)
+            if normalized in self.ENGLISH_PREFIX_SPLIT_WORDS and index > 0:
+                boundaries.add(index)
+        return boundaries
 
     def _merge_processed_segments(
         self, processed_segments: List[List[ASRDataSeg]]
@@ -962,7 +1138,9 @@ class SubtitleSplitter:
             for window_size in window_sizes:
                 max_start = min(asr_index + max_shift + 1, asr_len - window_size + 1)
                 for start in range(asr_index, max_start):
-                    substr = "".join(asr_texts[start : start + window_size])
+                    substr = self._join_segment_texts(
+                        segments[start : start + window_size]
+                    )
                     substr_proc = preprocess_text(substr)
                     ratio = difflib.SequenceMatcher(
                         None, sentence_proc, substr_proc
@@ -988,7 +1166,7 @@ class SubtitleSplitter:
                 seg_groups = self._group_by_time_gaps(segs_to_merge, max_gap=MAX_GAP)
 
                 for group in seg_groups:
-                    merged_text = "".join(seg.text for seg in group)
+                    merged_text = self._join_segment_texts(group)
                     merged_start_time = group[0].start_time
                     merged_end_time = group[-1].end_time
                     merged_seg = ASRDataSeg(
@@ -1001,7 +1179,7 @@ class SubtitleSplitter:
                     logger.debug(f"合并分段: {merged_seg.text}")
 
                     # 考虑最大词数的拆分
-                    split_segs = self._split_long_segment(group)
+                    split_segs = self._split_long_segment(group, sentence)
                     new_segments.extend(split_segs)
                 max_shift = 30
                 asr_index = end_seg_index + 1  # 移动到下一个未处理的分段

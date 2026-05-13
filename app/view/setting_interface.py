@@ -2,7 +2,7 @@ import webbrowser
 
 from PyQt5.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QSizePolicy, QWidget
+from PyQt5.QtWidgets import QFileDialog, QLabel, QSizePolicy, QWidget
 from qfluentwidgets import ComboBoxSettingCard, CustomColorSettingCard, ExpandLayout
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import (
@@ -107,28 +107,23 @@ class PromptCenterDialog(MessageBoxBase):
         self.textEdit.setMinimumSize(700, 520)
         self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        buttonWidget = QWidget(self)
-        buttonLayout = QHBoxLayout(buttonWidget)
-        buttonLayout.setContentsMargins(0, 0, 0, 0)
-        buttonLayout.setSpacing(8)
-        self.saveButton = PushButton(self.tr("保存当前提示词"), self)
-        self.restoreButton = PushButton(self.tr("恢复默认"), self)
-        self.defaultButton = PushButton(self.tr("查看默认"), self)
-        buttonLayout.addWidget(self.saveButton)
-        buttonLayout.addWidget(self.restoreButton)
-        buttonLayout.addWidget(self.defaultButton)
-        buttonLayout.addStretch(1)
+        self.saveButton = PushButton(self.tr("保存当前提示词"), self.buttonGroup)
+        self.restoreButton = PushButton(self.tr("恢复默认"), self.buttonGroup)
+        self.defaultButton = PushButton(self.tr("查看默认"), self.buttonGroup)
 
         self.viewLayout.addWidget(self.titleLabel)
         self.viewLayout.addWidget(self.promptCombo)
         self.viewLayout.addWidget(self.descriptionLabel)
         self.viewLayout.addWidget(self.variableLabel)
         self.viewLayout.addWidget(self.textEdit)
-        self.viewLayout.addWidget(buttonWidget)
         self.viewLayout.setSpacing(10)
 
         self.yesButton.setText(self.tr("关闭"))
         self.cancelButton.hide()
+        self.buttonLayout.insertWidget(0, self.saveButton, 0, Qt.AlignVCenter)
+        self.buttonLayout.insertWidget(1, self.restoreButton, 0, Qt.AlignVCenter)
+        self.buttonLayout.insertWidget(2, self.defaultButton, 0, Qt.AlignVCenter)
+        self.buttonLayout.insertStretch(3, 1)
 
         self.promptCombo.currentIndexChanged.connect(self.on_prompt_changed)
         self.saveButton.clicked.connect(self.save_current_prompt)

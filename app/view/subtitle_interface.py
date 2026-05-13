@@ -623,6 +623,9 @@ class SubtitleInterface(QWidget):
         self.subtitle_optimization_thread.progress.connect(
             self.on_subtitle_optimization_progress
         )
+        self.subtitle_optimization_thread.token_progress.connect(
+            self.on_subtitle_token_progress
+        )
         self.subtitle_optimization_thread.update.connect(self.update_data)
         self.subtitle_optimization_thread.update_all.connect(self.update_all)
         self.subtitle_optimization_thread.error.connect(
@@ -668,6 +671,9 @@ class SubtitleInterface(QWidget):
         self.progress_bar.setValue(value)
         self.status_label.setText(status)
         self.append_task_log(status)
+
+    def on_subtitle_token_progress(self, status):
+        self.status_label.setText(status)
 
     def update_data(self, data):
         self.original_model.update_data(data)
