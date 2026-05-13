@@ -590,6 +590,10 @@ class DownloadCenterInterface(QWidget):
         self.result_transcript_txt.setWordWrap(True)
         self.result_transcript_txt.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.result_transcript_txt.setObjectName("downloadPathValueLabel")
+        self.result_terms_txt = BodyLabel("", self.result_card)
+        self.result_terms_txt.setWordWrap(True)
+        self.result_terms_txt.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.result_terms_txt.setObjectName("downloadPathValueLabel")
         self.result_transcoded = BodyLabel("", self.result_card)
         self.result_transcoded.setWordWrap(True)
         self.result_transcoded.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -607,6 +611,7 @@ class DownloadCenterInterface(QWidget):
         result_files3 = QHBoxLayout()
         result_files3.setSpacing(16)
         result_files3.addWidget(self.result_transcript_txt, 1)
+        result_files3.addWidget(self.result_terms_txt, 1)
         result_files3.addWidget(self.result_transcoded, 1)
 
         result_layout.addLayout(result_header)
@@ -1031,6 +1036,7 @@ class DownloadCenterInterface(QWidget):
         self.result_metadata.setText(self.tr("元数据：暂无"))
         self.result_description_txt.setText(self.tr("说明TXT：暂无"))
         self.result_transcript_txt.setText(self.tr("视频文稿：暂无"))
+        self.result_terms_txt.setText(self.tr("AI术语表：暂无"))
         self.result_transcoded.setText(self.tr("H.265后处理：暂无"))
 
     def _reset_preview_labels(self):
@@ -1819,6 +1825,10 @@ class DownloadCenterInterface(QWidget):
         self.result_transcript_txt.setText(
             self.tr("视频文稿：")
             + str(result.get("transcript_txt_path") or result.get("transcript_message") or self.tr("未生成或不存在"))
+        )
+        self.result_terms_txt.setText(
+            self.tr("AI术语表：")
+            + str(result.get("terms_txt_path") or result.get("terms_message") or self.tr("未生成或不存在"))
         )
         transcoded_path = result.get("transcoded_video_path")
         transcoded_codec = result.get("transcoded_video_codec") or self.tr("未触发")

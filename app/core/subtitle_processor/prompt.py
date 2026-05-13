@@ -6,6 +6,8 @@ SPLIT_PROMPT_SEMANTIC = """
 - 对于英语等拉丁语言，每个部分不得超过${max_word_count_english}个单词。
 - 分隔的每段之间也不应该太短。
 - 需要根据语义使用<br>进行分段。
+- 允许在自然停顿处断句，例如逗号、顿号、分号、冒号、破折号或从句边界；当一句话过长时，应优先在这些位置拆分，降低单条字幕过长的概率。
+- 如果原文只有长句且没有明显句号，也要根据语义和停顿拆成多段，避免把多个信息点塞进同一条字幕。
 - 不修改或添加任何内容至原文，仅在每部分之间插入<br>。
 - 直接返回分段后的文本，只能包含原文和<br>分隔符，无需额外解释。
 
@@ -235,6 +237,19 @@ Return the translation result directly without any explanation or other content.
 
 """
 
+TERM_GLOSSARY_PROMPT = """
+# 术语词库
+# 每行一条，推荐格式：
+# 原文 -> 译文
+# 原文 = 译文
+# 原文：译文
+#
+# 这里的词库会用于“视频文稿 AI 术语提取”：
+# - AI 会优先采用词库里的译名
+# - 提取出的原文会合并到 WhisperX 热词
+# - 原文 -> 译文 会合并到翻译阶段的文稿提示
+"""
+
 
 PROMPT_SPLIT_SEMANTIC = "split_semantic"
 PROMPT_SPLIT_SENTENCE = "split_sentence"
@@ -247,6 +262,7 @@ PROMPT_FASTER_WHISPER = "faster_whisper"
 PROMPT_WHISPERX_INITIAL = "whisperx_initial"
 PROMPT_WHISPER_API = "whisper_api"
 PROMPT_DOCUMENT_CONTEXT = "document_context"
+PROMPT_TERM_GLOSSARY = "term_glossary"
 
 DEFAULT_PROMPTS = {
     PROMPT_SPLIT_SEMANTIC: SPLIT_PROMPT_SEMANTIC,
@@ -260,6 +276,7 @@ DEFAULT_PROMPTS = {
     PROMPT_WHISPERX_INITIAL: "",
     PROMPT_WHISPER_API: "",
     PROMPT_DOCUMENT_CONTEXT: "",
+    PROMPT_TERM_GLOSSARY: TERM_GLOSSARY_PROMPT,
 }
 
 PROMPT_CONFIG_ATTRS = {
@@ -274,6 +291,7 @@ PROMPT_CONFIG_ATTRS = {
     PROMPT_WHISPERX_INITIAL: "whisperx_initial_prompt",
     PROMPT_WHISPER_API: "whisper_api_prompt",
     PROMPT_DOCUMENT_CONTEXT: "custom_prompt_text",
+    PROMPT_TERM_GLOSSARY: "prompt_term_glossary",
 }
 
 PROMPT_REQUIRED_VARIABLES = {
@@ -347,6 +365,11 @@ PROMPT_CENTER_ITEMS = [
         "id": PROMPT_DOCUMENT_CONTEXT,
         "title": "文稿提示/术语表",
         "description": "作为字幕校正和翻译的参考内容，不替代系统提示词。",
+    },
+    {
+        "id": PROMPT_TERM_GLOSSARY,
+        "title": "AI 术语词库",
+        "description": "供视频文稿 AI 提取人名、专名和术语时对照使用。",
     },
 ]
 

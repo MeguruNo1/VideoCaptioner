@@ -302,6 +302,7 @@ class Config(QConfig):
     prompt_translate = ConfigItem("PromptCenter", "Translate", "")
     prompt_reflect_translate = ConfigItem("PromptCenter", "ReflectTranslate", "")
     prompt_single_translate = ConfigItem("PromptCenter", "SingleTranslate", "")
+    prompt_term_glossary = ConfigItem("PromptCenter", "TermGlossary", "")
 
     # ------------------- 字幕样式配置 -------------------
     subtitle_style_name = ConfigItem("SubtitleStyle", "StyleName", "default")
