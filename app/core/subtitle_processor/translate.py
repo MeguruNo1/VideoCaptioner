@@ -35,6 +35,7 @@ from app.core.utils.openai_compat import (
     format_openai_compat_error,
     get_openai_compat_request_options,
 )
+from app.core.utils.transcript_terms import filter_document_prompt_for_text
 
 
 logger = setup_logger("subtitle_translator")
@@ -385,14 +386,14 @@ class OpenAITranslator(BaseTranslator):
 
         self.client = OpenAI(base_url=base_url, api_key=api_key)
 
-    def _get_translate_prompt(self) -> str:
+    def _get_translate_prompt(self, custom_prompt: Optional[str] = None) -> str:
         """获取翻译提示词"""
         prompt = get_prompt_template(
             PROMPT_REFLECT_TRANSLATE if self.is_reflect else PROMPT_TRANSLATE
         )
         return Template(prompt).safe_substitute(
             target_language=self.target_language,
-            custom_prompt=self.custom_prompt,
+            custom_prompt=self.custom_prompt if custom_prompt is None else custom_prompt,
             translation_length_instruction=self._get_length_instruction(),
         )
 
@@ -924,7 +925,11 @@ class OpenAITranslator(BaseTranslator):
         )
 
         # 获取提示词
-        prompt = self._get_translate_prompt()
+        chunk_text = "\n".join(str(text) for text in subtitle_chunk.values())
+        filtered_custom_prompt = filter_document_prompt_for_text(
+            self.custom_prompt, chunk_text
+        )
+        prompt = self._get_translate_prompt(filtered_custom_prompt)
         prompt_hash = hashlib.md5(prompt.encode()).hexdigest()
         timing_instruction = self._build_timing_instruction(subtitle_chunk)
         timing_instruction_hash = hashlib.md5(
@@ -1060,18 +1065,26 @@ class OpenAITranslator(BaseTranslator):
     ) -> Dict[str, str]:
         """单条翻译模式"""
         result = {}
-        single_prompt = Template(
-            get_prompt_template(PROMPT_SINGLE_TRANSLATE)
-        ).safe_substitute(
-            target_language=self.target_language,
-            translation_length_instruction=self._get_length_instruction(),
-        )
-        prompt_hash = hashlib.md5(single_prompt.encode()).hexdigest()
         extra_instruction_hash = hashlib.md5(
             (extra_instruction or "").encode()
         ).hexdigest()
         for idx, text in subtitle_chunk.items():
             try:
+                filtered_custom_prompt = filter_document_prompt_for_text(
+                    self.custom_prompt, str(text)
+                )
+                single_prompt = Template(
+                    get_prompt_template(PROMPT_SINGLE_TRANSLATE)
+                ).safe_substitute(
+                    target_language=self.target_language,
+                    translation_length_instruction=self._get_length_instruction(),
+                )
+                if filtered_custom_prompt:
+                    single_prompt = (
+                        f"{single_prompt.rstrip()}\n\n# 术语或要求:\n"
+                        f"{filtered_custom_prompt}"
+                    )
+                prompt_hash = hashlib.md5(single_prompt.encode()).hexdigest()
                 timing_instruction = self._build_timing_instruction({idx: text})
                 timing_instruction_hash = hashlib.md5(
                     timing_instruction.encode()

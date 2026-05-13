@@ -11,6 +11,8 @@ from app.core.utils.openai_compat import get_openai_compat_request_options
 
 GENERATED_TERMS_BEGIN = "<!-- AI_VIDEO_TRANSCRIPT_TERMS_BEGIN -->"
 GENERATED_TERMS_END = "<!-- AI_VIDEO_TRANSCRIPT_TERMS_END -->"
+MAX_FILTERED_PROMPT_TERMS = 80
+MAX_FILTERED_PROMPT_CHARS = 4000
 
 
 def _clean_term_text(value: Any) -> str:
@@ -134,6 +136,94 @@ def merge_document_prompt(existing_prompt: str, terms: list[dict[str, str]]) -> 
     if existing:
         return f"{existing}\n\n{generated}"
     return generated
+
+
+def _split_generated_terms_block(prompt: str) -> tuple[str, str]:
+    text = str(prompt or "")
+    pattern = re.compile(
+        rf"{re.escape(GENERATED_TERMS_BEGIN)}(.*?){re.escape(GENERATED_TERMS_END)}",
+        re.S,
+    )
+    match = pattern.search(text)
+    if not match:
+        return text.strip(), ""
+
+    user_prompt = (text[: match.start()] + text[match.end() :]).strip()
+    return user_prompt, match.group(1)
+
+
+def _parse_document_prompt_terms(block: str) -> list[dict[str, str]]:
+    terms = []
+    for raw_line in str(block or "").splitlines():
+        line = raw_line.strip()
+        if not line or not line.startswith("-"):
+            continue
+
+        line = line.lstrip("-").strip()
+        original = ""
+        translation = ""
+        for separator in ("->", "=>", "=", "：", ":"):
+            if separator in line:
+                original, translation = line.split(separator, 1)
+                break
+        else:
+            original = line
+
+        original = _clean_term_text(original)
+        translation = _clean_term_text(translation)
+        if original:
+            terms.append({"original": original, "translation": translation})
+    return terms
+
+
+def _term_matches_text(term: str, text: str) -> bool:
+    term = _clean_term_text(term)
+    if not term:
+        return False
+
+    if re.search(r"[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]", term):
+        return term in text
+
+    if re.search(r"[A-Za-z0-9]", term):
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9])" + re.escape(term) + r"(?![A-Za-z0-9])",
+            re.IGNORECASE,
+        )
+        return bool(pattern.search(text))
+
+    return term in text
+
+
+def filter_document_prompt_for_text(prompt: str, text: str) -> str:
+    """
+    Keep user-written prompt text, but reduce the generated AI term block to
+    terms that appear in the current subtitle batch.
+    """
+    user_prompt, generated_block = _split_generated_terms_block(prompt)
+    terms = _parse_document_prompt_terms(generated_block)
+    if not terms:
+        return str(prompt or "").strip()
+
+    source_text = str(text or "")
+    matched_terms = []
+    seen = set()
+    for term in terms:
+        original = _clean_term_text(term.get("original"))
+        key = original.casefold()
+        if not original or key in seen:
+            continue
+        if _term_matches_text(original, source_text):
+            seen.add(key)
+            matched_terms.append(term)
+        if len(matched_terms) >= MAX_FILTERED_PROMPT_TERMS:
+            break
+
+    generated = format_terms_for_document_prompt(matched_terms)
+    parts = [part for part in (user_prompt, generated) if part]
+    filtered_prompt = "\n\n".join(parts).strip()
+    if len(filtered_prompt) > MAX_FILTERED_PROMPT_CHARS:
+        filtered_prompt = filtered_prompt[:MAX_FILTERED_PROMPT_CHARS].rstrip()
+    return filtered_prompt
 
 
 def format_terms_txt(terms: list[dict[str, str]]) -> str:

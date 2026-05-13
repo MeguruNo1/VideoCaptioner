@@ -646,7 +646,9 @@ class SubtitleInterface(QWidget):
         self.cancel_button.hide()  # 隐藏取消按钮
         if self.task.need_next_task:
             self.finished.emit(video_path, output_path)
-        self.append_task_log(self.tr("任务完成: ") + output_path)
+        self.append_task_log(
+            self.tr("任务完成: ") + output_path + self._format_token_usage_log_suffix()
+        )
         InfoBar.success(
             self.tr("优化完成"),
             self.tr("优化完成字幕..."),
@@ -674,6 +676,21 @@ class SubtitleInterface(QWidget):
 
     def on_subtitle_token_progress(self, status):
         self.status_label.setText(status)
+
+    def _format_token_usage_log_suffix(self) -> str:
+        thread = getattr(self, "subtitle_optimization_thread", None)
+        usage = getattr(thread, "token_usage", None) or {}
+        total = int(usage.get("total_tokens", 0) or 0)
+        if total <= 0:
+            return ""
+
+        prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+        completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+        return self.tr(" | Token 总消耗: {0}（输入 {1} / 输出 {2}）").format(
+            total,
+            prompt_tokens,
+            completion_tokens,
+        )
 
     def update_data(self, data):
         self.original_model.update_data(data)

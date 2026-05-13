@@ -21,6 +21,7 @@ from app.core.utils.openai_compat import (
     format_openai_compat_error,
     get_openai_compat_request_options,
 )
+from app.core.utils.transcript_terms import filter_document_prompt_for_text
 
 logger = setup_logger("subtitle_optimizer")
 
@@ -199,10 +200,14 @@ class SubtitleOptimizer:
         logger.info(
             f"[+]正在优化字幕：{next(iter(subtitle_chunk))} - {next(reversed(subtitle_chunk))}"
         )
+        chunk_text = "\n".join(str(text) for text in subtitle_chunk.values())
+        filtered_custom_prompt = filter_document_prompt_for_text(
+            self.custom_prompt, chunk_text
+        )
         user_prompt = f"Correct the following subtitles. Keep the original language, do not translate:\n<input_subtitle>{str(subtitle_chunk)}</input_subtitle>"
-        if self.custom_prompt:
+        if filtered_custom_prompt:
             user_prompt += (
-                f"\nReference content:\n<prompt>{self.custom_prompt}</prompt>"
+                f"\nReference content:\n<prompt>{filtered_custom_prompt}</prompt>"
             )
         if context_before:
             user_prompt += (
@@ -220,7 +225,7 @@ class SubtitleOptimizer:
             "model": self.model,
             "prompt_hash": hashlib.md5(optimizer_prompt.encode("utf-8")).hexdigest(),
             "custom_prompt_hash": hashlib.md5(
-                (self.custom_prompt or "").encode("utf-8")
+                (filtered_custom_prompt or "").encode("utf-8")
             ).hexdigest(),
             "context_before": context_before,
             "batch_context_enabled": self.batch_context_enabled,

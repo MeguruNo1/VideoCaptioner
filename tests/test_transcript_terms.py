@@ -2,6 +2,8 @@ import unittest
 
 from app.core.utils.transcript_terms import (
     GENERATED_TERMS_BEGIN,
+    GENERATED_TERMS_END,
+    filter_document_prompt_for_text,
     format_terms_for_document_prompt,
     merge_document_prompt,
     merge_hotwords,
@@ -78,6 +80,37 @@ class TranscriptTermsTests(unittest.TestCase):
 
         self.assertIn("- Term", prompt)
         self.assertNotIn("空", prompt)
+
+    def test_filter_document_prompt_keeps_only_matched_generated_terms(self):
+        prompt = merge_document_prompt(
+            "保留用户要求",
+            [
+                {"original": "OpenAI", "translation": "开放人工智能"},
+                {"original": "WhisperX", "translation": "WhisperX"},
+            ],
+        )
+
+        filtered = filter_document_prompt_for_text(prompt, "Today we use WhisperX.")
+
+        self.assertIn("保留用户要求", filtered)
+        self.assertIn("- WhisperX -> WhisperX", filtered)
+        self.assertNotIn("OpenAI -> 开放人工智能", filtered)
+        self.assertEqual(filtered.count(GENERATED_TERMS_BEGIN), 1)
+
+    def test_filter_document_prompt_removes_generated_block_when_no_terms_match(self):
+        prompt = "\n".join(
+            [
+                "保留用户要求",
+                GENERATED_TERMS_BEGIN,
+                "AI 根据视频文稿提取的名称和术语，翻译与校正时优先遵循：",
+                "- OpenAI -> 开放人工智能",
+                GENERATED_TERMS_END,
+            ]
+        )
+
+        filtered = filter_document_prompt_for_text(prompt, "unrelated subtitle")
+
+        self.assertEqual(filtered, "保留用户要求")
 
 
 if __name__ == "__main__":
