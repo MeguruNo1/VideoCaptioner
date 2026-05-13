@@ -846,6 +846,32 @@ class VideoDownloadThread(QThread):
                 info_dict, subtitle_mode, subtitle_language
             )
 
+        fallback_proxy = proxy_url or get_effective_download_proxy_url()
+        subtitle_path = None
+        transcript_txt_path = None
+        transcript_message = "未触发"
+        if need_transcript_txt:
+            self.progress.emit(2, self.tr("提前下载字幕并生成视频文稿..."))
+            try:
+                subtitle_path = _download_subtitle_fallback(
+                    subtitle_download_link,
+                    subtitle_ext,
+                    work_dir / "subtitle" / f"【下载字幕】_{subtitle_language or subtitle_mode}",
+                    fallback_proxy,
+                )
+                if subtitle_path:
+                    transcript_txt_path = self._write_transcript_txt_file(
+                        subtitle_path, info_dict, work_dir
+                    )
+                    transcript_message = "已提前生成"
+                else:
+                    transcript_message = "未找到可提前下载的字幕，稍后尝试生成视频文稿"
+            except Exception as exc:
+                logger.exception("提前生成视频文稿失败: %s", exc)
+                transcript_message = f"提前生成视频文稿失败，稍后重试: {exc}"
+            self._raise_if_terminated()
+
+        ydl_need_subtitle = effective_need_subtitle and not subtitle_path
         options = _build_ydl_options(
             proxy_url, cookiefile_path, progress_hooks=[self.progress_hook]
         )
@@ -857,8 +883,8 @@ class VideoDownloadThread(QThread):
                     "subtitle": "【下载字幕】.%(ext)s",
                     "thumbnail": "thumbnail",
                 },
-                "writesubtitles": effective_need_subtitle and subtitle_mode == "manual",
-                "writeautomaticsub": effective_need_subtitle and subtitle_mode == "auto",
+                "writesubtitles": ydl_need_subtitle and subtitle_mode == "manual",
+                "writeautomaticsub": ydl_need_subtitle and subtitle_mode == "auto",
                 "writethumbnail": need_thumbnail,
                 "thumbnail_format": "jpg",
                 "skip_download": not need_video,
@@ -883,12 +909,11 @@ class VideoDownloadThread(QThread):
 
         media_files = self._find_main_media_files(work_dir) if need_video else []
         media_path = media_files[0] if len(media_files) == 1 else (str(work_dir) if media_files else None)
-        subtitle_path = None
-        for file in work_dir.glob("**/【下载字幕】.*"):
-            subtitle_path = str(file)
-            break
+        if not subtitle_path:
+            for file in work_dir.glob("**/【下载字幕】.*"):
+                subtitle_path = str(file)
+                break
 
-        fallback_proxy = proxy_url or get_effective_download_proxy_url()
         if effective_need_subtitle and not subtitle_path:
             subtitle_path = _download_subtitle_fallback(
                 subtitle_download_link,
@@ -915,9 +940,7 @@ class VideoDownloadThread(QThread):
             if need_video and need_description_txt
             else None
         )
-        transcript_txt_path = None
-        transcript_message = "未触发"
-        if need_transcript_txt:
+        if need_transcript_txt and not transcript_txt_path:
             if subtitle_path:
                 try:
                     transcript_txt_path = self._write_transcript_txt_file(
