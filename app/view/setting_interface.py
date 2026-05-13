@@ -57,11 +57,12 @@ class DefaultPromptDialog(MessageBoxBase):
         super().__init__(parent)
         max_width = self._dialog_width(parent)
         self.widget.setMaximumWidth(max_width)
+        self.widget.setMinimumWidth(min(max_width, 760))
         self.titleLabel = BodyLabel(title, self)
         self.textEdit = TextEdit(self)
         self.textEdit.setReadOnly(True)
         self.textEdit.setPlainText(content)
-        self.textEdit.setMinimumSize(360, 360)
+        self.textEdit.setMinimumSize(620, 480)
         self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.viewLayout.addWidget(self.titleLabel)
         self.viewLayout.addWidget(self.textEdit)
@@ -71,14 +72,16 @@ class DefaultPromptDialog(MessageBoxBase):
     @staticmethod
     def _dialog_width(parent=None) -> int:
         if parent is not None and parent.width() > 0:
-            return min(760, max(420, parent.width() - 80))
-        return 720
+            return min(1040, max(760, parent.width() - 80))
+        return 920
 
 
 class PromptCenterDialog(MessageBoxBase):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.widget.setMaximumWidth(self._dialog_width(parent))
+        dialog_width = self._dialog_width(parent)
+        self.widget.setMaximumWidth(dialog_width)
+        self.widget.setMinimumWidth(min(dialog_width, 820))
         self.prompt_items = PROMPT_CENTER_ITEMS
         self.current_prompt_id = self.prompt_items[0]["id"]
         self.setup_ui()
@@ -87,8 +90,8 @@ class PromptCenterDialog(MessageBoxBase):
     @staticmethod
     def _dialog_width(parent=None) -> int:
         if parent is not None and parent.width() > 0:
-            return min(780, max(420, parent.width() - 80))
-        return 740
+            return min(1080, max(820, parent.width() - 80))
+        return 960
 
     def setup_ui(self):
         self.setWindowTitle(self.tr("提示词中心"))
@@ -101,7 +104,7 @@ class PromptCenterDialog(MessageBoxBase):
         self.variableLabel.setWordWrap(True)
 
         self.textEdit = TextEdit(self)
-        self.textEdit.setMinimumSize(360, 380)
+        self.textEdit.setMinimumSize(700, 520)
         self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         buttonWidget = QWidget(self)
