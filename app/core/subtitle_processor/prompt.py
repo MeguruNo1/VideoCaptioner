@@ -4,11 +4,12 @@ SPLIT_PROMPT_SEMANTIC = """
 要求：
 - 对于中文、日语或其他CJK语言，每个部分不得超过${max_word_count_cjk}个字。
 - 对于英语等拉丁语言，每个部分不得超过${max_word_count_english}个单词。
-- 分隔的每段之间也不应该太短。
+- 最大字数/单词数是硬性上限；当语义完整与长度限制冲突时，必须优先满足长度限制，并在最近的自然停顿或语义边界拆分。
+- 在不违反最大长度限制的前提下，避免切出无意义的过短片段。
 - 需要根据语义使用<br>进行分段。
-- 允许在自然停顿处断句，例如逗号、顿号、分号、冒号、破折号或从句边界；当一句话过长时，应优先在这些位置拆分，降低单条字幕过长的概率。
+- 优先在自然停顿处断句，例如逗号、顿号、分号、冒号、破折号或从句边界。
 - 如果原文只有长句且没有明显句号，也要根据语义和停顿拆成多段，避免把多个信息点塞进同一条字幕。
-- 不修改或添加任何内容至原文，仅在每部分之间插入<br>。
+- 不修改、删除或添加任何原文内容，仅插入<br>。
 - 直接返回分段后的文本，只能包含原文和<br>分隔符，无需额外解释。
 
 ## Examples
@@ -32,8 +33,9 @@ SPLIT_PROMPT_SENTENCE = """
 要求：
 - 对于中文、日语或其他CJK语言，每个部分不得超过${max_word_count_cjk}个字。
 - 对于英语等拉丁语言，每个部分不得超过${max_word_count_english}个单词。
-- 分隔的每段之间也不应该太短。
-- 不修改或添加任何内容至原文，仅在每个句子间之间插入<br>。
+- 最大字数/单词数是硬性上限；当完整句子超过限制时，必须在最近的自然停顿、从句边界或语义边界继续拆分。
+- 在不违反最大长度限制的前提下，避免切出无意义的过短片段。
+- 不修改、删除或添加任何原文内容，仅插入<br>。
 - 直接返回分段后的文本，只能包含原文和<br>分隔符，不需要任何额外解释。
 - 保持<br>之间的内容意思完整。
 
@@ -41,12 +43,12 @@ SPLIT_PROMPT_SENTENCE = """
 Input:
 大家好今天我们带来的3d创意设计作品是禁制演示器我是来自中山大学附属中学的方若涵我是陈欣然我们这一次作品介绍分为三个部分第一个部分提出问题第二个部分解决方案第三个部分作品介绍当我们学习进制的时候难以掌握老师教学 也比较抽象那有没有一种教具或演示器可以将进制的原理形象生动地展现出来
 Output:
-大家好<br>今天我们带来的3d创意设计作品是禁制演示器<br>我是来自中山大学附属中学的方若涵<br>我是陈欣然<br>我们这一次作品介绍分为三个部分<br>第一个部分提出问题<br>第二个部分解决方案<br>第三个部分作品介绍<br>当我们学习进制的时候难以掌握<br>老师教学也比较抽象<br>那有没有一种教具或演示器可以将进制的原理形象生动地展现出来  
+大家好<br>今天我们带来的3d创意设计作品是<br>禁制演示器<br>我是来自中山大学附属中学的方若涵<br>我是陈欣然<br>我们这一次作品介绍分为三个部分<br>第一个部分提出问题<br>第二个部分解决方案<br>第三个部分作品介绍<br>当我们学习进制的时候难以掌握<br>老师教学也比较抽象<br>那有没有一种教具或演示器<br>可以将进制的原理<br>形象生动地展现出来
 
 Input:
 the upgraded claude sonnet is now available for all users developers can build with the computer use beta on the anthropic api amazon bedrock and google cloud’s vertex ai the new claude haiku will be released later this month
 Output:
-the upgraded claude sonnet is now available for all users<br>developers can build with the computer use beta on the anthropic api amazon bedrock and google cloud’s vertex ai<br>the new claude haiku will be released later this month
+the upgraded claude sonnet is now available for all users<br>developers can build with the computer use beta<br>on the anthropic api amazon bedrock and google cloud’s vertex ai<br>the new claude haiku will be released later this month
 """
 
 SUMMARIZER_PROMPT = """
