@@ -1,22 +1,58 @@
+# VideoCaptioner Gitignore
+# Root contains embedded Python runtime, binaries, and user data.
+# Ignore everything at root, then selectively un-ignore source files.
+
+# Ignore everything at root level by default
 *
 
+# === Source code (tracked) ===
 !/.gitignore
+!/README.md
 !/app/
 !/app/**
 !/tests/
 !/tests/**
+
+# === Standalone build artifacts ===
 !/_pystand_static.int
 !/VideoCaptioner.exe
 
+# === Python cache ===
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.pyo
 
+# === IDE / Editor ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === OS generated ===
+.DS_Store
+Thumbs.db
+
+# === Virtual environments ===
+venv/
+.venv/
+env/
+.env
+
+# === Environment / secrets ===
+.env
+.env.local
+*.secret
+
+# === App-specific directories (ignored) ===
 /AppData/
 /resource/
 /runtime/
 /work-dir/
 /VideoCapitoner/
+
+# === Installer artifacts (ignored) ===
 /unins000.dat
 /unins000.exe

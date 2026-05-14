@@ -1,0 +1,62 @@
+# VideoCaptioner
+
+VideoCaptioner is a desktop video captioning tool that transcribes, translates, and processes subtitles using state-of-the-art speech recognition and large language models.
+
+## Features
+
+- **Multi-engine ASR** — Supports FasterWhisper, WhisperX, WhisperCpp, Whisper API, and more
+- **LLM-powered subtitle processing** — AI-driven translation, optimization, splitting, and summarization using OpenAI, DeepSeek, Gemini, Ollama, and other LLM providers
+- **Subtitle translation** — Built-in DeepLx, Microsoft, and Google translation backends, plus LLM-based translation
+- **Smart subtitle splitting** — Semantic and sentence-level splitting with CJK and English word count limits
+- **Rich language support** — 80+ target languages for transcription and translation
+- **Subtitle style editor** — Customize subtitle appearance and export in SRT, ASS, VTT, JSON, and TXT formats
+- **Video download** — Integrated video download center
+- **Hotword / glossary** — WhisperX hotword support and AI term extraction for improved transcription accuracy
+
+## Installation
+
+Download the latest release from the [Releases](https://github.com/WEIFENG2333/VideoCaptioner/releases) page.
+
+### Prerequisites
+
+- Windows 10/11
+- NVIDIA GPU with CUDA support (recommended for FasterWhisper and WhisperX)
+- VLC media player
+
+### From source
+
+```bash
+git clone https://github.com/WEIFENG2333/VideoCaptioner.git
+cd VideoCaptioner
+pip install -r requirements.txt
+python main.py
+```
+
+## Supported Formats
+
+| Type     | Formats                                                        |
+| -------- | -------------------------------------------------------------- |
+| Video    | MP4, MKV, MOV, AVI, WebM, WMV, FLV, TS, and 15 more           |
+| Audio    | MP3, WAV, AAC, FLAC, OGG, OPUS, M4A, WMA, and 12 more         |
+| Subtitle | SRT, ASS, VTT, JSON, TXT                                       |
+
+## Supported ASR Engines
+
+| Engine        | Description                              |
+| ------------- | ---------------------------------------- |
+| FasterWhisper | CTranslate2-based, GPU accelerated       |
+| WhisperX      | Word-level timestamps, speaker diarization |
+| WhisperCpp    | C++ inference, CPU friendly              |
+| Whisper API   | OpenAI / compatible API                  |
+
+## Supported LLM Providers
+
+OpenAI, DeepSeek, SiliconCloud, Ollama, LM Studio, Gemini, ChatGLM, Qwen
+
+## License
+
+This project is licensed under the terms of the original repository.
+
+## Credits
+
+Originally created by [@WEIFENG2333](https://github.com/WEIFENG2333). This repository is a community-maintained fork with additional features and improvements.
