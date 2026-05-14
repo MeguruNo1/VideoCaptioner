@@ -14,11 +14,6 @@ from app.config import APPDATA_PATH
 from app.core.utils.logger import setup_logger
 from app.core.utils.download_description import write_description_txt_file
 from app.core.utils.subtitle_transcript import write_transcript_txt_file
-from app.core.utils.transcript_terms import (
-    apply_terms_to_prompt_settings,
-    extract_terms_with_ai,
-    write_terms_txt_file,
-)
 from app.core.utils.proxy_utils import (
     apply_download_proxy_environment,
     get_effective_download_proxy_url,
@@ -784,29 +779,6 @@ class VideoDownloadThread(QThread):
             sanitize_filename(info_dict.get("title", "video")),
         )
 
-    def _prepare_ai_terms_from_transcript(
-        self, transcript_txt_path: str, info_dict: dict, work_dir: Path
-    ) -> tuple[str | None, str]:
-        from app.common.config import cfg
-        from app.core.subtitle_processor.prompt import (
-            PROMPT_TERM_GLOSSARY,
-            get_prompt_template,
-        )
-
-        transcript_text = Path(transcript_txt_path).read_text(encoding="utf-8")
-        target_language = getattr(cfg.target_language.value, "value", cfg.target_language.value)
-        glossary_text = get_prompt_template(PROMPT_TERM_GLOSSARY)
-        terms = extract_terms_with_ai(transcript_text, glossary_text, str(target_language or ""))
-        if not terms:
-            return None, "AI 未提取到可用名称或术语"
-        apply_terms_to_prompt_settings(terms)
-        terms_path = write_terms_txt_file(
-            terms,
-            work_dir,
-            sanitize_filename(info_dict.get("title", "video")),
-        )
-        return terms_path, f"已提取 {len(terms)} 条术语，并写入 WhisperX 热词和文稿提示"
-
     def _postprocess_pr_smart_hevc(self, video_path: str | None) -> tuple[str | None, str | None, str]:
         if not self.pr_smart_transcode_hevc_on_av1:
             return None, None, "未启用"
@@ -879,7 +851,7 @@ class VideoDownloadThread(QThread):
         transcript_txt_path = None
         transcript_message = "未触发"
         terms_txt_path = None
-        terms_message = "未触发"
+        terms_message = "请在 WhisperX 热词管理中手动生成"
         if need_transcript_txt:
             self.progress.emit(2, self.tr("提前下载字幕并生成视频文稿..."))
             try:
@@ -894,18 +866,11 @@ class VideoDownloadThread(QThread):
                         subtitle_path, info_dict, work_dir
                     )
                     transcript_message = "已提前生成"
-                    self.progress.emit(3, self.tr("AI 提取视频术语..."))
-                    terms_txt_path, terms_message = self._prepare_ai_terms_from_transcript(
-                        transcript_txt_path, info_dict, work_dir
-                    )
                 else:
                     transcript_message = "未找到可提前下载的字幕，稍后尝试生成视频文稿"
             except Exception as exc:
-                logger.exception("提前生成视频文稿或术语失败: %s", exc)
-                if transcript_txt_path:
-                    terms_message = f"AI 术语提取失败，稍后重试: {exc}"
-                else:
-                    transcript_message = f"提前生成视频文稿失败，稍后重试: {exc}"
+                logger.exception("提前生成视频文稿失败: %s", exc)
+                transcript_message = f"提前生成视频文稿失败，稍后重试: {exc}"
             self._raise_if_terminated()
 
         ydl_need_subtitle = effective_need_subtitle and not subtitle_path
@@ -984,27 +949,11 @@ class VideoDownloadThread(QThread):
                         subtitle_path, info_dict, work_dir
                     )
                     transcript_message = "已生成"
-                    self.progress.emit(98, self.tr("AI 提取视频术语..."))
-                    terms_txt_path, terms_message = self._prepare_ai_terms_from_transcript(
-                        transcript_txt_path, info_dict, work_dir
-                    )
                 except Exception as exc:
-                    logger.exception("视频文稿生成或术语提取失败: %s", exc)
-                    if transcript_txt_path:
-                        terms_message = f"AI 术语提取失败: {exc}"
-                    else:
-                        transcript_message = f"视频文稿生成失败: {exc}"
+                    logger.exception("视频文稿生成失败: %s", exc)
+                    transcript_message = f"视频文稿生成失败: {exc}"
             else:
                 transcript_message = "未下载到字幕，无法生成视频文稿"
-        if need_transcript_txt and transcript_txt_path and not terms_txt_path:
-            try:
-                self.progress.emit(98, self.tr("AI 提取视频术语..."))
-                terms_txt_path, terms_message = self._prepare_ai_terms_from_transcript(
-                    transcript_txt_path, info_dict, work_dir
-                )
-            except Exception as exc:
-                logger.exception("AI 术语提取失败: %s", exc)
-                terms_message = f"AI 术语提取失败: {exc}"
         multi_media = len(media_files) > 1
         original_video_path = media_files[0] if self.download_mode != "audio" and len(media_files) == 1 else None
         transcoded_video_path = None

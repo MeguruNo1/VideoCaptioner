@@ -9,6 +9,8 @@ from app.core.utils.transcript_terms import (
     merge_hotwords,
     parse_ai_terms_response,
     parse_glossary_text,
+    parse_hotwords_text,
+    remove_generated_document_prompt_terms,
 )
 
 
@@ -57,6 +59,11 @@ class TranscriptTermsTests(unittest.TestCase):
 
         self.assertEqual(hotwords, "OpenAI, Existing, WhisperX")
 
+    def test_parse_hotwords_supports_common_separators_and_dedupes(self):
+        hotwords = parse_hotwords_text("OpenAI， WhisperX; OpenAI\nVideoCaptioner")
+
+        self.assertEqual(hotwords, ["OpenAI", "WhisperX", "VideoCaptioner"])
+
     def test_merge_document_prompt_replaces_generated_section(self):
         terms = [{"original": "OpenAI", "translation": "开放人工智能"}]
         prompt = merge_document_prompt("保留用户提示", terms)
@@ -70,6 +77,17 @@ class TranscriptTermsTests(unittest.TestCase):
         self.assertIn("WhisperX -> WhisperX", updated_prompt)
         self.assertEqual(updated_prompt.count(GENERATED_TERMS_BEGIN), 1)
 
+    def test_remove_generated_document_prompt_terms_preserves_user_prompt(self):
+        prompt = merge_document_prompt(
+            "保留用户提示",
+            [{"original": "OpenAI", "translation": "开放人工智能"}],
+        )
+
+        self.assertEqual(
+            remove_generated_document_prompt_terms(prompt),
+            "保留用户提示",
+        )
+
     def test_format_terms_for_document_prompt_skips_empty_original(self):
         prompt = format_terms_for_document_prompt(
             [
@@ -80,6 +98,7 @@ class TranscriptTermsTests(unittest.TestCase):
 
         self.assertIn("- Term", prompt)
         self.assertNotIn("空", prompt)
+        self.assertIn("WhisperX 热词生成的翻译术语", prompt)
 
     def test_filter_document_prompt_keeps_only_matched_generated_terms(self):
         prompt = merge_document_prompt(

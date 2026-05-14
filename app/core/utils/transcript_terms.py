@@ -38,6 +38,18 @@ def parse_glossary_text(glossary_text: str) -> dict[str, str]:
     return glossary
 
 
+def parse_hotwords_text(hotwords_text: str) -> list[str]:
+    values = []
+    seen = set()
+    for value in re.split(r"[,，;\n\r]+", str(hotwords_text or "")):
+        text = _clean_term_text(value)
+        key = text.casefold()
+        if text and key not in seen:
+            seen.add(key)
+            values.append(text)
+    return values
+
+
 def parse_ai_terms_response(response_text: str, glossary_text: str = "") -> list[dict[str, str]]:
     data = json_repair.loads(response_text)
     raw_terms = data.get("terms", data) if isinstance(data, dict) else data
@@ -83,14 +95,8 @@ def parse_ai_terms_response(response_text: str, glossary_text: str = "") -> list
 
 
 def merge_hotwords(existing_hotwords: str, terms: list[dict[str, str]]) -> str:
-    values = []
-    seen = set()
-    for value in re.split(r"[,，;\n\r]+", str(existing_hotwords or "")):
-        text = _clean_term_text(value)
-        key = text.casefold()
-        if text and key not in seen:
-            seen.add(key)
-            values.append(text)
+    values = parse_hotwords_text(existing_hotwords)
+    seen = {value.casefold() for value in values}
     for term in terms:
         text = _clean_term_text(term.get("original"))
         key = text.casefold()
@@ -116,7 +122,7 @@ def format_terms_for_document_prompt(terms: list[dict[str, str]]) -> str:
     return "\n".join(
         [
             GENERATED_TERMS_BEGIN,
-            "AI 根据视频文稿提取的名称和术语，翻译与校正时优先遵循：",
+            "WhisperX 热词生成的翻译术语，翻译与校正时优先遵循：",
             *rows,
             GENERATED_TERMS_END,
         ]
@@ -136,6 +142,14 @@ def merge_document_prompt(existing_prompt: str, terms: list[dict[str, str]]) -> 
     if existing:
         return f"{existing}\n\n{generated}"
     return generated
+
+
+def remove_generated_document_prompt_terms(existing_prompt: str) -> str:
+    pattern = re.compile(
+        rf"\n*{re.escape(GENERATED_TERMS_BEGIN)}.*?{re.escape(GENERATED_TERMS_END)}\n*",
+        re.S,
+    )
+    return pattern.sub("\n", str(existing_prompt or "")).strip()
 
 
 def _split_generated_terms_block(prompt: str) -> tuple[str, str]:
@@ -370,14 +384,104 @@ def extract_terms_with_ai(
     return parse_ai_terms_response(response.choices[0].message.content, glossary_text)
 
 
-def apply_terms_to_prompt_settings(terms: list[dict[str, str]]) -> dict[str, str]:
+def _build_hotword_translation_messages(
+    hotwords: list[str], target_language: str
+) -> list[dict[str, str]]:
+    system_prompt = """
+你是字幕翻译术语整理助手。请把用户人工校正后的 WhisperX 热词整理成翻译阶段使用的术语对照表。
+
+规则：
+- 每个输入热词都视为原文术语候选。
+- 为每个热词生成适合${target_language}字幕翻译的译名。
+- 如果热词是品牌名、模型名、代码名、命令、变量或不应翻译的专名，译名可以与原文相同。
+- 不要新增输入列表之外的术语。
+- 只返回纯 JSON，不要 Markdown，不要解释文字。
+
+输出格式：
+{
+  "terms": [
+    {"original": "Original Name", "translation": "译名", "category": "term"}
+  ]
+}
+"""
+    user_content = "\n".join(
+        [
+            "WhisperX 热词：",
+            "\n".join(f"- {hotword}" for hotword in hotwords),
+        ]
+    )
+    return [
+        {
+            "role": "system",
+            "content": Template(system_prompt).safe_substitute(
+                target_language=target_language or "目标语言"
+            ),
+        },
+        {"role": "user", "content": user_content},
+    ]
+
+
+def extract_translation_terms_from_hotwords(
+    hotwords_text: str,
+    target_language: str,
+) -> list[dict[str, str]]:
+    hotwords = parse_hotwords_text(hotwords_text)
+    if not hotwords:
+        return []
+
+    settings = _resolve_current_llm_settings()
+    if not settings["base_url"] or not settings["api_key"] or not settings["model"]:
+        raise ValueError("LLM API 未配置，无法从 WhisperX 热词生成翻译术语")
+
+    from openai import OpenAI
+
+    messages = _build_hotword_translation_messages(
+        hotwords[:MAX_FILTERED_PROMPT_TERMS],
+        target_language,
+    )
+    client = OpenAI(base_url=settings["base_url"], api_key=settings["api_key"])
+    response = client.chat.completions.create(
+        model=settings["model"],
+        messages=messages,
+        temperature=0.1,
+        **get_openai_compat_request_options(
+            service_name=settings["service"],
+            model_name=settings["model"],
+            qwen_enable_thinking=settings["qwen_enable_thinking"],
+            default_timeout=settings["timeout"],
+        ),
+    )
+    terms = parse_ai_terms_response(response.choices[0].message.content)
+    input_keys = {hotword.casefold() for hotword in hotwords}
+    return [
+        term
+        for term in terms
+        if _clean_term_text(term.get("original")).casefold() in input_keys
+    ]
+
+
+def apply_terms_to_whisperx_hotwords(terms: list[dict[str, str]]) -> dict[str, str]:
     from app.common.config import cfg
 
     hotwords = merge_hotwords(cfg.whisperx_hotwords.value, terms)
-    document_prompt = merge_document_prompt(cfg.custom_prompt_text.value, terms)
+    document_prompt = remove_generated_document_prompt_terms(cfg.custom_prompt_text.value)
     cfg.set(cfg.whisperx_hotwords, hotwords)
     cfg.set(cfg.custom_prompt_text, document_prompt)
     return {"whisperx_hotwords": hotwords, "custom_prompt_text": document_prompt}
+
+
+def apply_terms_to_document_prompt(terms: list[dict[str, str]]) -> dict[str, str]:
+    from app.common.config import cfg
+
+    document_prompt = merge_document_prompt(cfg.custom_prompt_text.value, terms)
+    cfg.set(cfg.custom_prompt_text, document_prompt)
+    return {"custom_prompt_text": document_prompt}
+
+
+def apply_terms_to_prompt_settings(terms: list[dict[str, str]]) -> dict[str, str]:
+    result = apply_terms_to_whisperx_hotwords(terms)
+    result.update(apply_terms_to_document_prompt(terms))
+    return result
 
 
 def write_terms_txt_file(terms: list[dict[str, str]], work_dir: Path, filename_stem: str) -> str:

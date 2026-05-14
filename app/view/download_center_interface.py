@@ -1036,7 +1036,7 @@ class DownloadCenterInterface(QWidget):
         self.result_metadata.setText(self.tr("元数据：暂无"))
         self.result_description_txt.setText(self.tr("说明TXT：暂无"))
         self.result_transcript_txt.setText(self.tr("视频文稿：暂无"))
-        self.result_terms_txt.setText(self.tr("AI术语表：暂无"))
+        self.result_terms_txt.setText(self.tr("AI术语表：请在 WhisperX 热词管理中手动生成"))
         self.result_transcoded.setText(self.tr("H.265后处理：暂无"))
 
     def _reset_preview_labels(self):
