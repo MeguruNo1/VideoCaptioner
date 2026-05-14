@@ -17,6 +17,7 @@ from app.core.storage.cache_manager import CacheManager
 from app.core.subtitle_processor.prompt import (
     PROMPT_SPLIT_SEMANTIC,
     PROMPT_SPLIT_SENTENCE,
+    PROMPT_SPLIT_SENTENCE_RESTORE,
     get_prompt_template,
 )
 from app.core.utils.logger import setup_logger
@@ -490,55 +491,46 @@ class SubtitleSplitter:
 
     def _process_by_llm(self, segments: List[ASRDataSeg]) -> List[ASRDataSeg]:
         """
-        使用LLM进行分段处理
+        使用LLM进行分段处理。
 
-        处理步骤：
-        1. 合并文本并构建提示词
-        2. 检查缓存
-        3. 调用API进行分段
-        4. 处理响应结果
-        5. 缓存结果
-        6. 合并分段
-
-        Args:
-            segments: ASR数据分段列表
-
-        Returns:
-            处理后的分段列表
-
-        Raises:
-            ValueError: API返回结果为空时抛出
+        词级时间轴文本通常没有标点和句子边界，单次让AI直接切短字幕容易误判。
+        这里先恢复完整句子，再把完整句子交给断句提示词做字幕长度分句。
         """
-        # 合并文本
-        txt = "".join([seg.text for seg in segments])
+        txt = self._join_segment_texts(segments)
         logger.debug(f"处理文本长度: {len(txt)}")
 
-        # 构建提示词
+        restored_sentences = self._restore_sentences_with_llm(txt)
+        split_sentences = self._split_restored_sentences_with_llm(
+            txt, restored_sentences
+        )
+
+        return self._merge_segments_based_on_sentences(segments, split_sentences)
+
+    def _get_split_prompt_template(self) -> Template:
         if self.split_type == "semantic":
-            template = Template(get_prompt_template(PROMPT_SPLIT_SEMANTIC))
-        elif self.split_type == "sentence":
-            template = Template(get_prompt_template(PROMPT_SPLIT_SENTENCE))
-        else:
-            raise ValueError(f"无效的分段类型: {self.split_type}")
+            return Template(get_prompt_template(PROMPT_SPLIT_SEMANTIC))
+        if self.split_type == "sentence":
+            return Template(get_prompt_template(PROMPT_SPLIT_SENTENCE))
+        raise ValueError(f"无效的分段类型: {self.split_type}")
 
-        system_prompt = template.safe_substitute(
-            max_word_count_cjk=self.max_word_count_cjk,
-            max_word_count_english=self.max_word_count_english,
-        )
-
-        user_prompt = (
-            f"Please use multiple <br> tags to separate the following sentence:\n{txt}"
-        )
-
-        # 检查缓存
-        cache_key = txt
+    def _call_split_llm(
+        self,
+        *,
+        stage: str,
+        cache_key: str,
+        source_text: str,
+        system_prompt: str,
+        user_prompt: str,
+        cache_extra: Optional[dict] = None,
+    ) -> List[str]:
         param = {
             "temperature": self.temperature,
-            "split_type": self.split_type,
+            "split_stage": stage,
             "prompt_hash": hashlib.md5(system_prompt.encode("utf-8")).hexdigest(),
-            "max_word_count_cjk": self.max_word_count_cjk,
-            "max_word_count_english": self.max_word_count_english,
         }
+        if cache_extra:
+            param.update(cache_extra)
+
         if self.use_cache:
             cached_result = self.cache_manager.get_llm_result(
                 prompt=cache_key,
@@ -547,14 +539,16 @@ class SubtitleSplitter:
             )
             if cached_result:
                 try:
-                    logger.info(f"使用缓存数据进行分段，文本长度: {count_words(txt)}")
-                    sentences = json.loads(cached_result)
-                    return self._merge_segments_based_on_sentences(segments, sentences)
+                    logger.info(
+                        f"使用缓存数据进行{stage}，文本长度: {count_words(source_text)}"
+                    )
+                    cached_segments = json.loads(cached_result)
+                    if cached_segments:
+                        return cached_segments
                 except json.JSONDecodeError as e:
                     logger.warning(f"缓存数据解析失败: {str(e)}")
 
-        # 调用API
-        logger.info(f"开始调用API进行分段，文本长度: {count_words(txt)}")
+        logger.info(f"开始调用API进行{stage}，文本长度: {count_words(source_text)}")
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -567,38 +561,83 @@ class SubtitleSplitter:
             ),
         )
         if self.usage_callback:
-            self.usage_callback("split", extract_openai_usage(response))
+            self.usage_callback(stage, extract_openai_usage(response))
 
-        # 处理响应结果
         result = response.choices[0].message.content
         if result is None:
             raise ValueError("API返回的内容为空")
 
-        result = result.replace("\n", "")  # 清理多余换行符
-        sentences = [
+        result = result.strip()
+        if "<br" not in result.lower():
+            result = re.sub(r"\n+", "<br>", result)
+        result = re.sub(r"\s*<br\s*/?>\s*", "<br>", result, flags=re.I)
+        result = result.replace("\n", "")
+        result_segments = [
             segment.strip() for segment in result.split("<br>") if segment.strip()
         ]
 
-        # 验证结果
-        if not sentences:
-            raise ValueError("API返回的分段结果为空")
+        if not result_segments:
+            raise ValueError(f"API返回的{stage}结果为空")
 
-        logger.info(f"API返回结果，句子数量: {len(sentences)}")
+        logger.info(f"API返回{stage}结果，句子数量: {len(result_segments)}")
 
-        # 缓存结果
         if self.use_cache:
             try:
                 self.cache_manager.set_llm_result(
                     prompt=cache_key,
-                    result=json.dumps(sentences, ensure_ascii=False),
+                    result=json.dumps(result_segments, ensure_ascii=False),
                     model_name=self.model,
                     **param,
                 )
             except Exception as e:
                 logger.error(f"写入缓存失败: {str(e)}")
 
-        # 合并分段
-        return self._merge_segments_based_on_sentences(segments, sentences)
+        return result_segments
+
+    def _restore_sentences_with_llm(self, txt: str) -> List[str]:
+        system_prompt = get_prompt_template(PROMPT_SPLIT_SENTENCE_RESTORE)
+        user_prompt = (
+            "Please restore complete sentences for the following word-level "
+            f"subtitle text, using <br> only between complete sentences:\n{txt}"
+        )
+        return self._call_split_llm(
+            stage="split_sentence_restore",
+            cache_key=txt,
+            source_text=txt,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+    def _split_restored_sentences_with_llm(
+        self, original_text: str, restored_sentences: List[str]
+    ) -> List[str]:
+        template = self._get_split_prompt_template()
+        system_prompt = template.safe_substitute(
+            max_word_count_cjk=self.max_word_count_cjk,
+            max_word_count_english=self.max_word_count_english,
+        )
+        restored_text = "\n".join(restored_sentences)
+        user_prompt = (
+            "Please split the following restored complete sentences into subtitle "
+            "segments with <br>. Keep the text order and do not translate or "
+            f"rewrite the content:\n{restored_text}"
+        )
+
+        return self._call_split_llm(
+            stage="split",
+            cache_key=original_text,
+            source_text=restored_text,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            cache_extra={
+                "split_type": self.split_type,
+                "max_word_count_cjk": self.max_word_count_cjk,
+                "max_word_count_english": self.max_word_count_english,
+                "restore_hash": hashlib.md5(
+                    restored_text.encode("utf-8")
+                ).hexdigest(),
+            },
+        )
 
     def _process_by_rules(self, segments: List[ASRDataSeg]) -> List[ASRDataSeg]:
         """
@@ -1103,8 +1142,19 @@ class SubtitleSplitter:
         """
 
         def preprocess_text(s: str) -> str:
-            """通过转换为小写并规范化空格来标准化文本"""
-            return " ".join(s.lower().split())
+            """标准化文本，匹配时忽略AI成句阶段补充的标点。"""
+            text = re.sub(r"<br\s*/?>", " ", s, flags=re.I).lower()
+            punctuation = "".join(self.PUNCTUATION_SPLIT_SUFFIXES)
+            text = re.sub(
+                r"["
+                + re.escape(punctuation)
+                + r"\"'“”‘’（）()【】\[\]《》<>]+",
+                " ",
+                text,
+            )
+            if is_mainly_cjk(text):
+                return "".join(text.split())
+            return " ".join(text.split())
 
         asr_texts = [seg.text for seg in segments]
         asr_len = len(asr_texts)

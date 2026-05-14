@@ -51,6 +51,29 @@ Output:
 the upgraded claude sonnet is now available for all users<br>developers can build with the computer use beta<br>on the anthropic api amazon bedrock and google cloud’s vertex ai<br>the new claude haiku will be released later this month
 """
 
+SPLIT_PROMPT_SENTENCE_RESTORE = """
+您是一位字幕成句专家，擅长把词级时间轴拼接出来的无标点文本恢复成自然、完整、连贯的句子。
+
+要求：
+- 根据语义、话题转换、自然停顿和连接词判断完整句子边界。
+- 可以补充必要的逗号、句号、问号、感叹号、分号、冒号等标点，让句子边界更清晰。
+- 只在完整句子之间插入<br>，不要为了字幕显示长度拆成短句。
+- 不翻译、不改写、不总结、不删除原文信息，也不要添加原文没有的实质内容。
+- 可以为英文恢复自然大小写，但不要替换专有名词、术语或数字。
+- 直接返回恢复后的文本，只能包含原文、必要标点和<br>分隔符，无需额外解释。
+
+## Examples
+Input:
+大家好今天我们带来的3d创意设计作品是禁制演示器我是来自中山大学附属中学的方若涵我是陈欣然我们这一次作品介绍分为三个部分第一个部分提出问题第二个部分解决方案第三个部分作品介绍当我们学习进制的时候难以掌握老师教学也比较抽象那有没有一种教具或演示器可以将进制的原理形象生动地展现出来
+Output:
+大家好。<br>今天我们带来的3d创意设计作品是禁制演示器。<br>我是来自中山大学附属中学的方若涵，我是陈欣然。<br>我们这一次作品介绍分为三个部分：第一个部分提出问题，第二个部分解决方案，第三个部分作品介绍。<br>当我们学习进制的时候难以掌握，老师教学也比较抽象。<br>那有没有一种教具或演示器可以将进制的原理形象生动地展现出来？
+
+Input:
+the upgraded claude sonnet is now available for all users developers can build with the computer use beta on the anthropic api amazon bedrock and google cloud’s vertex ai the new claude haiku will be released later this month
+Output:
+The upgraded Claude Sonnet is now available for all users.<br>Developers can build with the computer use beta on the Anthropic API, Amazon Bedrock, and Google Cloud’s Vertex AI.<br>The new Claude Haiku will be released later this month.
+"""
+
 SUMMARIZER_PROMPT = """
 您是一位**专业视频分析师**，擅长从视频字幕中准确提取信息，包括主要内容和重要术语。
 
@@ -255,6 +278,7 @@ TERM_GLOSSARY_PROMPT = """
 
 PROMPT_SPLIT_SEMANTIC = "split_semantic"
 PROMPT_SPLIT_SENTENCE = "split_sentence"
+PROMPT_SPLIT_SENTENCE_RESTORE = "split_sentence_restore"
 PROMPT_SUMMARIZER = "summarizer"
 PROMPT_OPTIMIZER = "optimizer"
 PROMPT_TRANSLATE = "translate"
@@ -270,6 +294,7 @@ PROMPT_TERM_GLOSSARY = "term_glossary"
 DEFAULT_PROMPTS = {
     PROMPT_SPLIT_SEMANTIC: SPLIT_PROMPT_SEMANTIC,
     PROMPT_SPLIT_SENTENCE: SPLIT_PROMPT_SENTENCE,
+    PROMPT_SPLIT_SENTENCE_RESTORE: SPLIT_PROMPT_SENTENCE_RESTORE,
     PROMPT_SUMMARIZER: SUMMARIZER_PROMPT,
     PROMPT_OPTIMIZER: OPTIMIZER_PROMPT,
     PROMPT_TRANSLATE: TRANSLATE_PROMPT,
@@ -286,6 +311,7 @@ DEFAULT_PROMPTS = {
 PROMPT_CONFIG_ATTRS = {
     PROMPT_SPLIT_SEMANTIC: "prompt_split_semantic",
     PROMPT_SPLIT_SENTENCE: "prompt_split_sentence",
+    PROMPT_SPLIT_SENTENCE_RESTORE: "prompt_split_sentence_restore",
     PROMPT_SUMMARIZER: "prompt_summarizer",
     PROMPT_OPTIMIZER: "prompt_optimizer",
     PROMPT_TRANSLATE: "prompt_translate",
@@ -325,6 +351,11 @@ PROMPT_CENTER_ITEMS = [
         "id": PROMPT_SPLIT_SENTENCE,
         "title": "分句/断句提示词",
         "description": "用于按句意和标点位置拆分字幕。",
+    },
+    {
+        "id": PROMPT_SPLIT_SENTENCE_RESTORE,
+        "title": "词级成句恢复提示词",
+        "description": "用于先把词级时间轴文本恢复成完整句子，再交给断句提示词分句。",
     },
     {
         "id": PROMPT_SUMMARIZER,

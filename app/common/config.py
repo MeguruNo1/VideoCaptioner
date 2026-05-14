@@ -297,6 +297,9 @@ class Config(QConfig):
     # ------------------- 提示词中心 -------------------
     prompt_split_semantic = ConfigItem("PromptCenter", "SplitSemantic", "")
     prompt_split_sentence = ConfigItem("PromptCenter", "SplitSentence", "")
+    prompt_split_sentence_restore = ConfigItem(
+        "PromptCenter", "SplitSentenceRestore", ""
+    )
     prompt_summarizer = ConfigItem("PromptCenter", "Summarizer", "")
     prompt_optimizer = ConfigItem("PromptCenter", "Optimizer", "")
     prompt_translate = ConfigItem("PromptCenter", "Translate", "")

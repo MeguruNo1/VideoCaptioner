@@ -392,6 +392,8 @@ class SubtitleInterface(QWidget):
             table.setContextMenuPolicy(Qt.CustomContextMenu)
             table.customContextMenuRequested.connect(self.show_context_menu)
 
+        self._setup_synced_subtitle_scrollbars()
+
         self.content_splitter.addWidget(self.original_table)
         self.content_splitter.addWidget(self.subtitle_table)
         self.content_splitter.addWidget(self.log_text)
@@ -399,6 +401,58 @@ class SubtitleInterface(QWidget):
         self.content_splitter.setStretchFactor(1, 3)
         self.content_splitter.setStretchFactor(2, 2)
         self.main_layout.addWidget(self.content_splitter, 1)
+
+    def _setup_synced_subtitle_scrollbars(self):
+        self._syncing_subtitle_scrollbars = False
+        self.original_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.subtitle_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        original_bar = self.original_table.verticalScrollBar()
+        subtitle_bar = self.subtitle_table.verticalScrollBar()
+        original_bar.valueChanged.connect(
+            lambda _: self._sync_subtitle_scrollbar(
+                self.original_table, self.subtitle_table
+            )
+        )
+        subtitle_bar.valueChanged.connect(
+            lambda _: self._sync_subtitle_scrollbar(
+                self.subtitle_table, self.original_table
+            )
+        )
+        original_bar.rangeChanged.connect(
+            lambda *_: self._sync_subtitle_scrollbar(
+                self.subtitle_table, self.original_table
+            )
+        )
+        subtitle_bar.rangeChanged.connect(
+            lambda *_: self._sync_subtitle_scrollbar(
+                self.original_table, self.subtitle_table
+            )
+        )
+
+    def _sync_subtitle_scrollbar(self, source_table, target_table):
+        if self._syncing_subtitle_scrollbars:
+            return
+
+        source_bar = source_table.verticalScrollBar()
+        target_bar = target_table.verticalScrollBar()
+        source_max = source_bar.maximum()
+        target_max = target_bar.maximum()
+        if target_max <= 0:
+            target_value = 0
+        elif source_max <= 0:
+            target_value = min(source_bar.value(), target_max)
+        else:
+            target_value = round(source_bar.value() / source_max * target_max)
+
+        if target_bar.value() == target_value:
+            return
+
+        self._syncing_subtitle_scrollbars = True
+        try:
+            target_bar.setValue(target_value)
+        finally:
+            self._syncing_subtitle_scrollbars = False
 
     def _setup_bottom_layout(self):
         self.bottom_layout = QHBoxLayout()
