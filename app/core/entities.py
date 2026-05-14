@@ -149,96 +149,96 @@ class TargetLanguageEnum(Enum):
     RUSSIAN = "俄语"
     PORTUGUESE = "葡萄牙语"
     TURKISH = "土耳其语"
-    POLISH = "Polish"
-    CATALAN = "Catalan"
-    DUTCH = "Dutch"
-    ARABIC = "Arabic"
-    SWEDISH = "Swedish"
-    ITALIAN = "Italian"
-    INDONESIAN = "Indonesian"
-    HINDI = "Hindi"
-    FINNISH = "Finnish"
-    VIETNAMESE = "Vietnamese"
-    HEBREW = "Hebrew"
-    UKRAINIAN = "Ukrainian"
-    GREEK = "Greek"
-    MALAY = "Malay"
-    CZECH = "Czech"
-    ROMANIAN = "Romanian"
-    DANISH = "Danish"
-    HUNGARIAN = "Hungarian"
-    TAMIL = "Tamil"
-    NORWEGIAN = "Norwegian"
-    THAI = "Thai"
-    URDU = "Urdu"
-    CROATIAN = "Croatian"
-    BULGARIAN = "Bulgarian"
-    LITHUANIAN = "Lithuanian"
-    LATIN = "Latin"
-    MAORI = "Maori"
-    MALAYALAM = "Malayalam"
-    WELSH = "Welsh"
-    SLOVAK = "Slovak"
-    TELUGU = "Telugu"
-    PERSIAN = "Persian"
-    LATVIAN = "Latvian"
-    BENGALI = "Bengali"
-    SERBIAN = "Serbian"
-    AZERBAIJANI = "Azerbaijani"
-    SLOVENIAN = "Slovenian"
-    KANNADA = "Kannada"
-    ESTONIAN = "Estonian"
-    MACEDONIAN = "Macedonian"
-    BRETON = "Breton"
-    BASQUE = "Basque"
-    ICELANDIC = "Icelandic"
-    ARMENIAN = "Armenian"
-    NEPALI = "Nepali"
-    MONGOLIAN = "Mongolian"
-    BOSNIAN = "Bosnian"
-    KAZAKH = "Kazakh"
-    ALBANIAN = "Albanian"
-    SWAHILI = "Swahili"
-    GALICIAN = "Galician"
-    MARATHI = "Marathi"
-    PUNJABI = "Punjabi"
-    SINHALA = "Sinhala"
-    KHMER = "Khmer"
-    SHONA = "Shona"
-    YORUBA = "Yoruba"
-    SOMALI = "Somali"
-    AFRIKAANS = "Afrikaans"
-    OCCITAN = "Occitan"
-    GEORGIAN = "Georgian"
-    BELARUSIAN = "Belarusian"
-    TAJIK = "Tajik"
-    SINDHI = "Sindhi"
-    GUJARATI = "Gujarati"
-    AMHARIC = "Amharic"
-    YIDDISH = "Yiddish"
-    LAO = "Lao"
-    UZBEK = "Uzbek"
-    FAROESE = "Faroese"
-    HAITIAN_CREOLE = "Haitian Creole"
-    PASHTO = "Pashto"
-    TURKMEN = "Turkmen"
-    NYNORSK = "Nynorsk"
-    MALTESE = "Maltese"
-    SANSKRIT = "Sanskrit"
-    LUXEMBOURGISH = "Luxembourgish"
-    MYANMAR = "Myanmar"
-    TIBETAN = "Tibetan"
-    TAGALOG = "Tagalog"
-    MALAGASY = "Malagasy"
-    ASSAMESE = "Assamese"
-    TATAR = "Tatar"
-    HAWAIIAN = "Hawaiian"
-    LINGALA = "Lingala"
-    HAUSA = "Hausa"
-    BASHKIR = "Bashkir"
-    JAVANESE = "Javanese"
-    SUNDANESE = "Sundanese"
-    CANTONESE = "Cantonese"
+    POLISH = "波兰语"
+    CATALAN = "加泰罗尼亚语"
+    DUTCH = "荷兰语"
+    ARABIC = "阿拉伯语"
+    SWEDISH = "瑞典语"
+    ITALIAN = "意大利语"
+    INDONESIAN = "印尼语"
+    HINDI = "印地语"
+    FINNISH = "芬兰语"
+    VIETNAMESE = "越南语"
+    HEBREW = "希伯来语"
+    UKRAINIAN = "乌克兰语"
+    GREEK = "希腊语"
+    MALAY = "马来语"
+    CZECH = "捷克语"
+    ROMANIAN = "罗马尼亚语"
+    DANISH = "丹麦语"
+    HUNGARIAN = "匈牙利语"
+    TAMIL = "泰米尔语"
+    NORWEGIAN = "挪威语"
+    THAI = "泰语"
+    URDU = "乌尔都语"
+    CROATIAN = "克罗地亚语"
+    BULGARIAN = "保加利亚语"
+    LITHUANIAN = "立陶宛语"
+    LATIN = "拉丁语"
+    MAORI = "毛利语"
+    MALAYALAM = "马拉雅拉姆语"
+    WELSH = "威尔士语"
+    SLOVAK = "斯洛伐克语"
+    TELUGU = "泰卢固语"
+    PERSIAN = "波斯语"
+    LATVIAN = "拉脱维亚语"
+    BENGALI = "孟加拉语"
+    SERBIAN = "塞尔维亚语"
+    AZERBAIJANI = "阿塞拜疆语"
+    SLOVENIAN = "斯洛文尼亚语"
+    KANNADA = "卡纳达语"
+    ESTONIAN = "爱沙尼亚语"
+    MACEDONIAN = "马其顿语"
+    BRETON = "布列塔尼语"
+    BASQUE = "巴斯克语"
+    ICELANDIC = "冰岛语"
+    ARMENIAN = "亚美尼亚语"
+    NEPALI = "尼泊尔语"
+    MONGOLIAN = "蒙古语"
+    BOSNIAN = "波斯尼亚语"
+    KAZAKH = "哈萨克语"
+    ALBANIAN = "阿尔巴尼亚语"
+    SWAHILI = "斯瓦希里语"
+    GALICIAN = "加利西亚语"
+    MARATHI = "马拉地语"
+    PUNJABI = "旁遮普语"
+    SINHALA = "僧伽罗语"
+    KHMER = "高棉语"
+    SHONA = "绍纳语"
+    YORUBA = "约鲁巴语"
+    SOMALI = "索马里语"
+    AFRIKAANS = "南非荷兰语"
+    OCCITAN = "奥克语"
+    GEORGIAN = "格鲁吉亚语"
+    BELARUSIAN = "白俄罗斯语"
+    TAJIK = "塔吉克语"
+    SINDHI = "信德语"
+    GUJARATI = "古吉拉特语"
+    AMHARIC = "阿姆哈拉语"
+    YIDDISH = "意第绪语"
+    LAO = "老挝语"
+    UZBEK = "乌兹别克语"
+    FAROESE = "法罗语"
+    HAITIAN_CREOLE = "海地克里奥尔语"
+    PASHTO = "普什图语"
+    TURKMEN = "土库曼语"
+    NYNORSK = "新挪威语"
+    MALTESE = "马耳他语"
+    SANSKRIT = "梵语"
+    LUXEMBOURGISH = "卢森堡语"
+    MYANMAR = "缅甸语"
+    TIBETAN = "藏语"
+    TAGALOG = "他加禄语"
+    MALAGASY = "马达加斯加语"
+    ASSAMESE = "阿萨姆语"
+    TATAR = "鞑靼语"
+    HAWAIIAN = "夏威夷语"
+    LINGALA = "林加拉语"
+    HAUSA = "豪萨语"
+    BASHKIR = "巴什基尔语"
+    JAVANESE = "爪哇语"
+    SUNDANESE = "巽他语"
+    CANTONESE = "粤语（广东话）"
 
 
 class TranscribeLanguageEnum(Enum):
@@ -255,96 +255,96 @@ class TranscribeLanguageEnum(Enum):
     RUSSIAN = "俄语"
     PORTUGUESE = "葡萄牙语"
     TURKISH = "土耳其语"
-    POLISH = "Polish"
-    CATALAN = "Catalan"
-    DUTCH = "Dutch"
-    ARABIC = "Arabic"
-    SWEDISH = "Swedish"
-    ITALIAN = "Italian"
-    INDONESIAN = "Indonesian"
-    HINDI = "Hindi"
-    FINNISH = "Finnish"
-    VIETNAMESE = "Vietnamese"
-    HEBREW = "Hebrew"
-    UKRAINIAN = "Ukrainian"
-    GREEK = "Greek"
-    MALAY = "Malay"
-    CZECH = "Czech"
-    ROMANIAN = "Romanian"
-    DANISH = "Danish"
-    HUNGARIAN = "Hungarian"
-    TAMIL = "Tamil"
-    NORWEGIAN = "Norwegian"
-    THAI = "Thai"
-    URDU = "Urdu"
-    CROATIAN = "Croatian"
-    BULGARIAN = "Bulgarian"
-    LITHUANIAN = "Lithuanian"
-    LATIN = "Latin"
-    MAORI = "Maori"
-    MALAYALAM = "Malayalam"
-    WELSH = "Welsh"
-    SLOVAK = "Slovak"
-    TELUGU = "Telugu"
-    PERSIAN = "Persian"
-    LATVIAN = "Latvian"
-    BENGALI = "Bengali"
-    SERBIAN = "Serbian"
-    AZERBAIJANI = "Azerbaijani"
-    SLOVENIAN = "Slovenian"
-    KANNADA = "Kannada"
-    ESTONIAN = "Estonian"
-    MACEDONIAN = "Macedonian"
-    BRETON = "Breton"
-    BASQUE = "Basque"
-    ICELANDIC = "Icelandic"
-    ARMENIAN = "Armenian"
-    NEPALI = "Nepali"
-    MONGOLIAN = "Mongolian"
-    BOSNIAN = "Bosnian"
-    KAZAKH = "Kazakh"
-    ALBANIAN = "Albanian"
-    SWAHILI = "Swahili"
-    GALICIAN = "Galician"
-    MARATHI = "Marathi"
-    PUNJABI = "Punjabi"
-    SINHALA = "Sinhala"
-    KHMER = "Khmer"
-    SHONA = "Shona"
-    YORUBA = "Yoruba"
-    SOMALI = "Somali"
-    AFRIKAANS = "Afrikaans"
-    OCCITAN = "Occitan"
-    GEORGIAN = "Georgian"
-    BELARUSIAN = "Belarusian"
-    TAJIK = "Tajik"
-    SINDHI = "Sindhi"
-    GUJARATI = "Gujarati"
-    AMHARIC = "Amharic"
-    YIDDISH = "Yiddish"
-    LAO = "Lao"
-    UZBEK = "Uzbek"
-    FAROESE = "Faroese"
-    HAITIAN_CREOLE = "Haitian Creole"
-    PASHTO = "Pashto"
-    TURKMEN = "Turkmen"
-    NYNORSK = "Nynorsk"
-    MALTESE = "Maltese"
-    SANSKRIT = "Sanskrit"
-    LUXEMBOURGISH = "Luxembourgish"
-    MYANMAR = "Myanmar"
-    TIBETAN = "Tibetan"
-    TAGALOG = "Tagalog"
-    MALAGASY = "Malagasy"
-    ASSAMESE = "Assamese"
-    TATAR = "Tatar"
-    HAWAIIAN = "Hawaiian"
-    LINGALA = "Lingala"
-    HAUSA = "Hausa"
-    BASHKIR = "Bashkir"
-    JAVANESE = "Javanese"
-    SUNDANESE = "Sundanese"
-    CANTONESE = "Cantonese"
+    POLISH = "波兰语"
+    CATALAN = "加泰罗尼亚语"
+    DUTCH = "荷兰语"
+    ARABIC = "阿拉伯语"
+    SWEDISH = "瑞典语"
+    ITALIAN = "意大利语"
+    INDONESIAN = "印尼语"
+    HINDI = "印地语"
+    FINNISH = "芬兰语"
+    VIETNAMESE = "越南语"
+    HEBREW = "希伯来语"
+    UKRAINIAN = "乌克兰语"
+    GREEK = "希腊语"
+    MALAY = "马来语"
+    CZECH = "捷克语"
+    ROMANIAN = "罗马尼亚语"
+    DANISH = "丹麦语"
+    HUNGARIAN = "匈牙利语"
+    TAMIL = "泰米尔语"
+    NORWEGIAN = "挪威语"
+    THAI = "泰语"
+    URDU = "乌尔都语"
+    CROATIAN = "克罗地亚语"
+    BULGARIAN = "保加利亚语"
+    LITHUANIAN = "立陶宛语"
+    LATIN = "拉丁语"
+    MAORI = "毛利语"
+    MALAYALAM = "马拉雅拉姆语"
+    WELSH = "威尔士语"
+    SLOVAK = "斯洛伐克语"
+    TELUGU = "泰卢固语"
+    PERSIAN = "波斯语"
+    LATVIAN = "拉脱维亚语"
+    BENGALI = "孟加拉语"
+    SERBIAN = "塞尔维亚语"
+    AZERBAIJANI = "阿塞拜疆语"
+    SLOVENIAN = "斯洛文尼亚语"
+    KANNADA = "卡纳达语"
+    ESTONIAN = "爱沙尼亚语"
+    MACEDONIAN = "马其顿语"
+    BRETON = "布列塔尼语"
+    BASQUE = "巴斯克语"
+    ICELANDIC = "冰岛语"
+    ARMENIAN = "亚美尼亚语"
+    NEPALI = "尼泊尔语"
+    MONGOLIAN = "蒙古语"
+    BOSNIAN = "波斯尼亚语"
+    KAZAKH = "哈萨克语"
+    ALBANIAN = "阿尔巴尼亚语"
+    SWAHILI = "斯瓦希里语"
+    GALICIAN = "加利西亚语"
+    MARATHI = "马拉地语"
+    PUNJABI = "旁遮普语"
+    SINHALA = "僧伽罗语"
+    KHMER = "高棉语"
+    SHONA = "绍纳语"
+    YORUBA = "约鲁巴语"
+    SOMALI = "索马里语"
+    AFRIKAANS = "南非荷兰语"
+    OCCITAN = "奥克语"
+    GEORGIAN = "格鲁吉亚语"
+    BELARUSIAN = "白俄罗斯语"
+    TAJIK = "塔吉克语"
+    SINDHI = "信德语"
+    GUJARATI = "古吉拉特语"
+    AMHARIC = "阿姆哈拉语"
+    YIDDISH = "意第绪语"
+    LAO = "老挝语"
+    UZBEK = "乌兹别克语"
+    FAROESE = "法罗语"
+    HAITIAN_CREOLE = "海地克里奥尔语"
+    PASHTO = "普什图语"
+    TURKMEN = "土库曼语"
+    NYNORSK = "新挪威语"
+    MALTESE = "马耳他语"
+    SANSKRIT = "梵语"
+    LUXEMBOURGISH = "卢森堡语"
+    MYANMAR = "缅甸语"
+    TIBETAN = "藏语"
+    TAGALOG = "他加禄语"
+    MALAGASY = "马达加斯加语"
+    ASSAMESE = "阿萨姆语"
+    TATAR = "鞑靼语"
+    HAWAIIAN = "夏威夷语"
+    LINGALA = "林加拉语"
+    HAUSA = "豪萨语"
+    BASHKIR = "巴什基尔语"
+    JAVANESE = "爪哇语"
+    SUNDANESE = "巽他语"
+    CANTONESE = "粤语（广东话）"
 
 
 class WhisperModelEnum(Enum):
@@ -379,6 +379,96 @@ LANGUAGES = {
     "法语": "fr",
     "葡萄牙语": "pt",
     "土耳其语": "tr",
+    "波兰语": "pl",
+    "加泰罗尼亚语": "ca",
+    "荷兰语": "nl",
+    "阿拉伯语": "ar",
+    "瑞典语": "sv",
+    "意大利语": "it",
+    "印尼语": "id",
+    "印地语": "hi",
+    "芬兰语": "fi",
+    "越南语": "vi",
+    "希伯来语": "he",
+    "乌克兰语": "uk",
+    "希腊语": "el",
+    "马来语": "ms",
+    "捷克语": "cs",
+    "罗马尼亚语": "ro",
+    "丹麦语": "da",
+    "匈牙利语": "hu",
+    "泰米尔语": "ta",
+    "挪威语": "no",
+    "泰语": "th",
+    "乌尔都语": "ur",
+    "克罗地亚语": "hr",
+    "保加利亚语": "bg",
+    "立陶宛语": "lt",
+    "拉丁语": "la",
+    "毛利语": "mi",
+    "马拉雅拉姆语": "ml",
+    "威尔士语": "cy",
+    "斯洛伐克语": "sk",
+    "泰卢固语": "te",
+    "波斯语": "fa",
+    "拉脱维亚语": "lv",
+    "孟加拉语": "bn",
+    "塞尔维亚语": "sr",
+    "阿塞拜疆语": "az",
+    "斯洛文尼亚语": "sl",
+    "卡纳达语": "kn",
+    "爱沙尼亚语": "et",
+    "马其顿语": "mk",
+    "布列塔尼语": "br",
+    "巴斯克语": "eu",
+    "冰岛语": "is",
+    "亚美尼亚语": "hy",
+    "尼泊尔语": "ne",
+    "蒙古语": "mn",
+    "波斯尼亚语": "bs",
+    "哈萨克语": "kk",
+    "阿尔巴尼亚语": "sq",
+    "斯瓦希里语": "sw",
+    "加利西亚语": "gl",
+    "马拉地语": "mr",
+    "旁遮普语": "pa",
+    "僧伽罗语": "si",
+    "高棉语": "km",
+    "绍纳语": "sn",
+    "约鲁巴语": "yo",
+    "索马里语": "so",
+    "南非荷兰语": "af",
+    "奥克语": "oc",
+    "格鲁吉亚语": "ka",
+    "白俄罗斯语": "be",
+    "塔吉克语": "tg",
+    "信德语": "sd",
+    "古吉拉特语": "gu",
+    "阿姆哈拉语": "am",
+    "意第绪语": "yi",
+    "老挝语": "lo",
+    "乌兹别克语": "uz",
+    "法罗语": "fo",
+    "海地克里奥尔语": "ht",
+    "普什图语": "ps",
+    "土库曼语": "tk",
+    "新挪威语": "nn",
+    "马耳他语": "mt",
+    "梵语": "sa",
+    "卢森堡语": "lb",
+    "缅甸语": "my",
+    "藏语": "bo",
+    "他加禄语": "tl",
+    "马达加斯加语": "mg",
+    "阿萨姆语": "as",
+    "鞑靼语": "tt",
+    "夏威夷语": "haw",
+    "林加拉语": "ln",
+    "豪萨语": "ha",
+    "巴什基尔语": "ba",
+    "爪哇语": "jw",
+    "巽他语": "su",
+    "粤语（广东话）": "yue",
     "English": "en",
     "Chinese": "zh",
     "German": "de",

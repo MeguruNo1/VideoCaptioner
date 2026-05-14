@@ -389,12 +389,12 @@ PROMPT_CENTER_ITEMS = [
     },
     {
         "id": PROMPT_WHISPERX_INITIAL,
-        "title": "WhisperX Initial Prompt",
+        "title": "WhisperX 初始提示词",
         "description": "传给 WhisperX 的初始上下文提示。",
     },
     {
         "id": PROMPT_WHISPERX_HOTWORDS,
-        "title": "WhisperX Hotwords",
+        "title": "WhisperX 热词",
         "description": "传给 WhisperX 的热词列表，用于提升专有名词识别。",
     },
     {

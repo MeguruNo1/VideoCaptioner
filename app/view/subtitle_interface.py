@@ -361,6 +361,19 @@ class SubtitleInterface(QWidget):
 
     def _setup_subtitle_table(self):
         self.content_splitter = QSplitter(Qt.Horizontal, self)
+        self.content_splitter.setHandleWidth(1)
+        self.content_splitter.setChildrenCollapsible(False)
+        self.content_splitter.setStyleSheet(
+            """
+            QSplitter::handle {
+                background: transparent;
+                border: none;
+            }
+            QSplitter::handle:horizontal {
+                width: 1px;
+            }
+            """
+        )
         self.original_table = TableView(self)
         self.subtitle_table = TableView(self)
         self.log_text = TextEdit(self)

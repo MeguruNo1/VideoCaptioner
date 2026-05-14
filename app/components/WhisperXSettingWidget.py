@@ -222,8 +222,8 @@ class WhisperXSettingWidget(QWidget):
 
         self.auto_language_card = SwitchSettingCard(
             FIF.SEARCH,
-            self.tr("Auto Detect Language"),
-            self.tr("Detect language automatically with WhisperX"),
+            self.tr("自动检测语言"),
+            self.tr("由 WhisperX 自动识别音频语言"),
             cfg.whisperx_auto_language,
             self.setting_group,
         )
@@ -240,7 +240,7 @@ class WhisperXSettingWidget(QWidget):
         self.compute_type_card = EditComboBoxSettingCard(
             cfg.whisperx_compute_type,
             FIF.ROBOT,
-            self.tr("Compute Type"),
+            self.tr("计算精度"),
             self.tr("设置 WhisperX 的计算精度"),
             ["float16", "int8", "int8_float16", "float32"],
             self.setting_group,
@@ -249,7 +249,7 @@ class WhisperXSettingWidget(QWidget):
         self.batch_size_card = RangeSettingCard(
             cfg.whisperx_batch_size,
             FIF.SPEED_HIGH,
-            self.tr("Batch Size"),
+            self.tr("批大小"),
             self.tr("WhisperX 转录批大小"),
             parent=self.setting_group,
         )
@@ -265,8 +265,8 @@ class WhisperXSettingWidget(QWidget):
         self.initial_prompt_card = LineEditSettingCard(
             cfg.whisperx_initial_prompt,
             FIF.DOCUMENT,
-            self.tr("Initial Prompt"),
-            self.tr("Optional context prompt for WhisperX transcription"),
+            self.tr("初始提示词"),
+            self.tr("给 WhisperX 的可选上下文，例如语言、场景、专有名词和标点风格"),
             "",
             self.setting_group,
         )
@@ -274,8 +274,8 @@ class WhisperXSettingWidget(QWidget):
         self.vad_method_card = ComboBoxSettingCard(
             cfg.whisperx_vad_method,
             FIF.MUSIC,
-            self.tr("VAD Method"),
-            self.tr("Voice activity detection backend"),
+            self.tr("VAD 方法"),
+            self.tr("语音活动检测后端"),
             ["silero", "pyannote"],
             self.setting_group,
         )
@@ -283,8 +283,8 @@ class WhisperXSettingWidget(QWidget):
         self.vad_threshold_card = DoubleSpinBoxSettingCard(
             cfg.whisperx_vad_threshold,
             FIF.VOLUME,
-            self.tr("VAD Threshold"),
-            self.tr("Voice activity detection onset threshold"),
+            self.tr("VAD 阈值"),
+            self.tr("语音检测触发阈值，数值越高越保守"),
             minimum=0.0,
             maximum=1.0,
             decimals=2,
@@ -296,7 +296,7 @@ class WhisperXSettingWidget(QWidget):
         self.local_silero_dir_card = PushSettingCard(
             self.tr("选择"),
             FIF.FOLDER,
-            self.tr("Local Silero Repo"),
+            self.tr("本地 Silero 仓库"),
             local_silero_dir,
             self.setting_group,
         )

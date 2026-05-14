@@ -2,7 +2,7 @@ import webbrowser
 
 from PyQt5.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import QFileDialog, QLabel, QSizePolicy, QWidget
+from PyQt5.QtWidgets import QApplication, QFileDialog, QLabel, QSizePolicy, QWidget
 from qfluentwidgets import ComboBoxSettingCard, CustomColorSettingCard, ExpandLayout
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import (
@@ -55,14 +55,15 @@ from app.components.MySettingCard import ComboBoxSettingCard as MyComboBoxSettin
 class DefaultPromptDialog(MessageBoxBase):
     def __init__(self, title: str, content: str, parent=None):
         super().__init__(parent)
-        max_width = self._dialog_width(parent)
+        max_width, edit_height = self._dialog_dimensions(parent)
         self.widget.setMaximumWidth(max_width)
-        self.widget.setMinimumWidth(min(max_width, 760))
+        self.widget.setMinimumWidth(min(max_width, 720))
         self.titleLabel = BodyLabel(title, self)
         self.textEdit = TextEdit(self)
         self.textEdit.setReadOnly(True)
         self.textEdit.setPlainText(content)
-        self.textEdit.setMinimumSize(620, 480)
+        self.textEdit.setMinimumSize(min(max_width - 80, 640), edit_height)
+        self.textEdit.setMaximumHeight(edit_height)
         self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.viewLayout.addWidget(self.titleLabel)
         self.viewLayout.addWidget(self.textEdit)
@@ -70,28 +71,38 @@ class DefaultPromptDialog(MessageBoxBase):
         self.cancelButton.hide()
 
     @staticmethod
-    def _dialog_width(parent=None) -> int:
+    def _dialog_dimensions(parent=None) -> tuple[int, int]:
         if parent is not None and parent.width() > 0:
-            return min(1040, max(760, parent.width() - 80))
-        return 920
+            width = min(920, max(700, parent.width() - 160))
+            height = min(420, max(320, parent.height() - 260))
+        else:
+            screen = QApplication.desktop().availableGeometry()
+            width = min(920, max(700, screen.width() - 240))
+            height = min(420, max(320, screen.height() - 320))
+        return width, height
 
 
 class PromptCenterDialog(MessageBoxBase):
     def __init__(self, parent=None):
         super().__init__(parent)
-        dialog_width = self._dialog_width(parent)
+        dialog_width, self._editor_height = self._dialog_dimensions(parent)
         self.widget.setMaximumWidth(dialog_width)
-        self.widget.setMinimumWidth(min(dialog_width, 820))
+        self.widget.setMinimumWidth(min(dialog_width, 760))
         self.prompt_items = PROMPT_CENTER_ITEMS
         self.current_prompt_id = self.prompt_items[0]["id"]
         self.setup_ui()
         self.load_prompt(self.current_prompt_id)
 
     @staticmethod
-    def _dialog_width(parent=None) -> int:
+    def _dialog_dimensions(parent=None) -> tuple[int, int]:
         if parent is not None and parent.width() > 0:
-            return min(1080, max(820, parent.width() - 80))
-        return 960
+            width = min(960, max(720, parent.width() - 160))
+            height = min(420, max(300, parent.height() - 340))
+        else:
+            screen = QApplication.desktop().availableGeometry()
+            width = min(960, max(720, screen.width() - 240))
+            height = min(420, max(300, screen.height() - 400))
+        return width, height
 
     def setup_ui(self):
         self.setWindowTitle(self.tr("提示词中心"))
@@ -104,7 +115,8 @@ class PromptCenterDialog(MessageBoxBase):
         self.variableLabel.setWordWrap(True)
 
         self.textEdit = TextEdit(self)
-        self.textEdit.setMinimumSize(700, 520)
+        self.textEdit.setMinimumSize(660, self._editor_height)
+        self.textEdit.setMaximumHeight(self._editor_height)
         self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.saveButton = PushButton(self.tr("保存当前提示词"), self.buttonGroup)
