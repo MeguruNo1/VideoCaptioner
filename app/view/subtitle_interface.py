@@ -683,6 +683,10 @@ class SubtitleInterface(QWidget):
 
         if need_create_task:
             self.task = TaskFactory.create_subtitle_task(file_path=self.subtitle_path)
+        elif self.task and self.task.subtitle_config:
+            self.task.subtitle_config.need_mask_original_profanity = (
+                cfg.need_mask_original_profanity.value
+            )
         self.subtitle_optimization_thread = SubtitleThread(self.task)
         self.subtitle_optimization_thread.finished.connect(
             self.on_subtitle_optimization_finished

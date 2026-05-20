@@ -5,6 +5,7 @@ DEFAULT_PROFANITY_ROOTS = (
     "fuck",
     "shit",
     "bitch",
+    "damn",
 )
 
 DEFAULT_PROFANITY_SUFFIXES = (

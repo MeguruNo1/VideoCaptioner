@@ -1,9 +1,14 @@
+import sys
+import types
 import unittest
+from unittest.mock import patch
 
 from app.core.utils.transcript_terms import (
     _build_hotword_translation_messages,
+    _split_hotwords_by_glossary,
     GENERATED_TERMS_BEGIN,
     GENERATED_TERMS_END,
+    extract_translation_terms_from_hotwords,
     filter_document_prompt_for_text,
     format_terms_for_document_prompt,
     merge_document_prompt,
@@ -67,6 +72,107 @@ class TranscriptTermsTests(unittest.TestCase):
         )
 
         self.assertEqual(terms[0]["translation"], "绝区零")
+
+    def test_split_hotwords_by_glossary_keeps_unmatched_for_ai(self):
+        matched, unmatched = _split_hotwords_by_glossary(
+            ["Zenless Zone Zero", "Belle", "Unknown"],
+            "Zenless Zone Zero -> 绝区零\nBelle -> 铃",
+        )
+
+        self.assertEqual(
+            matched,
+            [
+                {
+                    "original": "Zenless Zone Zero",
+                    "translation": "绝区零",
+                    "category": "term",
+                },
+                {"original": "Belle", "translation": "铃", "category": "term"},
+            ],
+        )
+        self.assertEqual(unmatched, ["Unknown"])
+
+    def test_extract_translation_terms_uses_glossary_without_llm_when_all_match(self):
+        with patch(
+            "app.core.utils.transcript_terms._resolve_current_llm_settings",
+            side_effect=AssertionError("LLM should not be called"),
+        ):
+            terms = extract_translation_terms_from_hotwords(
+                "Zenless Zone Zero, Belle",
+                "简体中文",
+                "Zenless Zone Zero -> 绝区零\nBelle -> 铃",
+            )
+
+        self.assertEqual(
+            terms,
+            [
+                {
+                    "original": "Zenless Zone Zero",
+                    "translation": "绝区零",
+                    "category": "term",
+                },
+                {"original": "Belle", "translation": "铃", "category": "term"},
+            ],
+        )
+
+    def test_extract_translation_terms_sends_only_unmatched_hotwords_to_ai(self):
+        captured = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                captured["messages"] = kwargs["messages"]
+                return types.SimpleNamespace(
+                    choices=[
+                        types.SimpleNamespace(
+                            message=types.SimpleNamespace(
+                                content='{"terms":[{"original":"Unknown","translation":"未知","category":"term"}]}'
+                            )
+                        )
+                    ]
+                )
+
+        class FakeOpenAI:
+            def __init__(self, **kwargs):
+                pass
+
+            chat = types.SimpleNamespace(
+                completions=FakeCompletions(),
+            )
+
+        fake_openai_module = types.SimpleNamespace(OpenAI=FakeOpenAI)
+        with patch.dict(sys.modules, {"openai": fake_openai_module}), patch(
+            "app.core.utils.transcript_terms._resolve_current_llm_settings",
+            return_value={
+                "base_url": "https://example.test/v1",
+                "api_key": "key",
+                "model": "model",
+                "service": "OpenAI",
+                "timeout": 30,
+                "qwen_enable_thinking": False,
+            },
+        ):
+            terms = extract_translation_terms_from_hotwords(
+                "Belle, Unknown, Zenless Zone Zero",
+                "简体中文",
+                "Belle -> 铃\nZenless Zone Zero -> 绝区零",
+            )
+
+        self.assertEqual(
+            terms,
+            [
+                {"original": "Belle", "translation": "铃", "category": "term"},
+                {"original": "Unknown", "translation": "未知", "category": "term"},
+                {
+                    "original": "Zenless Zone Zero",
+                    "translation": "绝区零",
+                    "category": "term",
+                },
+            ],
+        )
+        prompt_text = "\n".join(message["content"] for message in captured["messages"])
+        self.assertIn("- Unknown", prompt_text)
+        self.assertNotIn("- Belle", prompt_text)
+        self.assertNotIn("- Zenless Zone Zero", prompt_text)
 
     def test_merge_hotwords_preserves_existing_and_dedupes(self):
         hotwords = merge_hotwords(

@@ -10,6 +10,9 @@ class ProfanityFilterTests(unittest.TestCase):
     def test_preserves_common_suffix(self):
         self.assertEqual(mask_english_profanity("Fucking great"), "[ _ ]ing great")
 
+    def test_masks_damn(self):
+        self.assertEqual(mask_english_profanity("God damn."), "God [ _ ].")
+
     def test_masks_multiple_words_case_insensitive(self):
         self.assertEqual(
             mask_english_profanity("shit, BITCHES and fuckers"),

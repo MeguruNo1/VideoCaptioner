@@ -427,6 +427,33 @@ def _build_hotword_translation_messages(
     ]
 
 
+def _split_hotwords_by_glossary(
+    hotwords: list[str], glossary_text: str
+) -> tuple[list[dict[str, str]], list[str]]:
+    glossary = parse_glossary_text(glossary_text)
+    matched_terms = []
+    unmatched_hotwords = []
+
+    for hotword in hotwords:
+        original = _clean_term_text(hotword)
+        if not original:
+            continue
+
+        translation = glossary.get(original.casefold())
+        if translation:
+            matched_terms.append(
+                {
+                    "original": original,
+                    "translation": translation,
+                    "category": "term",
+                }
+            )
+        else:
+            unmatched_hotwords.append(original)
+
+    return matched_terms, unmatched_hotwords
+
+
 def extract_translation_terms_from_hotwords(
     hotwords_text: str,
     target_language: str,
@@ -435,6 +462,14 @@ def extract_translation_terms_from_hotwords(
     hotwords = parse_hotwords_text(hotwords_text)
     if not hotwords:
         return []
+    limited_hotwords = hotwords[:MAX_FILTERED_PROMPT_TERMS]
+
+    glossary_terms, unmatched_hotwords = _split_hotwords_by_glossary(
+        limited_hotwords,
+        glossary_text,
+    )
+    if not unmatched_hotwords:
+        return glossary_terms
 
     settings = _resolve_current_llm_settings()
     if not settings["base_url"] or not settings["api_key"] or not settings["model"]:
@@ -443,9 +478,8 @@ def extract_translation_terms_from_hotwords(
     from openai import OpenAI
 
     messages = _build_hotword_translation_messages(
-        hotwords[:MAX_FILTERED_PROMPT_TERMS],
+        unmatched_hotwords,
         target_language,
-        glossary_text,
     )
     client = OpenAI(base_url=settings["base_url"], api_key=settings["api_key"])
     response = client.chat.completions.create(
@@ -459,12 +493,27 @@ def extract_translation_terms_from_hotwords(
             default_timeout=settings["timeout"],
         ),
     )
-    terms = parse_ai_terms_response(response.choices[0].message.content, glossary_text)
-    input_keys = {hotword.casefold() for hotword in hotwords}
+    ai_terms = parse_ai_terms_response(response.choices[0].message.content)
+    unmatched_keys = {hotword.casefold() for hotword in unmatched_hotwords}
+    terms_by_key = {
+        _clean_term_text(term.get("original")).casefold(): term
+        for term in ai_terms
+        if _clean_term_text(term.get("original")).casefold() in unmatched_keys
+    }
+
+    ordered_ai_terms = [
+        terms_by_key[key]
+        for key in (hotword.casefold() for hotword in unmatched_hotwords)
+        if key in terms_by_key
+    ]
+    merged_terms_by_key = {
+        _clean_term_text(term.get("original")).casefold(): term
+        for term in glossary_terms + ordered_ai_terms
+    }
     return [
-        term
-        for term in terms
-        if _clean_term_text(term.get("original")).casefold() in input_keys
+        merged_terms_by_key[key]
+        for key in (hotword.casefold() for hotword in limited_hotwords)
+        if key in merged_terms_by_key
     ]
 
 
