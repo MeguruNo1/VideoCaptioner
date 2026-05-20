@@ -400,6 +400,9 @@ class Config(QConfig):
     needs_remove_punctuation = ConfigItem(
         "Subtitle", "NeedsRemovePunctuation", True, BoolValidator()
     )
+    need_mask_original_profanity = ConfigItem(
+        "Subtitle", "NeedMaskOriginalProfanity", False, BoolValidator()
+    )
     custom_prompt_text = ConfigItem("Subtitle", "CustomPromptText", "")
 
     # ------------------- 提示词中心 -------------------

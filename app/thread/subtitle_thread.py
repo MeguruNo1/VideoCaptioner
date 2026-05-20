@@ -250,7 +250,13 @@ class SubtitleThread(QThread):
                     asr_data.remove_translated_periods()
                 self.update_all.emit(asr_data.to_json())
 
-            # 5. 保存字幕
+            # 5. 屏蔽原文字幕中的脏话，只修改原文，不影响译文
+            if subtitle_config.need_mask_original_profanity:
+                self._emit_progress(95, self.tr("屏蔽原文脏话..."))
+                asr_data.mask_original_profanity()
+                self.update_all.emit(asr_data.to_json())
+
+            # 6. 保存字幕
             asr_data.save(
                 save_path=self.task.output_path,
                 ass_style=subtitle_config.subtitle_style,

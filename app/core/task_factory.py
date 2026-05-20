@@ -225,6 +225,7 @@ class TaskFactory:
             need_remove_translated_chinese_commas=cfg.needs_remove_translated_chinese_commas.value,
             # 字幕优化
             need_remove_punctuation=cfg.needs_remove_punctuation.value,
+            need_mask_original_profanity=cfg.need_mask_original_profanity.value,
             # 字幕提示
             custom_prompt_text=cfg.custom_prompt_text.value,
         )

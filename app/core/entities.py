@@ -663,6 +663,7 @@ class SubtitleConfig:
     subtitle_style: Optional[str] = None
     need_remove_translated_chinese_commas: bool = False
     need_remove_punctuation: bool = False
+    need_mask_original_profanity: bool = False
     custom_prompt_text: Optional[str] = None
 
 

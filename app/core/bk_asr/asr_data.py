@@ -6,6 +6,8 @@ from typing import Iterable, List, Optional, Tuple
 import os
 import platform
 
+from app.core.utils.profanity_filter import mask_english_profanity
+
 SEPARATE_ORIGINAL_TRANSLATE_LAYOUT = "单独输出原文和译文"
 
 
@@ -233,6 +235,12 @@ class ASRData:
                 continue
             translated = translated.replace("，", " ").replace(",", " ")
             seg.translated_text = re.sub(r"\s+", " ", translated).strip()
+        return self
+
+    def mask_original_profanity(self) -> "ASRData":
+        """屏蔽原文字幕中的英文脏话，不处理译文。"""
+        for seg in self.segments:
+            seg.text = mask_english_profanity(seg.text)
         return self
 
     def save(

@@ -27,6 +27,7 @@ from ..core.utils.transcript_terms import (
     extract_translation_terms_from_hotwords,
     parse_hotwords_text,
 )
+from ..core.utils.transcript_file_locator import resolve_default_transcript_path
 from .EditComboBoxSettingCard import EditComboBoxSettingCard
 from .LineEditSettingCard import LineEditSettingCard
 from .SpinBoxSettingCard import DoubleSpinBoxSettingCard
@@ -75,9 +76,10 @@ class HotwordExtractionThread(QThread):
 
 
 class WhisperXHotwordsDialog(MessageBoxBase):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, default_transcript_path: str = ""):
         super().__init__(parent)
         self.hotwordExtractionThread = None
+        self.defaultTranscriptPath = default_transcript_path
         self.setWindowTitle(self.tr("WhisperX 热词管理"))
         self.widget.setMinimumWidth(760)
         self.widget.setMaximumWidth(980)
@@ -135,10 +137,11 @@ class WhisperXHotwordsDialog(MessageBoxBase):
         return HotwordExtractionThread._read_text_file(file_path)
 
     def _select_transcript_file(self) -> str:
+        initial_path = self.defaultTranscriptPath or str(cfg.work_dir.value)
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             self.tr("选择视频文稿或字幕文件"),
-            "./",
+            initial_path,
             self.tr("文稿或字幕 (*.txt *.srt *.vtt *.ass *.json);;所有文件 (*)"),
         )
         return file_path
@@ -488,9 +491,62 @@ class WhisperXSettingWidget(QWidget):
         return preview
 
     def __on_hotwords_clicked(self):
-        dialog = WhisperXHotwordsDialog(self.window())
+        dialog = WhisperXHotwordsDialog(
+            self.window(),
+            default_transcript_path=self._default_transcript_path(),
+        )
         dialog.exec_()
         self.hotwords_card.setContent(self._hotwords_summary())
+
+    def _default_transcript_path(self) -> str:
+        candidates = []
+        window = self.window()
+
+        download_interface = getattr(window, "downloadCenterInterface", None)
+        result = getattr(download_interface, "last_result", None) or {}
+        for key in (
+            "transcript_txt_path",
+            "subtitle_path",
+            "work_dir",
+            "video_path",
+            "media_path",
+            "original_video_path",
+        ):
+            value = result.get(key)
+            if value:
+                candidates.append(value)
+        candidates.extend(result.get("media_paths") or [])
+
+        home_interface = getattr(window, "homeInterface", None)
+        transcription_interface = getattr(home_interface, "transcription_interface", None)
+        if transcription_interface:
+            video_info_card = getattr(transcription_interface, "video_info_card", None)
+            for task in (
+                getattr(video_info_card, "task", None),
+                getattr(transcription_interface, "task", None),
+            ):
+                if task:
+                    candidates.extend(
+                        [
+                            getattr(task, "output_path", None),
+                            getattr(task, "file_path", None),
+                        ]
+                    )
+
+        subtitle_interface = getattr(home_interface, "subtitle_optimization_interface", None)
+        if subtitle_interface:
+            task = getattr(subtitle_interface, "task", None)
+            if task:
+                candidates.extend(
+                    [
+                        getattr(task, "subtitle_path", None),
+                        getattr(task, "video_path", None),
+                        getattr(task, "output_path", None),
+                    ]
+                )
+            candidates.append(getattr(subtitle_interface, "subtitle_path", None))
+
+        return resolve_default_transcript_path(candidates, cfg.work_dir.value)
 
     def __update_local_silero_dir_card_state(self, vad_method: str):
         enabled = (vad_method or "") == "silero"

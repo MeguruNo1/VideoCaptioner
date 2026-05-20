@@ -70,12 +70,21 @@ class SubtitleSettingDialog(MessageBoxBase):
             self,
         )
 
+        self.mask_original_profanity_card = SwitchSettingCard(
+            FIF.ALIGNMENT,
+            self.tr("屏蔽原文脏话"),
+            self.tr("仅处理原文字幕，例如 Fuck -> [ _ ]、Fucking -> [ _ ]ing"),
+            cfg.need_mask_original_profanity,
+            self,
+        )
+
         # 添加到布局
         self.viewLayout.addWidget(self.titleLabel)
         self.viewLayout.addWidget(self.split_card)
         self.viewLayout.addWidget(self.split_type_card)
         self.viewLayout.addWidget(self.word_count_cjk_card)
         self.viewLayout.addWidget(self.word_count_english_card)
+        self.viewLayout.addWidget(self.mask_original_profanity_card)
         self.viewLayout.addWidget(self.remove_translated_chinese_commas_card)
         self.viewLayout.addWidget(self.remove_punctuation_card)
         # 设置间距
