@@ -264,6 +264,7 @@ class WhisperXHotwordsDialog(MessageBoxBase):
             terms = extract_translation_terms_from_hotwords(
                 hotwords,
                 self._target_language(),
+                get_prompt_template(PROMPT_TERM_GLOSSARY),
             )
             if not terms:
                 InfoBar.warning(

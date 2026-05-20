@@ -385,15 +385,18 @@ def extract_terms_with_ai(
 
 
 def _build_hotword_translation_messages(
-    hotwords: list[str], target_language: str
+    hotwords: list[str], target_language: str, glossary_text: str = ""
 ) -> list[dict[str, str]]:
     system_prompt = """
 你是字幕翻译术语整理助手。请把用户人工校正后的 WhisperX 热词整理成翻译阶段使用的术语对照表。
 
 规则：
 - 每个输入热词都视为原文术语候选。
-- 为每个热词生成适合${target_language}字幕翻译的译名。
-- 如果热词是品牌名、模型名、代码名、命令、变量或不应翻译的专名，译名可以与原文相同。
+- 为每个热词生成适合${target_language}字幕翻译的译名，输出必须是“原文 -> 译文”的术语对照含义。
+- 用户词库中已有匹配项时，必须使用用户词库译名，不要自行改写。
+- 如果目标语言是中文，作品名、角色名、组织名、地点名、商品名和常见专有名词应优先给出通用中文译名、官方译名或音译名。
+- 只有命令、代码、变量、文件名、版本号、模型编号、品牌标识，或确实没有自然译名的专名，译名才可以与原文相同。
+- 不要因为输入是英文专名就默认照抄为译名。
 - 不要新增输入列表之外的术语。
 - 只返回纯 JSON，不要 Markdown，不要解释文字。
 
@@ -406,6 +409,9 @@ def _build_hotword_translation_messages(
 """
     user_content = "\n".join(
         [
+            "用户词库：",
+            glossary_text.strip() or "（空）",
+            "",
             "WhisperX 热词：",
             "\n".join(f"- {hotword}" for hotword in hotwords),
         ]
@@ -424,6 +430,7 @@ def _build_hotword_translation_messages(
 def extract_translation_terms_from_hotwords(
     hotwords_text: str,
     target_language: str,
+    glossary_text: str = "",
 ) -> list[dict[str, str]]:
     hotwords = parse_hotwords_text(hotwords_text)
     if not hotwords:
@@ -438,6 +445,7 @@ def extract_translation_terms_from_hotwords(
     messages = _build_hotword_translation_messages(
         hotwords[:MAX_FILTERED_PROMPT_TERMS],
         target_language,
+        glossary_text,
     )
     client = OpenAI(base_url=settings["base_url"], api_key=settings["api_key"])
     response = client.chat.completions.create(
@@ -451,7 +459,7 @@ def extract_translation_terms_from_hotwords(
             default_timeout=settings["timeout"],
         ),
     )
-    terms = parse_ai_terms_response(response.choices[0].message.content)
+    terms = parse_ai_terms_response(response.choices[0].message.content, glossary_text)
     input_keys = {hotword.casefold() for hotword in hotwords}
     return [
         term

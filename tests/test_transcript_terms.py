@@ -1,6 +1,7 @@
 import unittest
 
 from app.core.utils.transcript_terms import (
+    _build_hotword_translation_messages,
     GENERATED_TERMS_BEGIN,
     GENERATED_TERMS_END,
     filter_document_prompt_for_text,
@@ -47,6 +48,25 @@ class TranscriptTermsTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_hotword_translation_prompt_includes_glossary_and_translation_rule(self):
+        messages = _build_hotword_translation_messages(
+            ["Zenless Zone Zero", "Belle"],
+            "中文",
+            "Zenless Zone Zero -> 绝区零\nBelle -> 铃",
+        )
+        prompt_text = "\n".join(message["content"] for message in messages)
+
+        self.assertIn("Zenless Zone Zero -> 绝区零", prompt_text)
+        self.assertIn("不要因为输入是英文专名就默认照抄为译名", prompt_text)
+
+    def test_parse_ai_terms_response_uses_glossary_for_hotword_translation(self):
+        terms = parse_ai_terms_response(
+            '{"terms":[{"original":"Zenless Zone Zero","translation":"Zenless Zone Zero","category":"work"}]}',
+            "Zenless Zone Zero -> 绝区零",
+        )
+
+        self.assertEqual(terms[0]["translation"], "绝区零")
 
     def test_merge_hotwords_preserves_existing_and_dedupes(self):
         hotwords = merge_hotwords(
