@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import ComboBoxSettingCard, PushSettingCard
 from qfluentwidgets import FluentIcon as FIF
@@ -32,9 +32,52 @@ from .LineEditSettingCard import LineEditSettingCard
 from .SpinBoxSettingCard import DoubleSpinBoxSettingCard
 
 
+class HotwordExtractionThread(QThread):
+    status_changed = pyqtSignal(str)
+    succeeded = pyqtSignal(list)
+    failed = pyqtSignal(str)
+
+    def __init__(
+        self,
+        file_path: str,
+        glossary_text: str,
+        target_language: str,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.file_path = file_path
+        self.glossary_text = glossary_text
+        self.target_language = target_language
+
+    def run(self):
+        try:
+            self.status_changed.emit("正在读取文稿...")
+            transcript_text = self._read_text_file(self.file_path)
+            if not transcript_text.strip():
+                raise ValueError("文稿内容为空，无法提取热词")
+
+            self.status_changed.emit("正在调用 AI 提取热词，可能需要几十秒...")
+            terms = extract_terms_with_ai(
+                transcript_text,
+                self.glossary_text,
+                self.target_language,
+            )
+            self.succeeded.emit(terms)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+    @staticmethod
+    def _read_text_file(file_path: str) -> str:
+        suffix = Path(file_path).suffix.lower()
+        if suffix in {".srt", ".vtt", ".ass", ".json"}:
+            return ASRData.from_subtitle_file(file_path).to_txt(layout="仅原文")
+        return Path(file_path).read_text(encoding="utf-8-sig")
+
+
 class WhisperXHotwordsDialog(MessageBoxBase):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.hotwordExtractionThread = None
         self.setWindowTitle(self.tr("WhisperX 热词管理"))
         self.widget.setMinimumWidth(760)
         self.widget.setMaximumWidth(980)
@@ -59,10 +102,14 @@ class WhisperXHotwordsDialog(MessageBoxBase):
         actionLayout.addWidget(self.generateTermsButton)
         actionLayout.addStretch(1)
 
+        self.statusLabel = BodyLabel(self.tr("请选择文稿或字幕文件后提取热词"), self)
+        self.statusLabel.setWordWrap(True)
+
         self.viewLayout.addWidget(self.titleLabel)
         self.viewLayout.addWidget(self.descLabel)
         self.viewLayout.addWidget(self.hotwordsEdit)
         self.viewLayout.addWidget(actionWidget)
+        self.viewLayout.addWidget(self.statusLabel)
 
         self.yesButton.setText(self.tr("保存"))
         self.cancelButton.setText(self.tr("关闭"))
@@ -85,10 +132,7 @@ class WhisperXHotwordsDialog(MessageBoxBase):
         return str(getattr(value, "value", value) or "")
 
     def _read_text_file(self, file_path: str) -> str:
-        suffix = Path(file_path).suffix.lower()
-        if suffix in {".srt", ".vtt", ".ass", ".json"}:
-            return ASRData.from_subtitle_file(file_path).to_txt(layout="仅原文")
-        return Path(file_path).read_text(encoding="utf-8-sig")
+        return HotwordExtractionThread._read_text_file(file_path)
 
     def _select_transcript_file(self) -> str:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -100,19 +144,65 @@ class WhisperXHotwordsDialog(MessageBoxBase):
         return file_path
 
     def extract_hotwords_from_file(self):
+        if self.hotwordExtractionThread is not None:
+            InfoBar.info(
+                self.tr("正在提取"),
+                self.tr("请等待当前热词提取完成"),
+                duration=2500,
+                parent=self,
+            )
+            return
+
         file_path = self._select_transcript_file()
         if not file_path:
             return
 
+        self._set_hotword_extraction_running(
+            True,
+            self.tr("已选择文稿，准备提取热词..."),
+        )
+        InfoBar.info(
+            self.tr("开始提取"),
+            self.tr("正在读取文稿并调用 AI，请稍候"),
+            duration=3000,
+            parent=self,
+        )
+
+        self.hotwordExtractionThread = HotwordExtractionThread(
+            file_path,
+            get_prompt_template(PROMPT_TERM_GLOSSARY),
+            self._target_language(),
+            self,
+        )
+        self.hotwordExtractionThread.status_changed.connect(
+            self._update_hotword_extraction_status
+        )
+        self.hotwordExtractionThread.succeeded.connect(self._on_hotwords_extracted)
+        self.hotwordExtractionThread.failed.connect(self._on_hotword_extraction_failed)
+        self.hotwordExtractionThread.finished.connect(
+            self._on_hotword_extraction_finished
+        )
+        self.hotwordExtractionThread.start()
+
+    def _set_hotword_extraction_running(self, running: bool, status: str = ""):
+        self.extractHotwordsButton.setEnabled(not running)
+        self.generateTermsButton.setEnabled(not running)
+        self.hotwordsEdit.setEnabled(not running)
+        self.yesButton.setEnabled(not running)
+        self.cancelButton.setEnabled(not running)
+        self.extractHotwordsButton.setText(
+            self.tr("正在提取...") if running else self.tr("从视频文稿提取热词")
+        )
+        if status:
+            self.statusLabel.setText(status)
+
+    def _update_hotword_extraction_status(self, status: str):
+        self.statusLabel.setText(self.tr(status))
+
+    def _on_hotwords_extracted(self, terms: list):
         try:
-            transcript_text = self._read_text_file(file_path)
-            glossary_text = get_prompt_template(PROMPT_TERM_GLOSSARY)
-            terms = extract_terms_with_ai(
-                transcript_text,
-                glossary_text,
-                self._target_language(),
-            )
             if not terms:
+                self.statusLabel.setText(self.tr("提取完成，但 AI 未返回可用热词"))
                 InfoBar.warning(
                     self.tr("未提取到热词"),
                     self.tr("AI 未返回可用名称或术语"),
@@ -123,8 +213,12 @@ class WhisperXHotwordsDialog(MessageBoxBase):
 
             current_hotwords = self.hotwordsEdit.toPlainText()
             cfg.set(cfg.whisperx_hotwords, current_hotwords)
+            self.statusLabel.setText(self.tr("正在合并热词并更新配置..."))
             result = apply_terms_to_whisperx_hotwords(terms)
             self.hotwordsEdit.setPlainText(result["whisperx_hotwords"])
+            self.statusLabel.setText(
+                self.tr("提取完成，已合并 {0} 条候选热词").format(len(terms))
+            )
             InfoBar.success(
                 self.tr("提取完成"),
                 self.tr("已合并 {0} 条候选热词，旧翻译术语已清理").format(len(terms)),
@@ -138,6 +232,21 @@ class WhisperXHotwordsDialog(MessageBoxBase):
                 duration=5000,
                 parent=self,
             )
+
+    def _on_hotword_extraction_failed(self, error: str):
+        self.statusLabel.setText(self.tr("提取失败：") + error)
+        InfoBar.error(
+            self.tr("提取失败"),
+            error,
+            duration=5000,
+            parent=self,
+        )
+
+    def _on_hotword_extraction_finished(self):
+        if self.hotwordExtractionThread is not None:
+            self.hotwordExtractionThread.deleteLater()
+            self.hotwordExtractionThread = None
+        self._set_hotword_extraction_running(False)
 
     def generate_translation_terms(self):
         hotwords = self.hotwordsEdit.toPlainText().strip()
