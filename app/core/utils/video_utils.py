@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Dict, Literal, Optional
 
@@ -270,7 +271,7 @@ def add_subtitles(
     suffix = Path(subtitle_file).suffix.lower()
     temp_dir = Path(tempfile.gettempdir()) / "VideoCaptioner"
     temp_dir.mkdir(exist_ok=True)
-    temp_subtitle = temp_dir / f"temp_subtitle.{suffix}"
+    temp_subtitle = temp_dir / f"temp_subtitle_{uuid.uuid4().hex}.{suffix}"
     shutil.copy2(subtitle_file, temp_subtitle)
     subtitle_file = str(temp_subtitle)
 
