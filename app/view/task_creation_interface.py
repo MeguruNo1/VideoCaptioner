@@ -232,12 +232,7 @@ class TaskCreationInterface(QWidget):
             )
             return
 
-        need_language_settings = cfg.transcribe_model.value in [
-            TranscribeModelEnum.WHISPER_CPP,
-            TranscribeModelEnum.WHISPER_API,
-            TranscribeModelEnum.FASTER_WHISPER,
-            TranscribeModelEnum.WHISPER_X,
-        ]
+        need_language_settings = cfg.transcribe_model.value == TranscribeModelEnum.WHISPER_X
         if need_language_settings and not self.show_language_settings():
             return
 

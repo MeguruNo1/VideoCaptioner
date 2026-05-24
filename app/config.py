@@ -3,15 +3,14 @@ import os
 import sys
 from pathlib import Path
 
+from app.core.utils.platform_utils import app_data_dir, default_work_dir, is_macos
+
 VERSION = "v1.3.3"
 YEAR = 2025
 APP_NAME = "VideoCaptioner"
 AUTHOR = "Weifeng"
 
-WHISPERX_ONLY_MODE = (
-    sys.platform == "darwin"
-    or os.environ.get("VIDEOCAPTIONER_WHISPERX_ONLY", "").lower() in {"1", "true", "yes"}
-)
+WHISPERX_ONLY_MODE = True
 
 HELP_URL = "https://github.com/WEIFENG2333/VideoCaptioner"
 GITHUB_REPO_URL = "https://github.com/WEIFENG2333/VideoCaptioner"
@@ -22,11 +21,11 @@ FEEDBACK_URL = "https://github.com/WEIFENG2333/VideoCaptioner/issues"
 ROOT_PATH = Path(__file__).parent
 
 RESOURCE_PATH = ROOT_PATH.parent / "resource"
-APPDATA_PATH = ROOT_PATH.parent / "AppData"
-WORK_PATH = ROOT_PATH.parent / "work-dir"
+APPDATA_PATH = app_data_dir(APP_NAME) if is_macos() else ROOT_PATH.parent / "AppData"
+WORK_PATH = default_work_dir(APP_NAME) if is_macos() else ROOT_PATH.parent / "work-dir"
 
 
-BIN_PATH = RESOURCE_PATH / "bin"
+BIN_PATH = RESOURCE_PATH / "bin" / "macos-arm64" if is_macos() else RESOURCE_PATH / "bin"
 ASSETS_PATH = RESOURCE_PATH / "assets"
 SUBTITLE_STYLE_PATH = RESOURCE_PATH / "subtitle_style"
 
@@ -35,18 +34,19 @@ SETTINGS_PATH = APPDATA_PATH / "settings.json"
 CACHE_PATH = APPDATA_PATH / "cache"
 MODEL_PATH = APPDATA_PATH / "models"
 
-FASER_WHISPER_PATH = BIN_PATH / "Faster-Whisper-XXL"
-
 # 日志配置
 LOG_LEVEL = logging.INFO
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-# 环境变量添加 bin 路径，添加到PATH开头以优先使用
-os.environ["PATH"] = str(BIN_PATH) + os.pathsep + os.environ["PATH"]
-os.environ["PATH"] = str(FASER_WHISPER_PATH) + os.pathsep + os.environ["PATH"]
+# 环境变量添加平台对应 bin 路径，添加到 PATH 开头以优先使用
+for path in (BIN_PATH,):
+    if path.exists():
+        os.environ["PATH"] = str(path) + os.pathsep + os.environ["PATH"]
 
 # 添加 VLC 路径
-os.environ["PYTHON_VLC_MODULE_PATH"] = str(BIN_PATH / "vlc")
+vlc_path = BIN_PATH / "vlc"
+if vlc_path.exists():
+    os.environ["PYTHON_VLC_MODULE_PATH"] = str(vlc_path)
 
 # 创建路径
 for p in [CACHE_PATH, LOG_PATH, WORK_PATH, MODEL_PATH]:

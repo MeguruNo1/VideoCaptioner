@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import json
@@ -48,7 +47,8 @@ from app.core.entities import (
 )
 from app.core.task_factory import TaskFactory
 from app.core.utils.get_subtitle_style import get_subtitle_style
-from app.core.utils.windows_notification import send_windows_notification
+from app.core.utils.desktop_notification import send_desktop_notification
+from app.core.utils.platform_utils import open_path
 from app.thread.subtitle_thread import SubtitleThread
 from app.view.setting_interface import PromptCenterDialog
 
@@ -727,7 +727,7 @@ class SubtitleInterface(QWidget):
             position=InfoBarPosition.BOTTOM,
             parent=self.parent(),
         )
-        send_windows_notification(
+        send_desktop_notification(
             self.tr("字幕处理完成"),
             self.tr("字幕文件已生成：") + Path(output_path).name,
             target="subtitle",
@@ -868,12 +868,7 @@ class SubtitleInterface(QWidget):
             if output_path.exists()
             else Path(self.task.subtitle_path).parent
         )
-        if sys.platform == "win32":
-            os.startfile(target_dir)
-        elif sys.platform == "darwin":  # macOS
-            subprocess.run(["open", target_dir])
-        else:  # Linux
-            subprocess.run(["xdg-open", target_dir])
+        open_path(target_dir)
 
     def load_subtitle_file(self, file_path):
         self.subtitle_path = file_path

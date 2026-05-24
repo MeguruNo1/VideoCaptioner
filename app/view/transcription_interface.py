@@ -2,7 +2,6 @@
 
 import datetime
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -47,7 +46,8 @@ from app.core.entities import (
     VideoInfo,
 )
 from app.core.task_factory import TaskFactory
-from app.core.utils.windows_notification import send_windows_notification
+from app.core.utils.desktop_notification import send_desktop_notification
+from app.core.utils.platform_utils import open_path
 from app.thread.transcript_thread_clean import TranscriptThread
 from app.thread.video_info_thread import VideoInfoThread
 
@@ -185,12 +185,7 @@ class VideoInfoCard(CardWidget):
         """开始转录按钮点击事件"""
         force_no_asr_cache = self.start_button.text() != self.tr("开始转录")
         if self.task and not self.task.need_next_task:
-            need_language_settings = cfg.transcribe_model.value in [
-                TranscribeModelEnum.WHISPER_CPP,
-                TranscribeModelEnum.WHISPER_API,
-                TranscribeModelEnum.FASTER_WHISPER,
-                TranscribeModelEnum.WHISPER_X,
-            ]
+            need_language_settings = cfg.transcribe_model.value == TranscribeModelEnum.WHISPER_X
             if need_language_settings and not self.show_language_settings():
                 return
         self.progress_ring.show()
@@ -207,12 +202,7 @@ class VideoInfoCard(CardWidget):
                 if original_subtitle_save_path.exists()
                 else Path(self.task.file_path).parent
             )
-            if sys.platform == "win32":
-                os.startfile(target_dir)
-            elif sys.platform == "darwin":  # macOS
-                subprocess.run(["open", target_dir])
-            else:  # Linux
-                subprocess.run(["xdg-open", target_dir])
+            open_path(target_dir)
         else:
             InfoBar.warning(
                 self.tr("警告"),
@@ -401,7 +391,7 @@ class TranscriptionInterface(QWidget):
         """转录完成处理"""
         self.is_processing = False
         self.task = task
-        send_windows_notification(
+        send_desktop_notification(
             self.tr("转录完成"),
             self.tr("字幕文件已生成：") + Path(task.output_path).name,
             target="transcription",

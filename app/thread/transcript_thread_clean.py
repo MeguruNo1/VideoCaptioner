@@ -5,11 +5,8 @@ from pathlib import Path
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from app.config import CACHE_PATH
 from app.core.bk_asr import transcribe
-from app.core.entities import TranscribeModelEnum, TranscribeTask
-from app.core.storage.cache_manager import ServiceUsageManager
-from app.core.storage.database import DatabaseManager
+from app.core.entities import TranscribeTask
 from app.core.utils.logger import setup_logger
 from app.core.utils.video_utils import video2audio
 
@@ -20,13 +17,10 @@ class TranscriptThread(QThread):
     finished = pyqtSignal(TranscribeTask)
     progress = pyqtSignal(int, str)
     error = pyqtSignal(str)
-    MAX_DAILY_ASR_CALLS = 40
 
     def __init__(self, task: TranscribeTask):
         super().__init__()
         self.task = task
-        db_manager = DatabaseManager(CACHE_PATH)
-        self.service_manager = ServiceUsageManager(db_manager)
 
     def run(self):
         temp_file = None
@@ -39,17 +33,6 @@ class TranscriptThread(QThread):
             if not video_path.exists():
                 logger.error("视频文件不存在：%s", video_path)
                 raise ValueError(self.tr("视频文件不存在"))
-
-            if self.task.transcribe_config.transcribe_model in [
-                TranscribeModelEnum.BIJIAN,
-                TranscribeModelEnum.JIANYING,
-            ]:
-                if not self.service_manager.check_service_available(
-                    "asr", self.MAX_DAILY_ASR_CALLS
-                ):
-                    raise Exception(
-                        self.tr("公益ASR服务已达到每日使用限制，建议使用本地转录")
-                    )
 
             if self.task.need_next_task:
                 subtitle_dir = Path(self.task.file_path).parent / "subtitle"
@@ -94,12 +77,6 @@ class TranscriptThread(QThread):
                 self.task.transcribe_config,
                 callback=self.progress_callback,
             )
-
-            if self.task.transcribe_config.transcribe_model in [
-                TranscribeModelEnum.BIJIAN,
-                TranscribeModelEnum.JIANYING,
-            ]:
-                self.service_manager.increment_usage("asr", self.MAX_DAILY_ASR_CALLS)
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             if self.task.need_next_task:

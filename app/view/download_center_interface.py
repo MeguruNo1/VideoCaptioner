@@ -1,6 +1,5 @@
 ﻿# -*- coding: utf-8 -*-
 import os
-import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -45,8 +44,9 @@ from qfluentwidgets import (
 
 from app.common.config import cfg
 from app.config import APPDATA_PATH
-from app.core.utils.edge_cookie_utils import export_edge_cookies
-from app.core.utils.windows_notification import send_windows_notification
+from app.core.utils.edge_cookie_utils import export_browser_cookies
+from app.core.utils.desktop_notification import send_desktop_notification
+from app.core.utils.platform_utils import open_path
 from app.thread.video_download_thread import VideoDownloadThread, VideoPreviewThread
 
 
@@ -1290,7 +1290,7 @@ class DownloadCenterInterface(QWidget):
     def _refresh_download_strategy_hint(self):
         strategy = str(cfg.get(cfg.download_engine_strategy) or "智能选择")
         auto_cookie = bool(cfg.get(cfg.download_auto_refresh_edge_cookies))
-        auto_cookie_text = self.tr("下载前自动刷新 Edge Cookie：开启") if auto_cookie else self.tr("下载前自动刷新 Edge Cookie：关闭")
+        auto_cookie_text = self.tr("下载前自动刷新浏览器 Cookie：开启") if auto_cookie else self.tr("下载前自动刷新浏览器 Cookie：关闭")
         self.strategy_label.setText(self.tr("当前下载策略：") + strategy + "    " + auto_cookie_text)
 
     def _choose_output_dir(self):
@@ -1318,11 +1318,11 @@ class DownloadCenterInterface(QWidget):
     def _refresh_edge_cookie_if_needed(self):
         if not bool(cfg.get(cfg.download_auto_refresh_edge_cookies)):
             return
-        result = export_edge_cookies()
+        result = export_browser_cookies()
         if result.get("success"):
-            self.status_label.setText(self.tr("已刷新 Edge Cookie，继续处理链接…"))
+            self.status_label.setText(self.tr("已刷新浏览器 Cookie，继续处理链接…"))
             return
-        message = result.get("message", self.tr("无法刷新 Edge Cookie，将继续尝试下载"))
+        message = result.get("message", self.tr("无法刷新浏览器 Cookie，将继续尝试下载"))
         if result.get("needs_elevation_hint") and not result.get("is_elevated"):
             message += self.tr("；可尝试以管理员权限运行后重试")
         InfoBar.warning(self.tr("Cookie 刷新失败"), message, duration=4000, parent=self, position=InfoBarPosition.BOTTOM_RIGHT)
@@ -1850,7 +1850,7 @@ class DownloadCenterInterface(QWidget):
         self._adjust_responsive_layout()
         self._set_result_actions_enabled(True, has_video=bool(result.get("video_path")))
         InfoBar.success(self.tr("下载完成"), self.tr("资源已下载完成。"), duration=2500, parent=self)
-        send_windows_notification(
+        send_desktop_notification(
             self.tr("下载完成"),
             self.tr("资源已下载完成。"),
             target="download_center",
@@ -1884,12 +1884,7 @@ class DownloadCenterInterface(QWidget):
         if not target_dir or not Path(target_dir).exists():
             InfoBar.warning(self.tr("提示"), self.tr("当前没有可打开的下载目录。"), duration=3000, parent=self)
             return
-        if sys.platform == "win32":
-            os.startfile(target_dir)
-        elif sys.platform == "darwin":
-            subprocess.run(["open", target_dir])
-        else:
-            subprocess.run(["xdg-open", target_dir])
+        open_path(target_dir)
 
     def send_download_to_transcription(self):
         video_path = self.last_result.get("video_path")

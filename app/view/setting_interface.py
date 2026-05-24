@@ -41,7 +41,7 @@ from app.core.subtitle_processor.prompt import (
     get_required_prompt_variables,
     validate_prompt_template,
 )
-from app.core.utils.edge_cookie_utils import export_edge_cookies, verify_cookie_file
+from app.core.utils.edge_cookie_utils import export_browser_cookies, verify_cookie_file
 from app.core.utils.proxy_utils import (
     PROXY_MODE_MANUAL,
     PROXY_MODE_OFF,
@@ -382,8 +382,8 @@ class SettingInterface(ScrollArea):
         )
         self.downloadAutoRefreshCookiesCard = SwitchSettingCard(
             FIF.SYNC,
-            self.tr("下载前自动刷新 Edge Cookie"),
-            self.tr("下载中心开始下载前，自动从 Edge 浏览器重新导出 cookies.txt"),
+            self.tr("下载前自动刷新浏览器 Cookie"),
+            self.tr("下载中心开始下载前，自动从本机浏览器重新导出 cookies.txt"),
             cfg.download_auto_refresh_edge_cookies,
             self.downloadSettingGroup,
         )
@@ -397,8 +397,8 @@ class SettingInterface(ScrollArea):
         self.edgeCookieExportCard = PrimaryPushSettingCard(
             self.tr("提取"),
             FIF.DOWNLOAD,
-            self.tr("从 Edge 提取 Cookie"),
-            self.tr("导出为 AppData/cookies.txt，供 YouTube 下载链路使用"),
+            self.tr("从浏览器提取 Cookie"),
+            self.tr("导出到应用支持目录，供 YouTube 下载链路使用"),
             self.downloadAccountGroup,
         )
         self.edgeCookieStatusCard = PushSettingCard(
@@ -999,7 +999,7 @@ class SettingInterface(ScrollArea):
         self.edgeCookieStatusCard.setContent(self.__formatCookieStatusContent(result))
 
     def __exportEdgeCookies(self):
-        result = export_edge_cookies()
+        result = export_browser_cookies()
         self.edgeCookieStatusCard.setContent(self.__formatCookieStatusContent(result))
 
         if result.get("success"):
@@ -1012,7 +1012,7 @@ class SettingInterface(ScrollArea):
         else:
             InfoBar.error(
                 self.tr("Cookie 导出失败"),
-                result.get("message", self.tr("无法从 Edge 导出 Cookie")),
+                result.get("message", self.tr("无法从浏览器导出 Cookie")),
                 duration=4000,
                 parent=self,
             )

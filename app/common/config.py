@@ -27,9 +27,6 @@ from ..core.entities import (
     TranscribeModelEnum,
     TranscribeLanguageEnum,
     TranslatorServiceEnum,
-    WhisperModelEnum,
-    FasterWhisperModelEnum,
-    VadMethodEnum,
 )
 
 
@@ -41,7 +38,7 @@ TRANSCRIBE_MODEL_OPTIONS = (
 DEFAULT_TRANSCRIBE_MODEL = (
     TranscribeModelEnum.WHISPER_X
     if WHISPERX_ONLY_MODE
-    else TranscribeModelEnum.BIJIAN
+    else TranscribeModelEnum.WHISPER_X
 )
 WHISPERX_DEVICE_OPTIONS = ["cpu"] if WHISPERX_ONLY_MODE else ["cuda", "cpu"]
 DEFAULT_WHISPERX_DEVICE = "cpu" if WHISPERX_ONLY_MODE else "cuda"
@@ -299,57 +296,6 @@ class Config(QConfig):
         ),
     )
 
-    # ------------------- Whisper Cpp 配置 -------------------
-    whisper_model = OptionsConfigItem(
-        "Whisper",
-        "WhisperModel",
-        WhisperModelEnum.TINY,
-        OptionsValidator(WhisperModelEnum),
-        EnumSerializer(WhisperModelEnum),
-    )
-
-    # ------------------- Faster Whisper 配置 -------------------
-    faster_whisper_program = ConfigItem(
-        "FasterWhisper",
-        "Program",
-        "faster-whisper-xxl.exe",
-    )
-    faster_whisper_model = OptionsConfigItem(
-        "FasterWhisper",
-        "Model",
-        FasterWhisperModelEnum.TINY,
-        OptionsValidator(FasterWhisperModelEnum),
-        EnumSerializer(FasterWhisperModelEnum),
-    )
-    faster_whisper_model_dir = ConfigItem("FasterWhisper", "ModelDir", "")
-    faster_whisper_device = OptionsConfigItem(
-        "FasterWhisper", "Device", "cuda", OptionsValidator(["cuda", "cpu"])
-    )
-    # VAD 参数
-    faster_whisper_vad_filter = ConfigItem(
-        "FasterWhisper", "VadFilter", True, BoolValidator()
-    )
-    faster_whisper_vad_threshold = RangeConfigItem(
-        "FasterWhisper", "VadThreshold", 0.4, RangeValidator(0, 1)
-    )
-    faster_whisper_vad_method = OptionsConfigItem(
-        "FasterWhisper",
-        "VadMethod",
-        VadMethodEnum.SILERO_V4,
-        OptionsValidator(VadMethodEnum),
-        EnumSerializer(VadMethodEnum),
-    )
-    # 人声提取
-    faster_whisper_ff_mdx_kim2 = ConfigItem(
-        "FasterWhisper", "FfMdxKim2", False, BoolValidator()
-    )
-    # 文本处理参数
-    faster_whisper_one_word = ConfigItem(
-        "FasterWhisper", "OneWord", True, BoolValidator()
-    )
-    # 提示词
-    faster_whisper_prompt = ConfigItem("FasterWhisper", "Prompt", "")
-
     # ------------------- WhisperX 配置 -------------------
     whisperx_model = ConfigItem("WhisperX", "Model", "large-v3")
     whisperx_device = OptionsConfigItem(
@@ -388,12 +334,6 @@ class Config(QConfig):
         BoolValidator(),
     )
     whisperx_align = ConfigItem("WhisperX", "Align", True, BoolValidator())
-    # ------------------- Whisper API 配置 -------------------
-    whisper_api_base = ConfigItem("WhisperAPI", "WhisperApiBase", "")
-    whisper_api_key = ConfigItem("WhisperAPI", "WhisperApiKey", "")
-    whisper_api_model = OptionsConfigItem("WhisperAPI", "WhisperApiModel", "")
-    whisper_api_prompt = ConfigItem("WhisperAPI", "WhisperApiPrompt", "")
-
     # ------------------- 字幕配置 -------------------
     need_optimize = ConfigItem("Subtitle", "NeedOptimize", False, BoolValidator())
     need_translate = ConfigItem("Subtitle", "NeedTranslate", False, BoolValidator())

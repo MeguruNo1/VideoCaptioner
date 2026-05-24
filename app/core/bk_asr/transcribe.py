@@ -1,42 +1,6 @@
-from app.config import WHISPERX_ONLY_MODE
 from app.core.bk_asr.asr_data import ASRData
+from app.core.bk_asr.whisper_x_auto import WhisperXASR
 from app.core.entities import TranscribeConfig, TranscribeModelEnum
-
-
-def _get_asr_class(model: TranscribeModelEnum):
-    if WHISPERX_ONLY_MODE:
-        if model != TranscribeModelEnum.WHISPER_X:
-            raise ValueError("当前 macOS 精简版仅支持 WhisperX 转录")
-        from app.core.bk_asr.whisper_x_auto import WhisperXASR
-
-        return WhisperXASR
-
-    if model == TranscribeModelEnum.JIANYING:
-        from app.core.bk_asr.jianying import JianYingASR
-
-        return JianYingASR
-    if model == TranscribeModelEnum.BIJIAN:
-        from app.core.bk_asr.bcut import BcutASR
-
-        return BcutASR
-    if model == TranscribeModelEnum.WHISPER_CPP:
-        from app.core.bk_asr.whisper_cpp import WhisperCppASR
-
-        return WhisperCppASR
-    if model == TranscribeModelEnum.WHISPER_API:
-        from app.core.bk_asr.whisper_api import WhisperAPI
-
-        return WhisperAPI
-    if model == TranscribeModelEnum.FASTER_WHISPER:
-        from app.core.bk_asr.faster_whisper import FasterWhisperASR
-
-        return FasterWhisperASR
-    if model == TranscribeModelEnum.WHISPER_X:
-        from app.core.bk_asr.whisper_x_auto import WhisperXASR
-
-        return WhisperXASR
-
-    return None
 
 
 def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRData:
@@ -54,17 +18,12 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
     if callback is None:
         callback = lambda x, y: None
 
-    if WHISPERX_ONLY_MODE:
-        config.transcribe_model = TranscribeModelEnum.WHISPER_X
-        config.whisperx_device = "cpu"
-        config.need_word_time_stamp = True
-        config.whisperx_align = True
-        if config.whisperx_compute_type in {"float16", "int8_float16"}:
-            config.whisperx_compute_type = "int8"
-
-    asr_class = _get_asr_class(config.transcribe_model)
-    if not asr_class:
-        raise ValueError(f"无效的转录模型: {config.transcribe_model}")
+    config.transcribe_model = TranscribeModelEnum.WHISPER_X
+    config.whisperx_device = "cpu"
+    config.need_word_time_stamp = True
+    config.whisperx_align = True
+    if config.whisperx_compute_type in {"float16", "int8_float16"}:
+        config.whisperx_compute_type = "int8"
 
     # 构建ASR参数
     asr_args = {
@@ -72,62 +31,27 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
         "need_word_time_stamp": config.need_word_time_stamp,
     }
 
-    # 根据不同模型添加特定参数
-    if config.transcribe_model == TranscribeModelEnum.WHISPER_CPP:
-        asr_args.update(
-            {
-                "language": config.transcribe_language,
-                "whisper_model": config.whisper_model,
-            }
-        )
-    elif config.transcribe_model == TranscribeModelEnum.WHISPER_API:
-        asr_args.update(
-            {
-                "language": config.transcribe_language,
-                "whisper_model": config.whisper_api_model,
-                "api_key": config.whisper_api_key,
-                "base_url": config.whisper_api_base,
-                "prompt": config.whisper_api_prompt,
-            }
-        )
-    elif config.transcribe_model == TranscribeModelEnum.FASTER_WHISPER:
-        asr_args.update(
-            {
-                "faster_whisper_program": config.faster_whisper_program,
-                "language": config.transcribe_language,
-                "whisper_model": config.faster_whisper_model,
-                "model_dir": config.faster_whisper_model_dir,
-                "device": config.faster_whisper_device,
-                "vad_filter": config.faster_whisper_vad_filter,
-                "vad_threshold": config.faster_whisper_vad_threshold,
-                "vad_method": config.faster_whisper_vad_method,
-                "ff_mdx_kim2": config.faster_whisper_ff_mdx_kim2,
-                "one_word": config.faster_whisper_one_word,
-                "prompt": config.faster_whisper_prompt,
-            }
-        )
-    elif config.transcribe_model == TranscribeModelEnum.WHISPER_X:
-        asr_args.update(
-            {
-                "language": (
-                    None if config.whisperx_auto_language else config.transcribe_language
-                ),
-                "whisper_model": config.whisperx_model,
-                "device": config.whisperx_device,
-                "compute_type": config.whisperx_compute_type,
-                "batch_size": config.whisperx_batch_size,
-                "hotwords": config.whisperx_hotwords,
-                "initial_prompt": config.whisperx_initial_prompt,
-                "vad_method": config.whisperx_vad_method,
-                "vad_threshold": config.whisperx_vad_threshold,
-                "local_silero_dir": config.whisperx_local_silero_dir,
-                "align": config.whisperx_align,
-                "model_dir": config.whisperx_model_dir,
-            }
-        )
+    asr_args.update(
+        {
+            "language": (
+                None if config.whisperx_auto_language else config.transcribe_language
+            ),
+            "whisper_model": config.whisperx_model,
+            "device": config.whisperx_device,
+            "compute_type": config.whisperx_compute_type,
+            "batch_size": config.whisperx_batch_size,
+            "hotwords": config.whisperx_hotwords,
+            "initial_prompt": config.whisperx_initial_prompt,
+            "vad_method": config.whisperx_vad_method,
+            "vad_threshold": config.whisperx_vad_threshold,
+            "local_silero_dir": config.whisperx_local_silero_dir,
+            "align": config.whisperx_align,
+            "model_dir": config.whisperx_model_dir,
+        }
+    )
 
     # 创建ASR实例并运行
-    asr = asr_class(audio_path, **asr_args)
+    asr = WhisperXASR(audio_path, **asr_args)
 
     asr_data = asr.run(callback=callback)
 
@@ -136,25 +60,3 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
         asr_data.optimize_timing()
 
     return asr_data
-
-
-if __name__ == "__main__":
-    # 示例用法
-    from app.core.entities import WhisperModelEnum
-
-    # 创建配置
-    config = TranscribeConfig(
-        transcribe_model=TranscribeModelEnum.WHISPER_CPP,
-        transcribe_language="zh",
-        whisper_model=WhisperModelEnum.MEDIUM,
-        use_asr_cache=True,
-    )
-
-    # 转录音频
-    audio_file = "test.wav"
-
-    def progress_callback(progress: int, message: str):
-        print(f"Progress: {progress}%, Message: {message}")
-
-    result = transcribe(audio_file, config, callback=progress_callback)
-    print(result)

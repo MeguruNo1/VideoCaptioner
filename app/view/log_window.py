@@ -1,4 +1,3 @@
-import os
 import time
 from pathlib import Path
 
@@ -8,6 +7,7 @@ from PyQt5.QtWidgets import QTextEdit, QVBoxLayout, QWidget, QHBoxLayout
 from qfluentwidgets import Dialog, FluentStyleSheet, TextEdit, isDarkTheme, PushButton
 
 from app.config import LOG_PATH, RESOURCE_PATH
+from app.core.utils.platform_utils import open_path
 
 
 class LogWindow(QWidget):
@@ -157,4 +157,4 @@ class LogWindow(QWidget):
 
     def open_log_folder(self):
         """打开日志文件所在文件夹"""
-        os.startfile(str(LOG_PATH))
+        open_path(LOG_PATH)

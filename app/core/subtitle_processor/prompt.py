@@ -284,10 +284,8 @@ PROMPT_OPTIMIZER = "optimizer"
 PROMPT_TRANSLATE = "translate"
 PROMPT_REFLECT_TRANSLATE = "reflect_translate"
 PROMPT_SINGLE_TRANSLATE = "single_translate"
-PROMPT_FASTER_WHISPER = "faster_whisper"
 PROMPT_WHISPERX_INITIAL = "whisperx_initial"
 PROMPT_WHISPERX_HOTWORDS = "whisperx_hotwords"
-PROMPT_WHISPER_API = "whisper_api"
 PROMPT_DOCUMENT_CONTEXT = "document_context"
 PROMPT_TERM_GLOSSARY = "term_glossary"
 
@@ -300,10 +298,8 @@ DEFAULT_PROMPTS = {
     PROMPT_TRANSLATE: TRANSLATE_PROMPT,
     PROMPT_REFLECT_TRANSLATE: REFLECT_TRANSLATE_PROMPT,
     PROMPT_SINGLE_TRANSLATE: SINGLE_TRANSLATE_PROMPT,
-    PROMPT_FASTER_WHISPER: "",
     PROMPT_WHISPERX_INITIAL: "",
     PROMPT_WHISPERX_HOTWORDS: "",
-    PROMPT_WHISPER_API: "",
     PROMPT_DOCUMENT_CONTEXT: "",
     PROMPT_TERM_GLOSSARY: TERM_GLOSSARY_PROMPT,
 }
@@ -317,10 +313,8 @@ PROMPT_CONFIG_ATTRS = {
     PROMPT_TRANSLATE: "prompt_translate",
     PROMPT_REFLECT_TRANSLATE: "prompt_reflect_translate",
     PROMPT_SINGLE_TRANSLATE: "prompt_single_translate",
-    PROMPT_FASTER_WHISPER: "faster_whisper_prompt",
     PROMPT_WHISPERX_INITIAL: "whisperx_initial_prompt",
     PROMPT_WHISPERX_HOTWORDS: "whisperx_hotwords",
-    PROMPT_WHISPER_API: "whisper_api_prompt",
     PROMPT_DOCUMENT_CONTEXT: "custom_prompt_text",
     PROMPT_TERM_GLOSSARY: "prompt_term_glossary",
 }
@@ -383,11 +377,6 @@ PROMPT_CENTER_ITEMS = [
         "description": "批量翻译失败时逐条翻译使用。",
     },
     {
-        "id": PROMPT_FASTER_WHISPER,
-        "title": "Faster Whisper 转录提示词",
-        "description": "传给 Faster Whisper 的可选上下文提示。",
-    },
-    {
         "id": PROMPT_WHISPERX_INITIAL,
         "title": "WhisperX 初始提示词",
         "description": "传给 WhisperX 的初始上下文提示。",
@@ -396,11 +385,6 @@ PROMPT_CENTER_ITEMS = [
         "id": PROMPT_WHISPERX_HOTWORDS,
         "title": "WhisperX 热词",
         "description": "传给 WhisperX 的热词列表，用于提升专有名词识别。",
-    },
-    {
-        "id": PROMPT_WHISPER_API,
-        "title": "Whisper API 提示词",
-        "description": "传给 Whisper API 的可选上下文提示。",
     },
     {
         "id": PROMPT_DOCUMENT_CONTEXT,

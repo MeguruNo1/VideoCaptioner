@@ -1,5 +1,4 @@
 import os
-import platform
 import shutil
 import subprocess
 
@@ -11,6 +10,7 @@ from app.core.utils.proxy_utils import (
     get_effective_download_proxy_url,
 )
 from app.core.utils.logger import setup_logger
+from app.core.utils.platform_utils import subprocess_no_window_kwargs
 
 logger = setup_logger("download_thread")
 
@@ -58,7 +58,6 @@ class FileDownloadThread(QThread):
             if proxy_url:
                 cmd.insert(-1, f'--all-proxy={proxy_url}')
             
-            # 根据操作系统设置不同的 subprocess 参数
             subprocess_args = {
                 'stdout': subprocess.PIPE,
                 'stderr': subprocess.PIPE,
@@ -66,10 +65,7 @@ class FileDownloadThread(QThread):
                 'encoding': 'utf-8',
                 'env': build_download_proxy_env(),
             }
-            
-            # 仅在 Windows 系统上添加 CREATE_NO_WINDOW 标志
-            if platform.system() == 'Windows':
-                subprocess_args['creationflags'] = subprocess.CREATE_NO_WINDOW
+            subprocess_args.update(subprocess_no_window_kwargs())
             
             logger.info("运行下载命令: %s", " ".join(cmd))
             

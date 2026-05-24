@@ -12,7 +12,7 @@ SEPARATE_ORIGINAL_TRANSLATE_LAYOUT = "单独输出原文和译文"
 
 
 def handle_long_path(path: str) -> str:
-    """处理Windows系统中的长路径问题
+    """Return a path variant compatible with the current filesystem.
 
     Args:
         path: 原始路径
@@ -20,11 +20,8 @@ def handle_long_path(path: str) -> str:
     Returns:
         处理后的路径
     """
-    # 检查是否是Windows系统
     if platform.system() == "Windows":
-        # 如果路径长度超过260个字符，添加\\?\前缀
         if len(path) > 260 and not path.startswith("\\\\?\\"):
-            # 转换为绝对路径
             abs_path = os.path.abspath(path)
             return f"\\\\?\\{abs_path}"
     return path

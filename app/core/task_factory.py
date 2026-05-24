@@ -69,24 +69,6 @@ class TaskFactory:
             transcribe_language=LANGUAGES[cfg.transcribe_language.value.value],
             use_asr_cache=cfg.use_asr_cache.value,
             need_word_time_stamp=need_word_time_stamp,
-            # Whisper Cpp 配置
-            whisper_model=cfg.whisper_model.value.value,
-            # Whisper API 配置
-            whisper_api_key=cfg.whisper_api_key.value,
-            whisper_api_base=cfg.whisper_api_base.value,
-            whisper_api_model=cfg.whisper_api_model.value,
-            whisper_api_prompt=cfg.whisper_api_prompt.value,
-            # Faster Whisper 配置
-            faster_whisper_program=cfg.faster_whisper_program.value,
-            faster_whisper_model=cfg.faster_whisper_model.value.value,
-            faster_whisper_model_dir=str(MODEL_PATH),
-            faster_whisper_device=cfg.faster_whisper_device.value,
-            faster_whisper_vad_filter=cfg.faster_whisper_vad_filter.value,
-            faster_whisper_vad_threshold=cfg.faster_whisper_vad_threshold.value,
-            faster_whisper_vad_method=cfg.faster_whisper_vad_method.value.value,
-            faster_whisper_ff_mdx_kim2=cfg.faster_whisper_ff_mdx_kim2.value,
-            faster_whisper_one_word=cfg.faster_whisper_one_word.value,
-            faster_whisper_prompt=cfg.faster_whisper_prompt.value,
             # WhisperX 配置
             whisperx_model=cfg.whisperx_model.value,
             whisperx_device="cpu" if WHISPERX_ONLY_MODE else cfg.whisperx_device.value,
@@ -120,15 +102,7 @@ class TaskFactory:
         if WHISPERX_ONLY_MODE:
             return True
 
-        model = cfg.transcribe_model.value
-
-        if model == TranscribeModelEnum.FASTER_WHISPER:
-            return cfg.faster_whisper_one_word.value
-
-        if model == TranscribeModelEnum.WHISPER_X:
-            return cfg.whisperx_word_timestamps.value
-
-        return False
+        return cfg.whisperx_word_timestamps.value
 
     @staticmethod
     def create_subtitle_task(

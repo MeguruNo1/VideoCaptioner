@@ -6,7 +6,9 @@ This build profile keeps the local transcription stack focused on WhisperX:
 - Device: CPU only
 - Word-level timestamps: enabled
 - Alignment: enabled
-- External Windows binaries under `resource/bin` are not required for ASR
+- External bundled binaries under `resource/bin` are not required for ASR
+- App data: `~/Library/Application Support/VideoCaptioner`
+- Default work folder: `~/Movies/VideoCaptioner`
 
 ## Setup
 
@@ -30,5 +32,6 @@ VIDEOCAPTIONER_WHISPERX_ONLY=1 python main.py
 ## Runtime notes
 
 WhisperX downloads Whisper, VAD, and alignment models on first use unless they
-already exist under `AppData/models`. CPU mode should use `int8` by default for
-better speed and memory use on Apple Silicon.
+already exist under `~/Library/Application Support/VideoCaptioner/models`. CPU
+mode should use `int8` by default for better speed and memory use on Apple
+Silicon.

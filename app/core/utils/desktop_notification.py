@@ -1,5 +1,3 @@
-import sys
-
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
 
@@ -7,7 +5,7 @@ from app.common.signal_bus import signalBus
 from app.config import APP_NAME, RESOURCE_PATH
 from app.core.utils.logger import setup_logger
 
-logger = setup_logger("windows_notification")
+logger = setup_logger("desktop_notification")
 
 _tray_icon = None
 _last_notification_target = None
@@ -27,16 +25,12 @@ def _on_message_clicked():
         signalBus.notification_clicked.emit(_last_notification_target)
 
 
-def send_windows_notification(
+def send_desktop_notification(
     title: str,
     message: str,
     timeout_ms: int = 5000,
     target: str | None = None,
 ) -> bool:
-    """Send a Windows desktop notification without blocking task completion."""
-    if sys.platform != "win32":
-        return False
-
     app = QApplication.instance()
     if app is None:
         return False
@@ -63,5 +57,5 @@ def send_windows_notification(
         )
         return True
     except Exception as exc:
-        logger.warning("发送 Windows 通知失败: %s", exc)
+        logger.warning("发送桌面通知失败: %s", exc)
         return False
