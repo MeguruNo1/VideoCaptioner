@@ -1536,7 +1536,7 @@ class DownloadCenterInterface(QWidget):
                 "download_mode": "video_audio",
                 "selected_video_format_id": "",
                 "selected_audio_format_id": "",
-                "format_selector": "bestvideo+bestaudio/best",
+                "format_selector": "bv*+ba/bestvideo+bestaudio/best",
                 "pr_smart_video_summary": self.tr("回退到通用最高画质"),
                 "pr_smart_audio_summary": self.tr("回退到通用最佳音频"),
             }
@@ -1569,7 +1569,7 @@ class DownloadCenterInterface(QWidget):
             return request
 
         request.update(
-            format_selector="bestvideo+bestaudio/best",
+            format_selector="bv*+ba/bestvideo+bestaudio/best",
             selected_video_format_id="",
             pr_smart_video_summary=self.tr("回退到通用最高画质"),
             pr_smart_audio_summary=self.tr("回退到通用最佳音频"),
@@ -1613,7 +1613,7 @@ class DownloadCenterInterface(QWidget):
             selectors.append("bestvideo[ext=mp4]+bestaudio[ext=m4a]")
         elif container == "webm":
             selectors.append("bestvideo[ext=webm]+bestaudio[ext=webm]")
-        selectors.append("bestvideo+bestaudio/best")
+        selectors.append("bv*+ba/bestvideo+bestaudio/best")
         return self._combine_selector_chains(selectors)
 
     def _refresh_selection_summary(self, *_args):
@@ -1685,7 +1685,7 @@ class DownloadCenterInterface(QWidget):
         if self.current_mode_key == "simple":
             preset = self.simple_preset_combo.currentData() or "best_quality"
             if preset == "best_quality":
-                request.update(need_video=True, download_mode="video_audio", format_selector="bestvideo+bestaudio/best")
+                request.update(need_video=True, download_mode="video_audio", format_selector="bv*+ba/bestvideo+bestaudio/best")
             elif preset == "mp4_compatible":
                 request.update(need_video=True, download_mode="video_audio", format_selector="bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
             elif preset in {"pr_smart", "pr_editing"}:

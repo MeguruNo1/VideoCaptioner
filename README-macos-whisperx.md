@@ -35,3 +35,12 @@ WhisperX downloads Whisper, VAD, and alignment models on first use unless they
 already exist under `~/Library/Application Support/VideoCaptioner/models`. CPU
 mode should use `int8` by default for better speed and memory use on Apple
 Silicon.
+
+The local macOS app launcher can be installed with:
+
+```bash
+scripts/build_macos_app.sh --install
+```
+
+The launcher uses this checkout's `.venv/bin/python main.py`, so source changes
+take effect after restarting the app.

@@ -52,13 +52,16 @@ def setup_logger(
 
         # 文件处理器
         if log_file:
-            Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.handlers.RotatingFileHandler(
-                log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
-            )
-            file_handler.setLevel(level)
-            file_handler.setFormatter(level_formatter)
-            logger.addHandler(file_handler)
+            try:
+                Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+                file_handler = logging.handlers.RotatingFileHandler(
+                    log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+                )
+                file_handler.setLevel(level)
+                file_handler.setFormatter(level_formatter)
+                logger.addHandler(file_handler)
+            except OSError as exc:
+                logger.warning("文件日志不可用: %s", exc)
 
     # 设置特定库的日志级别为ERROR以减少日志噪音
     error_loggers = [

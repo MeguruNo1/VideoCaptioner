@@ -297,7 +297,7 @@ class Config(QConfig):
     )
 
     # ------------------- WhisperX 配置 -------------------
-    whisperx_model = ConfigItem("WhisperX", "Model", "large-v3")
+    whisperx_model = ConfigItem("WhisperX", "Model", "large-v3-turbo")
     whisperx_device = OptionsConfigItem(
         "WhisperX",
         "Device",

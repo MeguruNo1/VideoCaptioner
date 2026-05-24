@@ -45,8 +45,18 @@ compatible local models already exist under:
 ~/Library/Application Support/VideoCaptioner/models
 ```
 
-Start with `small` or `medium` on CPU. `large-v3` can run, but it is much slower
-and uses more memory.
+`large-v3-turbo` is the default local model for this branch. It should be kept
+under the app model directory as `faster-whisper-large-v3-turbo`.
+
+## Install Local App Launcher
+
+The macOS app bundle is a local launcher for this source checkout and virtual
+environment. It does not bundle Python, dependencies, or models; edit the source
+tree and restart the app to run the updated code.
+
+```bash
+scripts/build_macos_app.sh --install
+```
 
 ## Supported Formats
 
@@ -61,7 +71,7 @@ and uses more memory.
 - The branch does not ship a bundled Windows runtime or Windows executables.
 - The app uses the system `ffmpeg` from Homebrew.
 - Browser cookies are exported through yt-dlp browser integration, trying Chrome, Edge, then Safari.
-- The branch is prepared for a later `.app` packaging pass; source execution is the current supported path.
+- The local `.app` launcher starts `.venv/bin/python main.py` from this checkout.
 
 ## License
 

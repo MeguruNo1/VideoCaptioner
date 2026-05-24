@@ -6,7 +6,6 @@ from string import Template
 from typing import List, Optional
 
 import openai
-import retry
 
 from app.config import CACHE_PATH
 from app.core.utils.openai_compat import get_openai_compat_request_options
@@ -17,6 +16,7 @@ from .prompt import PROMPT_SPLIT_SEMANTIC, get_prompt_template
 logger = setup_logger("split_by_llm")
 
 MAX_WORD_COUNT = 20  # 英文单词或中文字符的最大数量
+SPLIT_RETRY_TRIES = 2
 
 
 def count_words(text: str) -> int:
@@ -80,9 +80,31 @@ def split_by_llm(text: str,
         logger.error(f"断句失败: {e}")
         return [text]
 
-@retry.retry(tries=2)
 def split_by_llm_retry(text: str, 
                        model: str = "gpt-4o-mini", 
+                       use_cache: bool = False,
+                       max_word_count_cjk: int = 18,
+                       max_word_count_english: int = 12) -> List[str]:
+    """使用LLM进行文本断句，失败时最多重试 SPLIT_RETRY_TRIES 次"""
+    last_error = None
+    for attempt in range(SPLIT_RETRY_TRIES):
+        try:
+            return _split_by_llm_once(
+                text,
+                model,
+                use_cache,
+                max_word_count_cjk,
+                max_word_count_english,
+            )
+        except Exception as exc:
+            last_error = exc
+            if attempt < SPLIT_RETRY_TRIES - 1:
+                logger.warning(f"断句重试 {attempt + 1}/{SPLIT_RETRY_TRIES}: {exc}")
+    raise last_error or RuntimeError("断句失败")
+
+
+def _split_by_llm_once(text: str,
+                       model: str = "gpt-4o-mini",
                        use_cache: bool = False,
                        max_word_count_cjk: int = 18,
                        max_word_count_english: int = 12) -> List[str]:

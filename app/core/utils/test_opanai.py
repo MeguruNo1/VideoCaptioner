@@ -5,6 +5,8 @@ from app.core.utils.openai_compat import (
     get_openai_compat_request_options,
 )
 
+__test__ = False
+
 
 def test_openai(
     base_url,

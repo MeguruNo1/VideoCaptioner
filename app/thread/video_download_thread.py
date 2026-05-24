@@ -54,6 +54,7 @@ SUBTITLE_EXTENSIONS = {
     ".srv2",
     ".srv3",
 }
+NO_COOKIE_FILE_PATH = APPDATA_PATH / "__no_cookie__.txt"
 
 
 class DownloadCancelledError(Exception):
@@ -362,6 +363,52 @@ def _build_strategy_options(strategy: str | None) -> dict:
     return {}
 
 
+def _build_youtube_challenge_options() -> dict:
+    node_path = shutil.which("node")
+    if not node_path:
+        for candidate in ("/usr/local/bin/node", "/opt/homebrew/bin/node"):
+            if Path(candidate).is_file():
+                node_path = candidate
+                break
+    if not node_path:
+        return {}
+    return {
+        "js_runtimes": {
+            "node": {
+                "path": node_path,
+            }
+        },
+        "remote_components": {"ejs:github"},
+    }
+
+
+def _robust_format_selector(selector: str, download_mode: str = "video_audio") -> str:
+    selector = str(selector or "").strip()
+    if not selector:
+        if download_mode == "audio":
+            return "bestaudio/best"
+        if download_mode == "video":
+            return "bv*/bestvideo/best"
+        return "bv*+ba/bestvideo+bestaudio/best"
+
+    if "bv*+ba" in selector:
+        return selector
+
+    replacements = {
+        "bestvideo+bestaudio/best": "bv*+ba/bestvideo+bestaudio/best",
+        "bestvideo/best": "bv*/bestvideo/best",
+    }
+    if selector in replacements:
+        return replacements[selector]
+
+    if download_mode == "video_audio" and "bestvideo+bestaudio/best" in selector:
+        return selector.replace(
+            "bestvideo+bestaudio/best",
+            "bv*+ba/bestvideo+bestaudio/best",
+        )
+    return selector
+
+
 def _build_ydl_options(proxy_url: str, cookiefile_path: Path, progress_hooks=None) -> dict:
     options = {
         "quiet": True,
@@ -377,7 +424,23 @@ def _build_ydl_options(proxy_url: str, cookiefile_path: Path, progress_hooks=Non
     if cookiefile_path.exists():
         logger.info("使用 cookiefile: %s", cookiefile_path)
         options["cookiefile"] = str(cookiefile_path)
+    else:
+        options["extractor_args"] = {
+            "youtube": {
+                "player_client": ["android", "ios", "tv"],
+            }
+        }
+    options.update(_build_youtube_challenge_options())
     return options
+
+
+def _has_downloadable_media_formats(info_dict: dict) -> bool:
+    for item in info_dict.get("formats") or []:
+        vcodec = item.get("vcodec")
+        acodec = item.get("acodec")
+        if (vcodec and vcodec != "none") or (acodec and acodec != "none"):
+            return True
+    return False
 
 
 def _extract_metadata_info(
@@ -386,21 +449,31 @@ def _extract_metadata_info(
     cookiefile_path: Path,
     effective_strategy: str | None,
 ) -> dict:
-    options = _build_ydl_options(proxy_url, cookiefile_path)
-    options.update(_build_strategy_options(effective_strategy))
-    options.update(
-        {
-            "skip_download": True,
-            "extract_flat": False,
-            "lazy_playlist": False,
-        }
-    )
+    def extract_once(active_cookiefile_path: Path) -> dict:
+        options = _build_ydl_options(proxy_url, active_cookiefile_path)
+        options.update(_build_strategy_options(effective_strategy))
+        options.update(
+            {
+                "skip_download": True,
+                "extract_flat": False,
+                "lazy_playlist": False,
+            }
+        )
 
-    with yt_dlp.YoutubeDL(options) as ydl:
-        info_dict = ydl.extract_info(url, download=False, process=False)
+        with yt_dlp.YoutubeDL(options) as ydl:
+            return ydl.extract_info(url, download=False, process=False)
+
+    info_dict = extract_once(cookiefile_path)
 
     if not isinstance(info_dict, dict) or not info_dict.get("formats"):
         raise RuntimeError("无法解析可用格式列表")
+
+    if cookiefile_path.exists() and not _has_downloadable_media_formats(info_dict):
+        logger.warning("使用 cookies 仅解析到图片格式，改为不带 cookies 重试")
+        fallback_info_dict = extract_once(NO_COOKIE_FILE_PATH)
+        if isinstance(fallback_info_dict, dict) and _has_downloadable_media_formats(fallback_info_dict):
+            fallback_info_dict["_videocaptioner_disable_cookiefile"] = True
+            return fallback_info_dict
 
     return info_dict
 
@@ -706,19 +779,21 @@ class VideoDownloadThread(QThread):
         self.progress.emit(progress_value, f"下载进度: {clean_percent}%  速度: {clean_speed}")
 
     def _default_format_selector(self) -> str:
-        if self.download_mode == "audio":
-            return "bestaudio/best"
-        if self.download_mode == "video":
-            return "bestvideo/best"
-        return "bestvideo+bestaudio/best"
+        return _robust_format_selector("", self.download_mode)
 
     def _effective_format_selector(self) -> str:
         if self.format_selector:
-            return self.format_selector
+            return _robust_format_selector(self.format_selector, self.download_mode)
         if self.download_mode == "audio":
-            return self.selected_audio_format_id or self._default_format_selector()
+            return _robust_format_selector(
+                self.selected_audio_format_id or self._default_format_selector(),
+                self.download_mode,
+            )
         if self.download_mode == "video":
-            return self.selected_video_format_id or self._default_format_selector()
+            return _robust_format_selector(
+                self.selected_video_format_id or self._default_format_selector(),
+                self.download_mode,
+            )
         if self.selected_video_format_id and self.selected_audio_format_id:
             return f"{self.selected_video_format_id}+{self.selected_audio_format_id}"
         if self.selected_video_format_id:
@@ -740,7 +815,7 @@ class VideoDownloadThread(QThread):
             candidates.append(file)
 
         if not candidates:
-            return None
+            return []
 
         if self.download_mode == "audio":
             audio_candidates = [file for file in candidates if file.suffix.lower() in AUDIO_EXTENSIONS]
@@ -825,6 +900,11 @@ class VideoDownloadThread(QThread):
         info_dict = _extract_metadata_info(
             self.url, proxy_url, cookiefile_path, effective_strategy
         )
+        active_cookiefile_path = (
+            NO_COOKIE_FILE_PATH
+            if info_dict.get("_videocaptioner_disable_cookiefile")
+            else cookiefile_path
+        )
         self._raise_if_terminated()
         title = sanitize_filename(info_dict.get("title", "MyVideo"))
         work_dir = Path(self.work_dir) / title
@@ -875,7 +955,7 @@ class VideoDownloadThread(QThread):
 
         ydl_need_subtitle = effective_need_subtitle and not subtitle_path
         options = _build_ydl_options(
-            proxy_url, cookiefile_path, progress_hooks=[self.progress_hook]
+            proxy_url, active_cookiefile_path, progress_hooks=[self.progress_hook]
         )
         options.update(_build_strategy_options(effective_strategy))
         options.update(
@@ -905,8 +985,28 @@ class VideoDownloadThread(QThread):
             "thumbnail": str(work_dir),
         }
 
-        with yt_dlp.YoutubeDL(options) as ydl:
-            ydl.download([self.url])
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                ydl.download([self.url])
+        except yt_dlp.utils.DownloadError as exc:
+            fallback_selector = self._default_format_selector()
+            current_selector = str(options.get("format") or "")
+            if (
+                need_video
+                and fallback_selector
+                and fallback_selector != current_selector
+                and "Requested format is not available" in str(exc)
+            ):
+                logger.warning(
+                    "指定格式不可用，改用默认格式选择器重试: %s -> %s",
+                    current_selector,
+                    fallback_selector,
+                )
+                options["format"] = fallback_selector
+                with yt_dlp.YoutubeDL(options) as ydl:
+                    ydl.download([self.url])
+            else:
+                raise
         self._raise_if_terminated()
 
         media_files = self._find_main_media_files(work_dir) if need_video else []

@@ -19,10 +19,10 @@ class LogWindow(QWidget):
         FluentStyleSheet.FLUENT_WINDOW.apply(self)
 
         theme = "dark" if isDarkTheme() else "light"
-        with open(
-            RESOURCE_PATH / "assets" / "qss" / theme / "demo.qss", encoding="utf-8"
-        ) as f:
-            self.setStyleSheet(f.read())
+        qss_path = RESOURCE_PATH / "assets" / "qss" / theme / "demo.qss"
+        if qss_path.exists():
+            with open(qss_path, encoding="utf-8") as f:
+                self.setStyleSheet(f.read())
 
         # 设置为非模态对话框
         self.setWindowModality(Qt.NonModal)
@@ -65,7 +65,7 @@ class LogWindow(QWidget):
             self.log_text.setPlainText(f"打开日志文件失败: {str(e)}")
 
         # 添加文件大小跟踪
-        self.last_position = self.log_file.tell()
+        self.last_position = self.log_file.tell() if self.log_file else 0
         self.max_lines = 100  # 最多显示100行
 
         self.auto_scroll = True  # 添加自动滚动标志
