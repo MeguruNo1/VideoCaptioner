@@ -19,7 +19,7 @@ from qfluentwidgets import (
     EnumSerializer,
 )
 
-from app.config import WORK_PATH, SETTINGS_PATH, MODEL_PATH
+from app.config import WORK_PATH, SETTINGS_PATH, MODEL_PATH, WHISPERX_ONLY_MODE
 from ..core.entities import (
     LLMServiceEnum,
     SplitTypeEnum,
@@ -31,6 +31,22 @@ from ..core.entities import (
     FasterWhisperModelEnum,
     VadMethodEnum,
 )
+
+
+TRANSCRIBE_MODEL_OPTIONS = (
+    [TranscribeModelEnum.WHISPER_X]
+    if WHISPERX_ONLY_MODE
+    else list(TranscribeModelEnum)
+)
+DEFAULT_TRANSCRIBE_MODEL = (
+    TranscribeModelEnum.WHISPER_X
+    if WHISPERX_ONLY_MODE
+    else TranscribeModelEnum.BIJIAN
+)
+WHISPERX_DEVICE_OPTIONS = ["cpu"] if WHISPERX_ONLY_MODE else ["cuda", "cpu"]
+DEFAULT_WHISPERX_DEVICE = "cpu" if WHISPERX_ONLY_MODE else "cuda"
+DEFAULT_WHISPERX_COMPUTE_TYPE = "int8" if WHISPERX_ONLY_MODE else "float16"
+DEFAULT_WHISPERX_WORD_TIMESTAMPS = True if WHISPERX_ONLY_MODE else False
 
 
 class Language(Enum):
@@ -268,8 +284,8 @@ class Config(QConfig):
     transcribe_model = OptionsConfigItem(
         "Transcribe",
         "TranscribeModel",
-        TranscribeModelEnum.BIJIAN,
-        OptionsValidator(TranscribeModelEnum),
+        DEFAULT_TRANSCRIBE_MODEL,
+        OptionsValidator(TRANSCRIBE_MODEL_OPTIONS),
         EnumSerializer(TranscribeModelEnum),
     )
     use_asr_cache = ConfigItem("Transcribe", "UseASRCache", True, BoolValidator())
@@ -337,9 +353,14 @@ class Config(QConfig):
     # ------------------- WhisperX 配置 -------------------
     whisperx_model = ConfigItem("WhisperX", "Model", "large-v3")
     whisperx_device = OptionsConfigItem(
-        "WhisperX", "Device", "cuda", OptionsValidator(["cuda", "cpu"])
+        "WhisperX",
+        "Device",
+        DEFAULT_WHISPERX_DEVICE,
+        OptionsValidator(WHISPERX_DEVICE_OPTIONS),
     )
-    whisperx_compute_type = ConfigItem("WhisperX", "ComputeType", "float16")
+    whisperx_compute_type = ConfigItem(
+        "WhisperX", "ComputeType", DEFAULT_WHISPERX_COMPUTE_TYPE
+    )
     whisperx_batch_size = RangeConfigItem(
         "WhisperX", "BatchSize", 8, RangeValidator(1, 32)
     )
@@ -361,7 +382,10 @@ class Config(QConfig):
         str(MODEL_PATH / "silero-vad"),
     )
     whisperx_word_timestamps = ConfigItem(
-        "WhisperX", "WordTimestamps", False, BoolValidator()
+        "WhisperX",
+        "WordTimestamps",
+        DEFAULT_WHISPERX_WORD_TIMESTAMPS,
+        BoolValidator(),
     )
     whisperx_align = ConfigItem("WhisperX", "Align", True, BoolValidator())
     # ------------------- Whisper API 配置 -------------------
@@ -549,3 +573,11 @@ cfg = Config()
 cfg.themeMode.value = Theme.DARK
 cfg.themeColor.value = QColor("#ff28f08b")
 qconfig.load(SETTINGS_PATH, cfg)
+
+if WHISPERX_ONLY_MODE:
+    cfg.set(cfg.transcribe_model, TranscribeModelEnum.WHISPER_X)
+    cfg.set(cfg.whisperx_device, "cpu")
+    if cfg.whisperx_compute_type.value in {"float16", "int8_float16"}:
+        cfg.set(cfg.whisperx_compute_type, "int8")
+    cfg.set(cfg.whisperx_word_timestamps, True)
+    cfg.set(cfg.whisperx_align, True)

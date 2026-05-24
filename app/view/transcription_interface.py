@@ -38,7 +38,7 @@ from app.common.config import cfg
 from app.common.signal_bus import signalBus
 from app.components.LanguageSettingDialog import LanguageSettingDialog
 from app.components.transcription_setting_card import TranscriptionSettingCard
-from app.config import RESOURCE_PATH
+from app.config import RESOURCE_PATH, WHISPERX_ONLY_MODE
 from app.core.entities import (
     SupportedAudioFormats,
     SupportedVideoFormats,
@@ -336,7 +336,8 @@ class TranscriptionInterface(QWidget):
         self.model_button.setMinimumWidth(180)
 
         self.model_menu = RoundMenu(parent=self)
-        for model in TranscribeModelEnum:
+        model_options = cfg.transcribe_model.validator.options
+        for model in model_options:
             if "接口" in model.value or "api" in model.value.lower():
                 self.model_menu.addActions(
                     [
@@ -386,9 +387,12 @@ class TranscriptionInterface(QWidget):
 
     def on_transcription_model_changed(self, model_name: str):
         """处理转录模型改变"""
+        if WHISPERX_ONLY_MODE:
+            model_name = TranscribeModelEnum.WHISPER_X.value
+
         self.model_button.setText(self.tr(model_name))
         self.transcription_setting_card.on_model_changed(model_name)
-        for model in TranscribeModelEnum:
+        for model in cfg.transcribe_model.validator.options:
             if model.value == model_name:
                 cfg.set(cfg.transcribe_model, model)
                 break

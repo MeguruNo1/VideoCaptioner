@@ -1,11 +1,17 @@
 import logging
 import os
+import sys
 from pathlib import Path
 
 VERSION = "v1.3.3"
 YEAR = 2025
 APP_NAME = "VideoCaptioner"
 AUTHOR = "Weifeng"
+
+WHISPERX_ONLY_MODE = (
+    sys.platform == "darwin"
+    or os.environ.get("VIDEOCAPTIONER_WHISPERX_ONLY", "").lower() in {"1", "true", "yes"}
+)
 
 HELP_URL = "https://github.com/WEIFENG2333/VideoCaptioner"
 GITHUB_REPO_URL = "https://github.com/WEIFENG2333/VideoCaptioner"

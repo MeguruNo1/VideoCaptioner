@@ -16,6 +16,8 @@ from qfluentwidgets import (
 )
 from qfluentwidgets import SwitchSettingCard
 
+from app.config import WHISPERX_ONLY_MODE
+
 from ..common.config import cfg
 from ..core.bk_asr.asr_data import ASRData
 from ..core.entities import TranscribeLanguageEnum
@@ -300,6 +302,13 @@ class WhisperXSettingWidget(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
+        if WHISPERX_ONLY_MODE:
+            cfg.set(cfg.whisperx_device, "cpu")
+            if cfg.whisperx_compute_type.value in {"float16", "int8_float16"}:
+                cfg.set(cfg.whisperx_compute_type, "int8")
+            cfg.set(cfg.whisperx_word_timestamps, True)
+            cfg.set(cfg.whisperx_align, True)
+
         self.main_layout = QVBoxLayout(self)
 
         self.scrollArea = SingleDirectionScrollArea(orient=Qt.Vertical, parent=self)
@@ -312,7 +321,10 @@ class WhisperXSettingWidget(QWidget):
         self.containerLayout = QVBoxLayout(self.container)
 
         self.setting_group = SettingCardGroup(
-            self.tr("WhisperX 设置（需本地 Python 依赖）"), self
+            self.tr("WhisperX 设置（CPU / 词级时间轴）")
+            if WHISPERX_ONLY_MODE
+            else self.tr("WhisperX 设置（需本地 Python 依赖）"),
+            self,
         )
 
         self.model_card = EditComboBoxSettingCard(
@@ -346,7 +358,7 @@ class WhisperXSettingWidget(QWidget):
             FIF.IOT,
             self.tr("运行设备"),
             self.tr("WhisperX 运行设备"),
-            ["cuda", "cpu"],
+            ["cpu"] if WHISPERX_ONLY_MODE else ["cuda", "cpu"],
             self.setting_group,
         )
 
@@ -355,7 +367,9 @@ class WhisperXSettingWidget(QWidget):
             FIF.ROBOT,
             self.tr("计算精度"),
             self.tr("设置 WhisperX 的计算精度"),
-            ["float16", "int8", "int8_float16", "float32"],
+            ["int8", "float32", "int8_float32"]
+            if WHISPERX_ONLY_MODE
+            else ["float16", "int8", "int8_float16", "float32"],
             self.setting_group,
         )
 
@@ -451,6 +465,11 @@ class WhisperXSettingWidget(QWidget):
         self.setting_group.addSettingCard(self.local_silero_dir_card)
         self.setting_group.addSettingCard(self.word_timestamps_card)
         self.setting_group.addSettingCard(self.align_card)
+
+        if WHISPERX_ONLY_MODE:
+            self.device_card.setEnabled(False)
+            self.word_timestamps_card.setEnabled(False)
+            self.align_card.setEnabled(False)
 
         self.containerLayout.addWidget(self.setting_group)
         self.containerLayout.addStretch(1)

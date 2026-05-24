@@ -1,14 +1,42 @@
-from typing import Optional
-
-from app.core.bk_asr.bcut import BcutASR
-from app.core.bk_asr.faster_whisper import FasterWhisperASR
-from app.core.bk_asr.jianying import JianYingASR
-from app.core.bk_asr.kuaishou import KuaiShouASR
-from app.core.bk_asr.whisper_api import WhisperAPI
-from app.core.bk_asr.whisper_cpp import WhisperCppASR
-from app.core.bk_asr.whisper_x_auto import WhisperXASR
+from app.config import WHISPERX_ONLY_MODE
 from app.core.bk_asr.asr_data import ASRData
 from app.core.entities import TranscribeConfig, TranscribeModelEnum
+
+
+def _get_asr_class(model: TranscribeModelEnum):
+    if WHISPERX_ONLY_MODE:
+        if model != TranscribeModelEnum.WHISPER_X:
+            raise ValueError("当前 macOS 精简版仅支持 WhisperX 转录")
+        from app.core.bk_asr.whisper_x_auto import WhisperXASR
+
+        return WhisperXASR
+
+    if model == TranscribeModelEnum.JIANYING:
+        from app.core.bk_asr.jianying import JianYingASR
+
+        return JianYingASR
+    if model == TranscribeModelEnum.BIJIAN:
+        from app.core.bk_asr.bcut import BcutASR
+
+        return BcutASR
+    if model == TranscribeModelEnum.WHISPER_CPP:
+        from app.core.bk_asr.whisper_cpp import WhisperCppASR
+
+        return WhisperCppASR
+    if model == TranscribeModelEnum.WHISPER_API:
+        from app.core.bk_asr.whisper_api import WhisperAPI
+
+        return WhisperAPI
+    if model == TranscribeModelEnum.FASTER_WHISPER:
+        from app.core.bk_asr.faster_whisper import FasterWhisperASR
+
+        return FasterWhisperASR
+    if model == TranscribeModelEnum.WHISPER_X:
+        from app.core.bk_asr.whisper_x_auto import WhisperXASR
+
+        return WhisperXASR
+
+    return None
 
 
 def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRData:
@@ -26,18 +54,15 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
     if callback is None:
         callback = lambda x, y: None
 
-    # 获取ASR模型类
-    ASR_MODELS = {
-        TranscribeModelEnum.JIANYING: JianYingASR,
-        # TranscribeModelEnum.KUAISHOU: KuaiShouASR,
-        TranscribeModelEnum.BIJIAN: BcutASR,
-        TranscribeModelEnum.WHISPER_CPP: WhisperCppASR,
-        TranscribeModelEnum.WHISPER_API: WhisperAPI,
-        TranscribeModelEnum.FASTER_WHISPER: FasterWhisperASR,
-        TranscribeModelEnum.WHISPER_X: WhisperXASR,
-    }
+    if WHISPERX_ONLY_MODE:
+        config.transcribe_model = TranscribeModelEnum.WHISPER_X
+        config.whisperx_device = "cpu"
+        config.need_word_time_stamp = True
+        config.whisperx_align = True
+        if config.whisperx_compute_type in {"float16", "int8_float16"}:
+            config.whisperx_compute_type = "int8"
 
-    asr_class = ASR_MODELS.get(config.transcribe_model)
+    asr_class = _get_asr_class(config.transcribe_model)
     if not asr_class:
         raise ValueError(f"无效的转录模型: {config.transcribe_model}")
 

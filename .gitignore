@@ -8,6 +8,9 @@
 # === Source code (tracked) ===
 !/.gitignore
 !/README.md
+!/README-macos-whisperx.md
+!/main.py
+!/requirements-macos-whisperx.txt
 !/app/
 !/app/**
 !/tests/

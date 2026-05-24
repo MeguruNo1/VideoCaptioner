@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.common.config import cfg
-from app.config import MODEL_PATH, SUBTITLE_STYLE_PATH
+from app.config import MODEL_PATH, SUBTITLE_STYLE_PATH, WHISPERX_ONLY_MODE
 from app.core.entities import (
     LANGUAGES,
     LLMServiceEnum,
@@ -45,6 +45,11 @@ class TaskFactory:
 
         # 获取文件名
         file_name = Path(file_path).stem
+        transcribe_model = (
+            TranscribeModelEnum.WHISPER_X
+            if WHISPERX_ONLY_MODE
+            else cfg.transcribe_model.value
+        )
         need_word_time_stamp = TaskFactory.get_need_word_time_stamp()
 
         # 构建输出路径
@@ -54,13 +59,13 @@ class TaskFactory:
                 Path(cfg.work_dir.value)
                 / file_name
                 / "subtitle"
-                / f"【原始字幕】{file_name}-{cfg.transcribe_model.value.value}-{cfg.transcribe_language.value.value}.srt"
+                / f"【原始字幕】{file_name}-{transcribe_model.value}-{cfg.transcribe_language.value.value}.srt"
             )
         else:
             output_path = str(Path(file_path).parent / f"{file_name}.srt")
 
         config = TranscribeConfig(
-            transcribe_model=cfg.transcribe_model.value,
+            transcribe_model=transcribe_model,
             transcribe_language=LANGUAGES[cfg.transcribe_language.value.value],
             use_asr_cache=cfg.use_asr_cache.value,
             need_word_time_stamp=need_word_time_stamp,
@@ -84,8 +89,13 @@ class TaskFactory:
             faster_whisper_prompt=cfg.faster_whisper_prompt.value,
             # WhisperX 配置
             whisperx_model=cfg.whisperx_model.value,
-            whisperx_device=cfg.whisperx_device.value,
-            whisperx_compute_type=cfg.whisperx_compute_type.value,
+            whisperx_device="cpu" if WHISPERX_ONLY_MODE else cfg.whisperx_device.value,
+            whisperx_compute_type=(
+                "int8"
+                if WHISPERX_ONLY_MODE
+                and cfg.whisperx_compute_type.value in {"float16", "int8_float16"}
+                else cfg.whisperx_compute_type.value
+            ),
             whisperx_batch_size=cfg.whisperx_batch_size.value,
             whisperx_auto_language=cfg.whisperx_auto_language.value,
             whisperx_hotwords=cfg.whisperx_hotwords.value,
@@ -93,7 +103,7 @@ class TaskFactory:
             whisperx_vad_method=cfg.whisperx_vad_method.value,
             whisperx_vad_threshold=cfg.whisperx_vad_threshold.value,
             whisperx_local_silero_dir=cfg.whisperx_local_silero_dir.value,
-            whisperx_align=cfg.whisperx_align.value,
+            whisperx_align=True if WHISPERX_ONLY_MODE else cfg.whisperx_align.value,
             whisperx_model_dir=str(MODEL_PATH),
         )
 
@@ -107,6 +117,9 @@ class TaskFactory:
 
     @staticmethod
     def get_need_word_time_stamp() -> bool:
+        if WHISPERX_ONLY_MODE:
+            return True
+
         model = cfg.transcribe_model.value
 
         if model == TranscribeModelEnum.FASTER_WHISPER:

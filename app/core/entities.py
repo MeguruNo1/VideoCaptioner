@@ -617,8 +617,8 @@ class TranscribeConfig:
     faster_whisper_prompt: Optional[str] = None
     # WhisperX 配置
     whisperx_model: Optional[str] = None
-    whisperx_device: str = "cuda"
-    whisperx_compute_type: str = "float16"
+    whisperx_device: str = "cpu"
+    whisperx_compute_type: str = "int8"
     whisperx_batch_size: int = 8
     whisperx_auto_language: bool = False
     whisperx_hotwords: Optional[str] = None
