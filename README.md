@@ -5,6 +5,7 @@ VideoCaptioner is a desktop video captioning tool that transcribes, translates, 
 ## Features
 
 - **Multi-engine ASR** — Supports FasterWhisper, WhisperX, WhisperCpp, Whisper API, and more
+- **macOS Apple Silicon profile** — Supports a focused WhisperX CPU build with word-level timestamps enabled
 - **LLM-powered subtitle processing** — AI-driven translation, optimization, splitting, and summarization using OpenAI, DeepSeek, Gemini, Ollama, and other LLM providers
 - **Subtitle translation** — Built-in DeepLx, Microsoft, and Google translation backends, plus LLM-based translation
 - **Smart subtitle splitting** — Semantic and sentence-level splitting with CJK and English word count limits
@@ -19,11 +20,22 @@ Download the latest release from the [Releases](https://github.com/WEIFENG2333/V
 
 ### Prerequisites
 
+#### Windows release
+
 - Windows 10/11
 - NVIDIA GPU with CUDA support (recommended for FasterWhisper and WhisperX)
 - VLC media player
 
-### From source
+#### macOS Apple Silicon source build
+
+- Apple Silicon Mac
+- Python 3.11 recommended
+- Homebrew `ffmpeg`
+- WhisperX runs on CPU in this branch profile
+
+### From Source
+
+#### Windows / default source profile
 
 ```bash
 git clone https://github.com/WEIFENG2333/VideoCaptioner.git
@@ -31,6 +43,38 @@ cd VideoCaptioner
 pip install -r requirements.txt
 python main.py
 ```
+
+#### macOS Apple Silicon / WhisperX CPU profile
+
+This branch includes a focused macOS profile for WhisperX-only local transcription:
+
+- ASR engine is fixed to WhisperX
+- Device is fixed to CPU
+- Word-level timestamps are always enabled
+- WhisperX alignment is always enabled
+- CUDA, FasterWhisper, WhisperCpp, Whisper API, and Windows-only ASR entry points are hidden from the macOS UI
+
+Install and run:
+
+```bash
+brew install python@3.11 ffmpeg git
+git clone https://github.com/MeguruNo1/VideoCaptioner.git
+cd VideoCaptioner
+git checkout codex/mac
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements-macos-whisperx.txt
+python main.py
+```
+
+The same profile can be forced on non-macOS systems for development:
+
+```bash
+VIDEOCAPTIONER_WHISPERX_ONLY=1 python main.py
+```
+
+WhisperX downloads transcription, VAD, and alignment models on first use unless compatible local models already exist under `AppData/models`. For Apple Silicon CPU use, start with `small` or `medium`; `large-v3` works but is much slower and uses more memory.
 
 ## Supported Formats
 
@@ -42,12 +86,12 @@ python main.py
 
 ## Supported ASR Engines
 
-| Engine        | Description                              |
-| ------------- | ---------------------------------------- |
-| FasterWhisper | CTranslate2-based, GPU accelerated       |
-| WhisperX      | Word-level timestamps, speaker diarization |
-| WhisperCpp    | C++ inference, CPU friendly              |
-| Whisper API   | OpenAI / compatible API                  |
+| Engine        | Windows/default profile                  | macOS Apple Silicon profile             |
+| ------------- | ---------------------------------------- | --------------------------------------- |
+| WhisperX      | Supported, CUDA or CPU depending on setup | Supported, CPU only, word timestamps on |
+| FasterWhisper | Supported                                | Hidden in this branch profile           |
+| WhisperCpp    | Supported                                | Hidden in this branch profile           |
+| Whisper API   | Supported                                | Hidden in this branch profile           |
 
 ## Supported LLM Providers
 
