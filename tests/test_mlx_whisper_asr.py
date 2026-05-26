@@ -1,0 +1,109 @@
+import unittest
+import types
+from unittest.mock import Mock, patch
+
+from app.core.bk_asr.mlx_whisper import MLXWhisperASR, build_mlx_initial_prompt
+from app.core.bk_asr.transcribe import transcribe
+from app.core.entities import TranscribeConfig, TranscribeModelEnum
+
+
+class MLXWhisperASRTests(unittest.TestCase):
+    def test_converts_word_timestamp_result_to_asr_segments(self):
+        asr = MLXWhisperASR(
+            b"audio",
+            model="mlx-community/whisper-large-v3-turbo",
+            language="en",
+            need_word_time_stamp=True,
+        )
+
+        segments = asr._make_segments(
+            {
+                "segments": [
+                    {
+                        "start": 0.0,
+                        "end": 1.0,
+                        "text": "hello world",
+                        "words": [
+                            {"word": "hello", "start": 0.1, "end": 0.4},
+                            {"word": "world", "start": 0.5, "end": 0.9},
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual([segment.text for segment in segments], ["hello", "world"])
+        self.assertEqual(
+            [(segment.start_time, segment.end_time) for segment in segments],
+            [(100, 400), (500, 900)],
+        )
+
+    def test_run_calls_mlx_whisper_with_configured_model_and_language(self):
+        asr = MLXWhisperASR(
+            b"audio",
+            model="mlx-community/whisper-large-v3-turbo",
+            language="zh",
+            need_word_time_stamp=True,
+            initial_prompt="请优先识别：VideoCaptioner, MLX Whisper",
+        )
+
+        mocked_transcribe = Mock(return_value={"segments": []})
+        fake_mlx_whisper = types.SimpleNamespace(transcribe=mocked_transcribe)
+        with patch.dict("sys.modules", {"mlx_whisper": fake_mlx_whisper}):
+            result = asr._run()
+
+        self.assertEqual(result, {"segments": []})
+        mocked_transcribe.assert_called_once_with(
+            b"audio",
+            path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
+            language="zh",
+            word_timestamps=True,
+            initial_prompt="请优先识别：VideoCaptioner, MLX Whisper",
+        )
+
+    def test_builds_initial_prompt_from_mlx_prompt_and_hotwords(self):
+        self.assertEqual(
+            build_mlx_initial_prompt(
+                "这是一段技术播客。",
+                "VideoCaptioner\nMLX Whisper, large-v3-turbo",
+            ),
+            (
+                "这是一段技术播客。\n"
+                "以下专有名词或短语可能出现在音频中，请优先按这些写法识别："
+                "VideoCaptioner, MLX Whisper, large-v3-turbo"
+            ),
+        )
+
+    def test_transcribe_dispatches_to_mlx_backend(self):
+        config = TranscribeConfig(
+            transcribe_model=TranscribeModelEnum.MLX_WHISPER,
+            transcribe_language="en",
+            use_asr_cache=False,
+            need_word_time_stamp=True,
+            mlx_model="mlx-community/whisper-large-v3-turbo",
+            mlx_word_timestamps=True,
+            mlx_hotwords="VideoCaptioner\nMLX Whisper",
+            mlx_initial_prompt="这是一段技术播客。",
+        )
+
+        with patch("app.core.bk_asr.transcribe.MLXWhisperASR") as mocked_mlx_asr:
+            mocked_mlx_asr.return_value.run.return_value = "mlx-result"
+            result = transcribe("sample.wav", config)
+
+        self.assertEqual(result, "mlx-result")
+        mocked_mlx_asr.assert_called_once_with(
+            "sample.wav",
+            use_cache=False,
+            need_word_time_stamp=True,
+            model="mlx-community/whisper-large-v3-turbo",
+            language="en",
+            initial_prompt=(
+                "这是一段技术播客。\n"
+                "以下专有名词或短语可能出现在音频中，请优先按这些写法识别："
+                "VideoCaptioner, MLX Whisper"
+            ),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

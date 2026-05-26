@@ -45,11 +45,7 @@ class TaskFactory:
 
         # 获取文件名
         file_name = Path(file_path).stem
-        transcribe_model = (
-            TranscribeModelEnum.WHISPER_X
-            if WHISPERX_ONLY_MODE
-            else cfg.transcribe_model.value
-        )
+        transcribe_model = cfg.transcribe_model.value
         need_word_time_stamp = TaskFactory.get_need_word_time_stamp()
 
         # 构建输出路径
@@ -87,6 +83,11 @@ class TaskFactory:
             whisperx_local_silero_dir=cfg.whisperx_local_silero_dir.value,
             whisperx_align=True if WHISPERX_ONLY_MODE else cfg.whisperx_align.value,
             whisperx_model_dir=str(MODEL_PATH),
+            # MLX Whisper 配置
+            mlx_model=cfg.mlx_model.value,
+            mlx_word_timestamps=cfg.mlx_word_timestamps.value,
+            mlx_hotwords=cfg.mlx_hotwords.value,
+            mlx_initial_prompt=cfg.mlx_initial_prompt.value,
         )
 
         return TranscribeTask(
@@ -99,8 +100,11 @@ class TaskFactory:
 
     @staticmethod
     def get_need_word_time_stamp() -> bool:
-        if WHISPERX_ONLY_MODE:
+        if WHISPERX_ONLY_MODE and cfg.transcribe_model.value == TranscribeModelEnum.WHISPER_X:
             return True
+
+        if cfg.transcribe_model.value == TranscribeModelEnum.MLX_WHISPER:
+            return cfg.mlx_word_timestamps.value
 
         return cfg.whisperx_word_timestamps.value
 
@@ -244,4 +248,3 @@ class TaskFactory:
             file_path=file_path,
             output_path=output_path,
         )
-

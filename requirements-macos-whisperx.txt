@@ -12,3 +12,4 @@ modelscope>=1.20,<2
 torch
 torchaudio
 whisperx
+mlx-whisper

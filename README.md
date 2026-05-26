@@ -1,12 +1,13 @@
 # VideoCaptioner macOS
 
 This branch is a macOS-focused VideoCaptioner build for Apple Silicon. It keeps
-the local ASR path intentionally narrow: WhisperX on CPU with word-level
-timestamps and alignment enabled.
+the local ASR path focused on WhisperX CPU transcription and adds an optional
+MLX Whisper backend for Apple Silicon GPU acceleration.
 
 ## Features
 
-- **WhisperX-only local transcription** — CPU mode, `int8` by default
+- **WhisperX local transcription** — CPU mode, `int8` by default
+- **MLX Whisper local transcription** — Apple Silicon GPU acceleration through `mlx-whisper`
 - **Word-level timestamps** — Always enabled for downstream splitting and timing
 - **WhisperX alignment** — Always enabled for more stable timestamps
 - **Subtitle processing** — Split, optimize, translate, and export subtitles
@@ -47,6 +48,13 @@ compatible local models already exist under:
 
 `large-v3-turbo` is the default local model for this branch. It should be kept
 under the app model directory as `faster-whisper-large-v3-turbo`.
+
+MLX Whisper uses `mlx-community/whisper-large-v3-turbo` by default. The MLX
+backend also accepts Hugging Face MLX Whisper repos such as
+`mlx-community/whisper-large-v3-mlx`, `mlx-community/distil-whisper-large-v3`,
+`mlx-community/whisper-medium`, `mlx-community/whisper-small`,
+`mlx-community/whisper-base`, and `mlx-community/whisper-tiny`. You can also use
+a local MLX Whisper model directory converted with `mlx-examples/whisper`.
 
 ## Install Local App Launcher
 

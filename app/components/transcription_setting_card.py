@@ -3,6 +3,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.core.entities import TranscribeModelEnum
+from .MLXWhisperSettingWidget import MLXWhisperSettingWidget
 from .WhisperXSettingWidget import WhisperXSettingWidget
 
 
@@ -20,10 +22,15 @@ class TranscriptionSettingCard(QWidget):
 
         # 添加各个设置界面
         self.whisperx_widget = WhisperXSettingWidget(self)
+        self.mlx_whisper_widget = MLXWhisperSettingWidget(self)
 
         self.stacked_widget.addWidget(self.whisperx_widget)
+        self.stacked_widget.addWidget(self.mlx_whisper_widget)
 
         self.main_layout.addWidget(self.stacked_widget)
 
     def on_model_changed(self, _value):
+        if _value == TranscribeModelEnum.MLX_WHISPER.value:
+            self.stacked_widget.setCurrentWidget(self.mlx_whisper_widget)
+            return
         self.stacked_widget.setCurrentWidget(self.whisperx_widget)
