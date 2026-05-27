@@ -19,8 +19,8 @@ class MLXConfigDefaultsTests(unittest.TestCase):
         else:
             self.assertEqual(mlx_model, "mlx-community/whisper-large-v3-turbo")
         self.assertTrue(cfg.mlx_word_timestamps.value)
-        self.assertEqual(cfg.mlx_hotwords.value, "")
-        self.assertEqual(cfg.mlx_initial_prompt.value, "")
+        self.assertEqual(cfg.mlx_hotwords.defaultValue, "")
+        self.assertEqual(cfg.mlx_initial_prompt.defaultValue, "")
 
 
 if __name__ == "__main__":
