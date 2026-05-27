@@ -17,6 +17,10 @@
 !/tests/**
 !/scripts/
 !/scripts/**
+!/docs/
+!/docs/superpowers/
+!/docs/superpowers/specs/
+!/docs/superpowers/specs/**
 
 # === macOS build artifacts ===
 /build/
