@@ -1,4 +1,5 @@
 from app.core.bk_asr.asr_data import ASRData
+from app.core.bk_asr.mlx_whisper import MLXWhisperASR, build_mlx_initial_prompt
 from app.core.bk_asr.whisper_x_auto import WhisperXASR
 from app.core.entities import TranscribeConfig, TranscribeModelEnum
 
@@ -17,6 +18,23 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
     """
     if callback is None:
         callback = lambda x, y: None
+
+    if config.transcribe_model == TranscribeModelEnum.MLX_WHISPER:
+        asr = MLXWhisperASR(
+            audio_path,
+            use_cache=config.use_asr_cache,
+            need_word_time_stamp=config.mlx_word_timestamps,
+            model=config.mlx_model,
+            language=config.transcribe_language,
+            initial_prompt=build_mlx_initial_prompt(
+                config.mlx_initial_prompt,
+                config.mlx_hotwords,
+            ),
+        )
+        asr_data = asr.run(callback=callback)
+        if not config.mlx_word_timestamps:
+            asr_data.optimize_timing()
+        return asr_data
 
     config.transcribe_model = TranscribeModelEnum.WHISPER_X
     config.whisperx_device = "cpu"

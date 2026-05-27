@@ -31,7 +31,7 @@ from ..core.entities import (
 
 
 TRANSCRIBE_MODEL_OPTIONS = (
-    [TranscribeModelEnum.WHISPER_X]
+    [TranscribeModelEnum.WHISPER_X, TranscribeModelEnum.MLX_WHISPER]
     if WHISPERX_ONLY_MODE
     else list(TranscribeModelEnum)
 )
@@ -334,6 +334,20 @@ class Config(QConfig):
         BoolValidator(),
     )
     whisperx_align = ConfigItem("WhisperX", "Align", True, BoolValidator())
+    # ------------------- MLX Whisper 配置 -------------------
+    mlx_model = ConfigItem(
+        "MLXWhisper",
+        "Model",
+        "mlx-community/whisper-large-v3-turbo",
+    )
+    mlx_word_timestamps = ConfigItem(
+        "MLXWhisper",
+        "WordTimestamps",
+        True,
+        BoolValidator(),
+    )
+    mlx_hotwords = ConfigItem("MLXWhisper", "Hotwords", "")
+    mlx_initial_prompt = ConfigItem("MLXWhisper", "InitialPrompt", "")
     # ------------------- 字幕配置 -------------------
     need_optimize = ConfigItem("Subtitle", "NeedOptimize", False, BoolValidator())
     need_translate = ConfigItem("Subtitle", "NeedTranslate", False, BoolValidator())
@@ -514,8 +528,7 @@ cfg.themeMode.value = Theme.DARK
 cfg.themeColor.value = QColor("#ff28f08b")
 qconfig.load(SETTINGS_PATH, cfg)
 
-if WHISPERX_ONLY_MODE:
-    cfg.set(cfg.transcribe_model, TranscribeModelEnum.WHISPER_X)
+if WHISPERX_ONLY_MODE and cfg.transcribe_model.value == TranscribeModelEnum.WHISPER_X:
     cfg.set(cfg.whisperx_device, "cpu")
     if cfg.whisperx_compute_type.value in {"float16", "int8_float16"}:
         cfg.set(cfg.whisperx_compute_type, "int8")

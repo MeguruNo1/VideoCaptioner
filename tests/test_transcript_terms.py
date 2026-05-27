@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from app.core.utils.transcript_terms import (
+    apply_terms_to_mlx_hotwords,
     _build_hotword_translation_messages,
     _split_hotwords_by_glossary,
     GENERATED_TERMS_BEGIN,
@@ -21,6 +22,33 @@ from app.core.utils.transcript_terms import (
 
 
 class TranscriptTermsTests(unittest.TestCase):
+    def test_apply_terms_to_mlx_hotwords_does_not_touch_whisperx_hotwords(self):
+        from app.common.config import cfg
+
+        old_mlx_hotwords = cfg.mlx_hotwords.value
+        old_whisperx_hotwords = cfg.whisperx_hotwords.value
+        old_custom_prompt_text = cfg.custom_prompt_text.value
+        with patch.object(cfg, "save", return_value=None):
+            cfg.set(cfg.mlx_hotwords, "Existing")
+            cfg.set(cfg.whisperx_hotwords, "WhisperXOnly")
+            cfg.set(
+                cfg.custom_prompt_text,
+                f"keep\n{GENERATED_TERMS_BEGIN}\nold\n{GENERATED_TERMS_END}",
+            )
+
+            result = apply_terms_to_mlx_hotwords(
+                [{"original": "MLX Whisper", "translation": "MLX Whisper"}]
+            )
+
+            self.assertEqual(result["mlx_hotwords"], "Existing, MLX Whisper")
+            self.assertEqual(cfg.mlx_hotwords.value, "Existing, MLX Whisper")
+            self.assertEqual(cfg.whisperx_hotwords.value, "WhisperXOnly")
+            self.assertEqual(cfg.custom_prompt_text.value, "keep")
+
+            cfg.set(cfg.mlx_hotwords, old_mlx_hotwords)
+            cfg.set(cfg.whisperx_hotwords, old_whisperx_hotwords)
+            cfg.set(cfg.custom_prompt_text, old_custom_prompt_text)
+
     def test_parse_glossary_supports_common_separators(self):
         glossary = parse_glossary_text(
             "\n".join(
@@ -53,6 +81,30 @@ class TranscriptTermsTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_parse_ai_terms_response_prefers_fuzzy_glossary_translation(self):
+        terms = parse_ai_terms_response(
+            '{"terms":[{"original":"Zenless-Zone Zero","translation":"旧译名","category":"work"}]}',
+            "Zenless Zone Zero -> 绝区零",
+        )
+
+        self.assertEqual(terms[0]["translation"], "绝区零")
+
+    def test_parse_ai_terms_response_does_not_use_ambiguous_fuzzy_glossary_match(self):
+        terms = parse_ai_terms_response(
+            '{"terms":[{"original":"AB","translation":"AI译名","category":"term"}]}',
+            "A-B -> 译名一\nA B -> 译名二",
+        )
+
+        self.assertEqual(terms[0]["translation"], "AI译名")
+
+    def test_parse_ai_terms_response_does_not_collapse_programming_language_symbols(self):
+        terms = parse_ai_terms_response(
+            '{"terms":[{"original":"C#","translation":"AI译名","category":"term"}]}',
+            "C++ -> C++",
+        )
+
+        self.assertEqual(terms[0]["translation"], "AI译名")
 
     def test_hotword_translation_prompt_includes_glossary_and_translation_rule(self):
         messages = _build_hotword_translation_messages(
@@ -91,6 +143,29 @@ class TranscriptTermsTests(unittest.TestCase):
             ],
         )
         self.assertEqual(unmatched, ["Unknown"])
+
+    def test_split_hotwords_by_glossary_uses_fuzzy_match(self):
+        matched, unmatched = _split_hotwords_by_glossary(
+            ["Zenless-Zone Zero", "Open AI"],
+            "Zenless Zone Zero -> 绝区零\nOpenAI -> 开放人工智能",
+        )
+
+        self.assertEqual(
+            matched,
+            [
+                {
+                    "original": "Zenless-Zone Zero",
+                    "translation": "绝区零",
+                    "category": "term",
+                },
+                {
+                    "original": "Open AI",
+                    "translation": "开放人工智能",
+                    "category": "term",
+                },
+            ],
+        )
+        self.assertEqual(unmatched, [])
 
     def test_extract_translation_terms_uses_glossary_without_llm_when_all_match(self):
         with patch(
@@ -170,6 +245,8 @@ class TranscriptTermsTests(unittest.TestCase):
             ],
         )
         prompt_text = "\n".join(message["content"] for message in captured["messages"])
+        self.assertIn("Belle -> 铃", prompt_text)
+        self.assertIn("Zenless Zone Zero -> 绝区零", prompt_text)
         self.assertIn("- Unknown", prompt_text)
         self.assertNotIn("- Belle", prompt_text)
         self.assertNotIn("- Zenless Zone Zero", prompt_text)

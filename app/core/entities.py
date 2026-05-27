@@ -91,6 +91,7 @@ class TranscribeModelEnum(Enum):
     """转录模型"""
 
     WHISPER_X = "WhisperX"
+    MLX_WHISPER = "MLX Whisper"
 
 
 class TranslatorServiceEnum(Enum):
@@ -585,6 +586,11 @@ class TranscribeConfig:
     whisperx_local_silero_dir: Optional[str] = None
     whisperx_align: bool = True
     whisperx_model_dir: Optional[str] = None
+    # MLX Whisper 配置
+    mlx_model: Optional[str] = None
+    mlx_word_timestamps: bool = True
+    mlx_hotwords: Optional[str] = None
+    mlx_initial_prompt: Optional[str] = None
 
 
 @dataclass
@@ -682,5 +688,3 @@ class TranscriptAndSubtitleTask:
 
     transcribe_config: Optional[TranscribeConfig] = None
     subtitle_config: Optional[SubtitleConfig] = None
-
-

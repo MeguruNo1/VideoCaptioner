@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import unicodedata
 from pathlib import Path
 from string import Template
 from typing import Any
@@ -36,6 +37,31 @@ def parse_glossary_text(glossary_text: str) -> dict[str, str]:
                     glossary[original.casefold()] = translation
                 break
     return glossary
+
+
+def _normalize_term_for_match(value: Any) -> str:
+    text = unicodedata.normalize("NFKC", _clean_term_text(value)).casefold()
+    return "".join(ch for ch in text if ch.isalnum() or ch in "+#")
+
+
+def _find_glossary_translation(glossary: dict[str, str], original: str) -> str:
+    exact_key = _clean_term_text(original).casefold()
+    if exact_key in glossary:
+        return glossary[exact_key]
+
+    normalized_key = _normalize_term_for_match(original)
+    if not normalized_key:
+        return ""
+
+    matches = [
+        translation
+        for glossary_original, translation in glossary.items()
+        if _normalize_term_for_match(glossary_original) == normalized_key
+    ]
+    unique_matches = set(matches)
+    if len(unique_matches) == 1:
+        return matches[0]
+    return ""
 
 
 def parse_hotwords_text(hotwords_text: str) -> list[str]:
@@ -78,7 +104,7 @@ def parse_ai_terms_response(response_text: str, glossary_text: str = "") -> list
 
         if not original:
             continue
-        translation = glossary.get(original.casefold(), translation)
+        translation = _find_glossary_translation(glossary, original) or translation
         key = original.casefold()
         if key in seen:
             continue
@@ -439,7 +465,7 @@ def _split_hotwords_by_glossary(
         if not original:
             continue
 
-        translation = glossary.get(original.casefold())
+        translation = _find_glossary_translation(glossary, original)
         if translation:
             matched_terms.append(
                 {
@@ -480,6 +506,7 @@ def extract_translation_terms_from_hotwords(
     messages = _build_hotword_translation_messages(
         unmatched_hotwords,
         target_language,
+        glossary_text,
     )
     client = OpenAI(base_url=settings["base_url"], api_key=settings["api_key"])
     response = client.chat.completions.create(
@@ -525,6 +552,16 @@ def apply_terms_to_whisperx_hotwords(terms: list[dict[str, str]]) -> dict[str, s
     cfg.set(cfg.whisperx_hotwords, hotwords)
     cfg.set(cfg.custom_prompt_text, document_prompt)
     return {"whisperx_hotwords": hotwords, "custom_prompt_text": document_prompt}
+
+
+def apply_terms_to_mlx_hotwords(terms: list[dict[str, str]]) -> dict[str, str]:
+    from app.common.config import cfg
+
+    hotwords = merge_hotwords(cfg.mlx_hotwords.value, terms)
+    document_prompt = remove_generated_document_prompt_terms(cfg.custom_prompt_text.value)
+    cfg.set(cfg.mlx_hotwords, hotwords)
+    cfg.set(cfg.custom_prompt_text, document_prompt)
+    return {"mlx_hotwords": hotwords, "custom_prompt_text": document_prompt}
 
 
 def apply_terms_to_document_prompt(terms: list[dict[str, str]]) -> dict[str, str]:
