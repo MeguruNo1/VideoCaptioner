@@ -591,6 +591,10 @@ class TranscribeConfig:
     mlx_word_timestamps: bool = True
     mlx_hotwords: Optional[str] = None
     mlx_initial_prompt: Optional[str] = None
+    mlx_vad_enabled: bool = True
+    mlx_vad_threshold: float = 0.5
+    mlx_chunk_duration: int = 600
+    mlx_chunk_overlap: int = 30
 
 
 @dataclass
@@ -616,6 +620,7 @@ class SubtitleConfig:
     thread_num: int = 10
     batch_size: int = 10
     translation_max_length: int = 0
+    final_translation_rework_max_chars: int = 40
     # 字幕布局和分割
     split_type: Optional[SplitTypeEnum] = None
     subtitle_layout: Optional[str] = None

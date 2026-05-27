@@ -276,6 +276,9 @@ class Config(QConfig):
     translation_max_length = RangeConfigItem(
         "Translate", "TranslationMaxLength", 0, RangeValidator(0, 80)
     )
+    final_translation_rework_max_chars = RangeConfigItem(
+        "Translate", "FinalTranslationReworkMaxChars", 40, RangeValidator(0, 120)
+    )
 
     # ------------------- 转录配置 -------------------
     transcribe_model = OptionsConfigItem(
@@ -348,6 +351,14 @@ class Config(QConfig):
     )
     mlx_hotwords = ConfigItem("MLXWhisper", "Hotwords", "")
     mlx_initial_prompt = ConfigItem("MLXWhisper", "InitialPrompt", "")
+    mlx_vad_enabled = ConfigItem("MLXWhisper", "VadEnabled", True, BoolValidator())
+    mlx_vad_threshold = ConfigItem("MLXWhisper", "VadThreshold", 0.5)
+    mlx_chunk_duration = RangeConfigItem(
+        "MLXWhisper", "ChunkDuration", 600, RangeValidator(60, 1800)
+    )
+    mlx_chunk_overlap = RangeConfigItem(
+        "MLXWhisper", "ChunkOverlap", 30, RangeValidator(0, 300)
+    )
     # ------------------- 字幕配置 -------------------
     need_optimize = ConfigItem("Subtitle", "NeedOptimize", False, BoolValidator())
     need_translate = ConfigItem("Subtitle", "NeedTranslate", False, BoolValidator())

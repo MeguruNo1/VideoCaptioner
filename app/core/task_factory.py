@@ -88,6 +88,10 @@ class TaskFactory:
             mlx_word_timestamps=cfg.mlx_word_timestamps.value,
             mlx_hotwords=cfg.mlx_hotwords.value,
             mlx_initial_prompt=cfg.mlx_initial_prompt.value,
+            mlx_vad_enabled=cfg.mlx_vad_enabled.value,
+            mlx_vad_threshold=cfg.mlx_vad_threshold.value,
+            mlx_chunk_duration=cfg.mlx_chunk_duration.value,
+            mlx_chunk_overlap=cfg.mlx_chunk_overlap.value,
         )
 
         return TranscribeTask(
@@ -202,6 +206,7 @@ class TaskFactory:
             thread_num=cfg.thread_num.value,
             batch_size=cfg.batch_size.value,
             translation_max_length=cfg.translation_max_length.value,
+            final_translation_rework_max_chars=cfg.final_translation_rework_max_chars.value,
             # 字幕布局、样式
             subtitle_layout=cfg.subtitle_layout.value,
             subtitle_style=TaskFactory.get_subtitle_style(

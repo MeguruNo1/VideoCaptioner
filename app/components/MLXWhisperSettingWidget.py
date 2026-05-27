@@ -26,6 +26,7 @@ from ..core.utils.transcript_terms import (
 )
 from .EditComboBoxSettingCard import EditComboBoxSettingCard
 from .LineEditSettingCard import LineEditSettingCard
+from .SpinBoxSettingCard import DoubleSpinBoxSettingCard, SpinBoxSettingCard
 from .WhisperXSettingWidget import HotwordExtractionThread
 
 
@@ -301,6 +302,46 @@ class MLXWhisperSettingWidget(QWidget):
             self.setting_group,
         )
 
+        self.vad_enabled_card = SwitchSettingCard(
+            FIF.SPEED_HIGH,
+            self.tr("VAD 语音检测"),
+            self.tr("开启后先检测语音区间，再交给 MLX Whisper 转录"),
+            cfg.mlx_vad_enabled,
+            self.setting_group,
+        )
+
+        self.vad_threshold_card = DoubleSpinBoxSettingCard(
+            cfg.mlx_vad_threshold,
+            FIF.SPEED_HIGH,
+            self.tr("VAD 阈值"),
+            self.tr("数值越高越严格；检测失败时会自动回退到普通分块"),
+            minimum=0.1,
+            maximum=0.9,
+            decimals=2,
+            step=0.05,
+            parent=self.setting_group,
+        )
+
+        self.chunk_duration_card = SpinBoxSettingCard(
+            cfg.mlx_chunk_duration,
+            FIF.SPEED_HIGH,
+            self.tr("分块时长（秒）"),
+            self.tr("长音频会按该时长分块转录并合并全局时间轴"),
+            minimum=60,
+            maximum=1800,
+            parent=self.setting_group,
+        )
+
+        self.chunk_overlap_card = SpinBoxSettingCard(
+            cfg.mlx_chunk_overlap,
+            FIF.SPEED_HIGH,
+            self.tr("分块重叠（秒）"),
+            self.tr("相邻分块保留重叠区以减少切点漏字"),
+            minimum=0,
+            maximum=300,
+            parent=self.setting_group,
+        )
+
         self.hotwords_card = PushSettingCard(
             self.tr("管理"),
             FIF.CHAT,
@@ -325,6 +366,10 @@ class MLXWhisperSettingWidget(QWidget):
         self.setting_group.addSettingCard(self.model_card)
         self.setting_group.addSettingCard(self.language_card)
         self.setting_group.addSettingCard(self.word_timestamps_card)
+        self.setting_group.addSettingCard(self.vad_enabled_card)
+        self.setting_group.addSettingCard(self.vad_threshold_card)
+        self.setting_group.addSettingCard(self.chunk_duration_card)
+        self.setting_group.addSettingCard(self.chunk_overlap_card)
         self.setting_group.addSettingCard(self.hotwords_card)
         self.setting_group.addSettingCard(self.initial_prompt_card)
 

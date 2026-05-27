@@ -21,6 +21,10 @@ class MLXConfigDefaultsTests(unittest.TestCase):
         self.assertTrue(cfg.mlx_word_timestamps.value)
         self.assertEqual(cfg.mlx_hotwords.defaultValue, "")
         self.assertEqual(cfg.mlx_initial_prompt.defaultValue, "")
+        self.assertTrue(cfg.mlx_vad_enabled.defaultValue)
+        self.assertEqual(cfg.mlx_vad_threshold.defaultValue, 0.5)
+        self.assertEqual(cfg.mlx_chunk_duration.defaultValue, 600)
+        self.assertEqual(cfg.mlx_chunk_overlap.defaultValue, 30)
 
 
 if __name__ == "__main__":

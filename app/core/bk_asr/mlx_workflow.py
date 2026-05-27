@@ -1,0 +1,291 @@
+import copy
+import json
+import subprocess
+from pathlib import Path
+from typing import Iterable
+
+from ..utils.logger import setup_logger
+
+logger = setup_logger("mlx_workflow")
+
+MLX_SAMPLE_RATE = 16000
+
+
+def build_chunk_windows(
+    duration_seconds: float,
+    chunk_duration_seconds: int = 600,
+    overlap_seconds: int = 30,
+) -> list[tuple[float, float, float, float]]:
+    duration = max(0.0, float(duration_seconds or 0))
+    if duration <= 0:
+        return []
+
+    chunk_duration = max(1.0, float(chunk_duration_seconds or 600))
+    overlap = max(0.0, float(overlap_seconds or 0))
+    if overlap >= chunk_duration:
+        overlap = max(0.0, chunk_duration - 1.0)
+
+    if duration <= chunk_duration:
+        return [(0.0, duration, 0.0, duration)]
+
+    step = chunk_duration - overlap
+    windows = []
+    start = 0.0
+    while start < duration:
+        end = min(duration, start + chunk_duration)
+        next_start = start + step
+        keep_start = 0.0 if not windows else min(end, start + overlap)
+        keep_end = duration if next_start >= duration else next_start
+        windows.append(
+            (
+                round(start, 3),
+                round(end, 3),
+                round(keep_start, 3),
+                round(keep_end, 3),
+            )
+        )
+        if end >= duration:
+            break
+        start = next_start
+    return windows
+
+
+def _is_inside_keep_range(
+    start: float,
+    end: float,
+    keep_start_seconds: float | None,
+    keep_end_seconds: float | None,
+) -> bool:
+    center = (float(start) + float(end)) / 2
+    if keep_start_seconds is not None and center < keep_start_seconds:
+        return False
+    if keep_end_seconds is not None and center >= keep_end_seconds:
+        return False
+    return True
+
+
+def offset_transcription_result(
+    result: dict,
+    offset_seconds: float,
+    keep_start_seconds: float | None = None,
+    keep_end_seconds: float | None = None,
+) -> dict:
+    shifted = {"segments": []}
+    offset = float(offset_seconds or 0)
+
+    for raw_segment in result.get("segments", []) or []:
+        segment = copy.deepcopy(raw_segment)
+        start = float(segment.get("start") or 0) + offset
+        end = float(segment.get("end") or start) + offset
+        if not _is_inside_keep_range(start, end, keep_start_seconds, keep_end_seconds):
+            continue
+
+        segment["start"] = round(start, 3)
+        segment["end"] = round(end, 3)
+        words = []
+        for raw_word in segment.get("words", []) or []:
+            word = copy.deepcopy(raw_word)
+            word_start = float(word.get("start") or 0) + offset
+            word_end = float(word.get("end") or word_start) + offset
+            if not _is_inside_keep_range(
+                word_start, word_end, keep_start_seconds, keep_end_seconds
+            ):
+                continue
+            word["start"] = round(word_start, 3)
+            word["end"] = round(word_end, 3)
+            words.append(word)
+        if segment.get("words") is not None:
+            if not words:
+                continue
+            segment["words"] = words
+        shifted["segments"].append(segment)
+
+    shifted["text"] = " ".join(
+        (segment.get("text") or "").strip()
+        for segment in shifted["segments"]
+        if (segment.get("text") or "").strip()
+    )
+    return shifted
+
+
+def _normalize_text(text: str) -> str:
+    return " ".join((text or "").strip().lower().split())
+
+
+def _is_duplicate_segment(segment: dict, existing: Iterable[dict]) -> bool:
+    text = _normalize_text(segment.get("text") or "")
+    if not text:
+        return False
+    start = float(segment.get("start") or 0)
+    for item in existing:
+        if _normalize_text(item.get("text") or "") != text:
+            continue
+        if abs(float(item.get("start") or 0) - start) <= 0.25:
+            return True
+    return False
+
+
+def _dedupe_words(words: list[dict]) -> list[dict]:
+    deduped = []
+    for word in sorted(words, key=lambda item: float(item.get("start") or 0)):
+        text = _normalize_text(word.get("word") or word.get("text") or "")
+        start = float(word.get("start") or 0)
+        if any(
+            _normalize_text(item.get("word") or item.get("text") or "") == text
+            and abs(float(item.get("start") or 0) - start) <= 0.25
+            for item in deduped
+        ):
+            continue
+        deduped.append(word)
+    return deduped
+
+
+def merge_transcription_results(results: list[dict]) -> dict:
+    segments = []
+    for result in results:
+        for segment in result.get("segments", []) or []:
+            if not _is_duplicate_segment(segment, segments):
+                segments.append(copy.deepcopy(segment))
+
+    segments.sort(key=lambda item: float(item.get("start") or 0))
+    for segment in segments:
+        if isinstance(segment.get("words"), list):
+            segment["words"] = _dedupe_words(segment["words"])
+
+    return {
+        "text": " ".join(
+            (segment.get("text") or "").strip()
+            for segment in segments
+            if (segment.get("text") or "").strip()
+        ),
+        "segments": segments,
+    }
+
+
+def probe_audio_duration(audio_path: str | Path) -> float | None:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "json",
+        str(audio_path),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(completed.stdout or "{}")
+        return float(data.get("format", {}).get("duration") or 0)
+    except Exception as exc:
+        logger.warning("读取音频时长失败，回退到单段转录: %s", exc)
+        return None
+
+
+def extract_audio_chunk(
+    audio_path: str | Path,
+    output_path: str | Path,
+    start_seconds: float,
+    end_seconds: float,
+) -> Path:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg",
+        "-nostdin",
+        "-y",
+        "-ss",
+        f"{float(start_seconds):.3f}",
+        "-to",
+        f"{float(end_seconds):.3f}",
+        "-i",
+        str(audio_path),
+        "-ac",
+        "1",
+        "-ar",
+        str(MLX_SAMPLE_RATE),
+        "-vn",
+        str(output),
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    return output
+
+
+def detect_speech_ranges(
+    audio_path: str | Path,
+    threshold: float = 0.5,
+) -> list[tuple[float, float]]:
+    try:
+        import torch
+        import torchaudio
+
+        waveform, sample_rate = torchaudio.load(str(audio_path))
+        if waveform.ndim > 1:
+            waveform = waveform.mean(dim=0)
+        if sample_rate != MLX_SAMPLE_RATE:
+            waveform = torchaudio.functional.resample(
+                waveform, sample_rate, MLX_SAMPLE_RATE
+            )
+        waveform = waveform.float()
+        model, utils = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad",
+            model="silero_vad",
+            onnx=True,
+            trust_repo=True,
+        )
+        get_speech_timestamps = utils[0]
+        timestamps = get_speech_timestamps(
+            waveform,
+            model,
+            sampling_rate=MLX_SAMPLE_RATE,
+            threshold=float(threshold),
+        )
+        return [
+            (
+                item["start"] / MLX_SAMPLE_RATE,
+                item["end"] / MLX_SAMPLE_RATE,
+            )
+            for item in timestamps
+            if item.get("end", 0) > item.get("start", 0)
+        ]
+    except Exception as exc:
+        logger.warning("MLX VAD 检测失败，回退到普通分块: %s", exc)
+        return []
+
+
+def split_ranges_to_windows(
+    ranges: list[tuple[float, float]],
+    duration_seconds: float,
+    chunk_duration_seconds: int,
+    overlap_seconds: int,
+    pad_seconds: float = 1.0,
+) -> list[tuple[float, float, float, float]]:
+    if not ranges:
+        return build_chunk_windows(
+            duration_seconds, chunk_duration_seconds, overlap_seconds
+        )
+
+    windows = []
+    duration = max(0.0, float(duration_seconds or 0))
+    for start, end in ranges:
+        padded_start = max(0.0, float(start) - pad_seconds)
+        padded_end = min(duration, float(end) + pad_seconds)
+        for local_start, local_end, keep_start, keep_end in build_chunk_windows(
+            padded_end - padded_start,
+            chunk_duration_seconds,
+            overlap_seconds,
+        ):
+            windows.append(
+                (
+                    round(padded_start + local_start, 3),
+                    round(padded_start + local_end, 3),
+                    round(padded_start + keep_start, 3),
+                    round(padded_start + keep_end, 3),
+                )
+            )
+    return windows

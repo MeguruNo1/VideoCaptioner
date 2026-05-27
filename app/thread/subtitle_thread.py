@@ -233,6 +233,7 @@ class SubtitleThread(QThread):
                     usage_callback=self.usage_callback,
                     timeout=subtitle_config.llm_request_timeout,
                     translation_max_length=subtitle_config.translation_max_length,
+                    final_translation_rework_max_chars=subtitle_config.final_translation_rework_max_chars,
                     use_cache=subtitle_config.llm_cache_enabled,
                     batch_context_enabled=subtitle_config.llm_batch_context_enabled,
                     batch_context_max_chars=subtitle_config.llm_batch_context_max_chars,

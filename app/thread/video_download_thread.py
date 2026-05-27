@@ -335,6 +335,28 @@ def _download_thumbnail_fallback(
     return str(thumbnail_path)
 
 
+def _normalize_thumbnail_to_png(thumbnail_path: str | Path | None) -> str | None:
+    if not thumbnail_path:
+        return None
+
+    path = Path(thumbnail_path)
+    if not path.exists():
+        return None
+
+    png_path = path.with_suffix(".png")
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            image.save(png_path, format="PNG")
+        if path.resolve() != png_path.resolve() and path.exists():
+            path.unlink()
+        return str(png_path)
+    except Exception as exc:
+        logger.warning("封面转换 PNG 失败，保留原文件: %s", exc)
+        return str(path)
+
+
 def _resolve_download_engine_strategy(
     strategy: str | None, proxy_url: str, cookiefile_path: Path
 ) -> str | None:
@@ -968,7 +990,7 @@ class VideoDownloadThread(QThread):
                 "writesubtitles": ydl_need_subtitle and subtitle_mode == "manual",
                 "writeautomaticsub": ydl_need_subtitle and subtitle_mode == "auto",
                 "writethumbnail": need_thumbnail,
-                "thumbnail_format": "jpg",
+                "thumbnail_format": "png",
                 "skip_download": not need_video,
             }
         )
@@ -1035,6 +1057,7 @@ class VideoDownloadThread(QThread):
                 work_dir / "thumbnail.jpg",
                 fallback_proxy,
             )
+        thumbnail_path = _normalize_thumbnail_to_png(thumbnail_path)
 
         metadata_path = self._write_metadata_file(info_dict, work_dir) if need_metadata else None
         description_txt_path = (

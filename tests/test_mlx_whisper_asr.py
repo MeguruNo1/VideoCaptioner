@@ -84,6 +84,10 @@ class MLXWhisperASRTests(unittest.TestCase):
             mlx_word_timestamps=True,
             mlx_hotwords="VideoCaptioner\nMLX Whisper",
             mlx_initial_prompt="这是一段技术播客。",
+            mlx_vad_enabled=True,
+            mlx_vad_threshold=0.5,
+            mlx_chunk_duration=600,
+            mlx_chunk_overlap=30,
         )
 
         with patch("app.core.bk_asr.transcribe.MLXWhisperASR") as mocked_mlx_asr:
@@ -102,6 +106,10 @@ class MLXWhisperASRTests(unittest.TestCase):
                 "以下专有名词或短语可能出现在音频中，请优先按这些写法识别："
                 "VideoCaptioner, MLX Whisper"
             ),
+            vad_enabled=True,
+            vad_threshold=0.5,
+            chunk_duration=600,
+            chunk_overlap=30,
         )
 
 

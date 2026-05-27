@@ -30,6 +30,10 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
                 config.mlx_initial_prompt,
                 config.mlx_hotwords,
             ),
+            vad_enabled=config.mlx_vad_enabled,
+            vad_threshold=config.mlx_vad_threshold,
+            chunk_duration=config.mlx_chunk_duration,
+            chunk_overlap=config.mlx_chunk_overlap,
         )
         asr_data = asr.run(callback=callback)
         if not config.mlx_word_timestamps:

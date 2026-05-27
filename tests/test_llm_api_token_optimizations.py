@@ -56,6 +56,7 @@ def build_translator(cache_manager):
     translator.is_reflect = False
     translator.temperature = 0.7
     translator.translation_max_length = 14
+    translator.final_translation_rework_max_chars = 0
     translator.custom_prompt = ""
     translator.timeout = 300
     translator.use_cache = True
@@ -199,6 +200,28 @@ class LLMAPITokenOptimizationTests(unittest.TestCase):
             any("negation" in reason for reason in suspicious["1"]),
             suspicious["1"],
         )
+
+    def test_overlong_final_translation_retries_from_source_without_old_translation(self):
+        translator = build_translator(FakeCacheManager())
+        translator.use_cache = False
+        translator.final_translation_rework_max_chars = 4
+        calls = []
+
+        def fake_call_api(prompt, user_content):
+            calls.append((prompt, user_content))
+            if len(calls) == 1:
+                return FakeResponse('{"1": "这是一个超过阈值的很长译文"}')
+            return FakeResponse("短译")
+
+        translator._call_api = fake_call_api
+
+        result = translator._translate_chunk({"1": "hello world"})
+
+        self.assertEqual(result, {"1": "短译"})
+        self.assertEqual(len(calls), 2)
+        self.assertIn("hello world", calls[1][1])
+        self.assertNotIn("这是一个超过阈值的很长译文", calls[1][1])
+        self.assertIn("4", calls[1][1])
 
 
 if __name__ == "__main__":

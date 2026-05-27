@@ -772,6 +772,16 @@ class SettingInterface(ScrollArea):
             parent=self.translate_serviceGroup,
         )
 
+        self.finalTranslationReworkMaxCharsCard = SpinBoxSettingCard(
+            cfg.final_translation_rework_max_chars,
+            FIF.SPEED_HIGH,
+            self.tr("最终译文自动回炉字数"),
+            self.tr("0 表示关闭；最终译文超过该字数时只用原文重新翻译一次"),
+            minimum=0,
+            maximum=120,
+            parent=self.translate_serviceGroup,
+        )
+
         # 线程数配置
         self.threadNumCard = RangeSettingCard(
             cfg.thread_num,
@@ -789,6 +799,7 @@ class SettingInterface(ScrollArea):
         self.translate_serviceGroup.addSettingCard(self.deeplxEndpointCard)
         self.translate_serviceGroup.addSettingCard(self.batchSizeCard)
         self.translate_serviceGroup.addSettingCard(self.translationMaxLengthCard)
+        self.translate_serviceGroup.addSettingCard(self.finalTranslationReworkMaxCharsCard)
         self.translate_serviceGroup.addSettingCard(self.threadNumCard)
 
         # 初始化显示状态

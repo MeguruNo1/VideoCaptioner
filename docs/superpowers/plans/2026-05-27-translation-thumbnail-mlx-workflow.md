@@ -10,10 +10,10 @@
 
 ---
 
-- [ ] Add tests for source-only over-length final translation retry.
-- [ ] Add translation config, task wiring, UI setting, cache isolation, and retry implementation.
-- [ ] Add tests for thumbnail PNG normalization.
-- [ ] Convert yt-dlp and fallback thumbnails to PNG and return the PNG path.
-- [ ] Add tests for MLX chunk windows, timestamp offsetting, overlap dedupe, and transcribe wiring.
-- [ ] Add MLX workflow config, UI controls, cache key coverage, preprocessing/chunking/VAD helpers, and ASR integration.
-- [ ] Run focused tests for translation, download, MLX, config, and existing regression suites.
+- [x] Add tests for source-only over-length final translation retry.
+- [x] Add translation config, task wiring, UI setting, cache isolation, and retry implementation.
+- [x] Add tests for thumbnail PNG normalization.
+- [x] Convert yt-dlp and fallback thumbnails to PNG and return the PNG path.
+- [x] Add tests for MLX chunk windows, timestamp offsetting, overlap dedupe, and transcribe wiring.
+- [x] Add MLX workflow config, UI controls, cache key coverage, preprocessing/chunking/VAD helpers, and ASR integration.
+- [x] Run focused tests for translation, download, MLX, config, and existing regression suites.

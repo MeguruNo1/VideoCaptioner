@@ -348,6 +348,7 @@ class OpenAITranslator(BaseTranslator):
         timeout: int = 300,
         retry_times: int = 1,
         translation_max_length: int = 0,
+        final_translation_rework_max_chars: int = 40,
         use_cache: bool = True,
         batch_context_enabled: bool = True,
         batch_context_max_chars: int = 300,
@@ -375,6 +376,9 @@ class OpenAITranslator(BaseTranslator):
         self.is_reflect = is_reflect
         self.temperature = temperature
         self.translation_max_length = max(0, int(translation_max_length or 0))
+        self.final_translation_rework_max_chars = max(
+            0, int(final_translation_rework_max_chars or 0)
+        )
 
     def _init_client(self):
         """初始化OpenAI客户端"""
@@ -504,6 +508,60 @@ class OpenAITranslator(BaseTranslator):
         cjk_chars = re.findall(r"[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]", text)
         words = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", text)
         return len(cjk_chars) + len(words)
+
+    @staticmethod
+    def _count_final_translation_chars(text: str) -> int:
+        return len(re.sub(r"\s+", "", text or ""))
+
+    def _find_overlong_final_translations(
+        self, translated_result: Dict[str, str]
+    ) -> Dict[str, int]:
+        threshold = getattr(self, "final_translation_rework_max_chars", 0)
+        if threshold <= 0:
+            return {}
+
+        overlong = {}
+        for key, text in translated_result.items():
+            if not text or text == "ERROR":
+                continue
+            length = self._count_final_translation_chars(text)
+            if length > threshold:
+                overlong[key] = length
+        return overlong
+
+    def _retranslate_overlong_from_source(
+        self,
+        subtitle_chunk: Dict[str, str],
+        translated_result: Dict[str, str],
+        context_before: str,
+    ) -> Dict[str, str]:
+        overlong = self._find_overlong_final_translations(translated_result)
+        if not overlong:
+            return {}
+
+        threshold = self.final_translation_rework_max_chars
+        logger.info(
+            "检测到最终译文超过 %s 字，正在从原文单条重译: %s",
+            threshold,
+            ", ".join(overlong.keys()),
+        )
+        retry_chunk = {
+            key: subtitle_chunk[key] for key in overlong if key in subtitle_chunk
+        }
+        if not retry_chunk:
+            return {}
+        return self._translate_chunk_single(
+            retry_chunk,
+            context_before=context_before,
+            extra_instruction=(
+                f"The final subtitle translation must be concise enough to fit within "
+                f"{threshold} characters if possible. Re-translate from the original "
+                "source text only. Do not refer to, copy, repair, compare against, or "
+                "reuse any previous translation. Preserve the full meaning, including "
+                "numbers, negation, named entities, terms, actions, objects, conditions, "
+                "and causal relations."
+            ),
+        )
 
     @staticmethod
     def _extract_numbers(text: str) -> List[str]:
@@ -946,6 +1004,9 @@ class OpenAITranslator(BaseTranslator):
                 "batch_context_enabled": self.batch_context_enabled,
                 "batch_context_max_chars": self.batch_context_max_chars,
                 "translation_max_length": self.translation_max_length,
+                "final_translation_rework_max_chars": getattr(
+                    self, "final_translation_rework_max_chars", 0
+                ),
                 "translation_readability_policy_version": TRANSLATION_READABILITY_POLICY_VERSION,
                 "timing_instruction_hash": timing_instruction_hash,
             }
@@ -1029,6 +1090,21 @@ class OpenAITranslator(BaseTranslator):
                         **cache_params,
                     )
 
+            retry_result = self._retranslate_overlong_from_source(
+                subtitle_chunk, result, context_before
+            )
+            if retry_result:
+                for key, translated_text in retry_result.items():
+                    if translated_text and translated_text != "ERROR":
+                        result[key] = translated_text
+                if self.use_cache and not self.is_reflect:
+                    self.cache_manager.set_llm_result(
+                        prompt=cache_key,
+                        result=json.dumps(result, ensure_ascii=False),
+                        model_name=self.model,
+                        **cache_params,
+                    )
+
             return result
         except Exception as e:
             try:
@@ -1098,6 +1174,9 @@ class OpenAITranslator(BaseTranslator):
                     "batch_context_enabled": self.batch_context_enabled,
                     "batch_context_max_chars": self.batch_context_max_chars,
                     "translation_max_length": self.translation_max_length,
+                    "final_translation_rework_max_chars": getattr(
+                        self, "final_translation_rework_max_chars", 0
+                    ),
                     "model": self.model,
                     "translation_readability_policy_version": TRANSLATION_READABILITY_POLICY_VERSION,
                     "timing_instruction_hash": timing_instruction_hash,
@@ -1129,7 +1208,7 @@ class OpenAITranslator(BaseTranslator):
                         "Use it only to keep terminology and style consistent. "
                         "Do not translate or output this context.\n"
                         f"<context>{context_before}</context>\n\n"
-                        f"{text}"
+                        f"{user_content}"
                     )
                 response = self._call_api(single_prompt, user_content)
                 if self.usage_callback:
@@ -1586,6 +1665,7 @@ class TranslatorFactory:
         usage_callback: Optional[Callable] = None,
         timeout: int = 300,
         translation_max_length: int = 0,
+        final_translation_rework_max_chars: int = 40,
         use_cache: bool = True,
         batch_context_enabled: bool = True,
         batch_context_max_chars: int = 300,
@@ -1606,6 +1686,7 @@ class TranslatorFactory:
                     usage_callback=usage_callback,
                     timeout=timeout,
                     translation_max_length=translation_max_length,
+                    final_translation_rework_max_chars=final_translation_rework_max_chars,
                     use_cache=use_cache,
                     batch_context_enabled=batch_context_enabled,
                     batch_context_max_chars=batch_context_max_chars,
