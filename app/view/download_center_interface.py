@@ -1290,8 +1290,21 @@ class DownloadCenterInterface(QWidget):
     def _refresh_download_strategy_hint(self):
         strategy = str(cfg.get(cfg.download_engine_strategy) or "智能选择")
         auto_cookie = bool(cfg.get(cfg.download_auto_refresh_edge_cookies))
-        auto_cookie_text = self.tr("下载前自动刷新浏览器 Cookie：开启") if auto_cookie else self.tr("下载前自动刷新浏览器 Cookie：关闭")
-        self.strategy_label.setText(self.tr("当前下载策略：") + strategy + "    " + auto_cookie_text)
+        auto_cookie_text = (
+            self.tr("下载前自动刷新浏览器 Cookie：开启")
+            if auto_cookie
+            else self.tr("下载前自动刷新浏览器 Cookie：关闭")
+        )
+        cookie_browser = str(cfg.get(cfg.download_cookie_browser) or "Safari")
+        self.strategy_label.setText(
+            self.tr("当前下载策略：")
+            + strategy
+            + "    "
+            + auto_cookie_text
+            + "    "
+            + self.tr("Cookie 来源：")
+            + cookie_browser
+        )
 
     def _choose_output_dir(self):
         folder = QFileDialog.getExistingDirectory(self, self.tr("选择下载输出目录"), self._effective_output_dir())
@@ -1318,9 +1331,18 @@ class DownloadCenterInterface(QWidget):
     def _refresh_edge_cookie_if_needed(self):
         if not bool(cfg.get(cfg.download_auto_refresh_edge_cookies)):
             return
-        result = export_browser_cookies()
+        result = export_browser_cookies(
+            browser=str(cfg.get(cfg.download_cookie_browser))
+        )
         if result.get("success"):
-            self.status_label.setText(self.tr("已刷新浏览器 Cookie，继续处理链接…"))
+            source_label = result.get("source_browser_label") or str(
+                cfg.get(cfg.download_cookie_browser) or "Safari"
+            )
+            self.status_label.setText(
+                self.tr("已刷新浏览器 Cookie：")
+                + source_label
+                + self.tr("，继续处理链接…")
+            )
             return
         message = result.get("message", self.tr("无法刷新浏览器 Cookie，将继续尝试下载"))
         if result.get("needs_elevation_hint") and not result.get("is_elevated"):

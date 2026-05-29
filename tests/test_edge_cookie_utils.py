@@ -58,6 +58,16 @@ LOGIN_COOKIES = [
     },
 ]
 
+YOUTUBE_COOKIE = {
+    "domain": ".youtube.com",
+    "path": "/",
+    "secure": True,
+    "expires": 1800000000,
+    "name": "VISITOR_INFO1_LIVE",
+    "value": "fake-visitor",
+    "http_only": False,
+}
+
 
 class EdgeCookieUtilsTests(unittest.TestCase):
     @staticmethod
@@ -172,6 +182,37 @@ class EdgeCookieUtilsTests(unittest.TestCase):
             self.assertEqual(result["status_code"], "export_ok")
             self.assertTrue(target.exists())
             self.assertTrue(verified["has_bilibili_login"])
+
+    def test_export_defaults_to_safari_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "cookies.txt"
+            with patch.object(
+                cookies,
+                "_extract_browser_cookies_with_ytdlp",
+                return_value=self._cookie_jar(target, [YOUTUBE_COOKIE]),
+            ) as extract:
+                result = cookies.export_browser_cookies(target)
+
+            extract.assert_called_once_with(target, "safari")
+            self.assertTrue(result["success"])
+            self.assertEqual(result["source_browser"], "safari")
+            self.assertEqual(result["source_browser_label"], "Safari")
+            self.assertIn("# Source browser: Safari", target.read_text())
+
+    def test_export_uses_selected_browser_without_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "cookies.txt"
+            with patch.object(
+                cookies,
+                "_extract_browser_cookies_with_ytdlp",
+                return_value=self._cookie_jar(target, [YOUTUBE_COOKIE]),
+            ) as extract:
+                result = cookies.export_browser_cookies(target, "Chrome")
+
+            extract.assert_called_once_with(target, "chrome")
+            self.assertTrue(result["success"])
+            self.assertEqual(result["source_browser"], "chrome")
+            self.assertEqual(result["source_browser_label"], "Chrome")
 
 
 if __name__ == "__main__":

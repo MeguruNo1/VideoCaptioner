@@ -426,6 +426,12 @@ class Config(QConfig):
     download_auto_refresh_edge_cookies = ConfigItem(
         "Download", "AutoRefreshEdgeCookies", False, BoolValidator()
     )
+    download_cookie_browser = OptionsConfigItem(
+        "Download",
+        "CookieBrowser",
+        "Safari",
+        OptionsValidator(["Safari", "Chrome", "Edge"]),
+    )
     download_center_mode = OptionsConfigItem(
         "Download",
         "CenterMode",

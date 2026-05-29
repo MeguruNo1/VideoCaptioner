@@ -387,6 +387,14 @@ class SettingInterface(ScrollArea):
             cfg.download_auto_refresh_edge_cookies,
             self.downloadSettingGroup,
         )
+        self.downloadCookieBrowserCard = ComboBoxSettingCard(
+            cfg.download_cookie_browser,
+            FIF.GLOBE,
+            self.tr("Cookie 来源浏览器"),
+            self.tr("刷新 cookies.txt 时只读取所选浏览器，默认使用 Safari"),
+            texts=["Safari", "Chrome", "Edge"],
+            parent=self.downloadSettingGroup,
+        )
         self.downloadCenterOutputDirCard = PushSettingCard(
             self.tr("查看"),
             FIF.FOLDER,
@@ -483,6 +491,7 @@ class SettingInterface(ScrollArea):
         self.saveGroup.addSettingCard(self.savePathCard)
         self.downloadSettingGroup.addSettingCard(self.downloadEngineStrategyCard)
         self.downloadSettingGroup.addSettingCard(self.downloadAutoRefreshCookiesCard)
+        self.downloadSettingGroup.addSettingCard(self.downloadCookieBrowserCard)
         self.downloadSettingGroup.addSettingCard(self.downloadCenterOutputDirCard)
         self.downloadAccountGroup.addSettingCard(self.edgeCookieExportCard)
         self.downloadAccountGroup.addSettingCard(self.edgeCookieStatusCard)
@@ -901,6 +910,9 @@ class SettingInterface(ScrollArea):
         self.downloadCenterOutputDirCard.clicked.connect(
             self.__showDownloadCenterOutputDir
         )
+        self.downloadCookieBrowserCard.comboBox.currentTextChanged.connect(
+            lambda _: self.__refreshCookieStatus()
+        )
         self.edgeCookieExportCard.clicked.connect(self.__exportEdgeCookies)
         self.edgeCookieStatusCard.clicked.connect(self.__refreshCookieStatus)
 
@@ -983,6 +995,9 @@ class SettingInterface(ScrollArea):
             return "cookies.txt 不存在"
 
         content = result.get("message", "")
+        source_label = result.get("source_browser_label")
+        if source_label and source_label != "未知":
+            content = f"{content} | 来源：{source_label}"
         cookie_count = result.get("cookie_count", 0)
         if cookie_count:
             content = f"{content} | {cookie_count} 条"
@@ -1010,7 +1025,9 @@ class SettingInterface(ScrollArea):
         self.edgeCookieStatusCard.setContent(self.__formatCookieStatusContent(result))
 
     def __exportEdgeCookies(self):
-        result = export_browser_cookies()
+        result = export_browser_cookies(
+            browser=str(cfg.get(cfg.download_cookie_browser))
+        )
         self.edgeCookieStatusCard.setContent(self.__formatCookieStatusContent(result))
 
         if result.get("success"):
