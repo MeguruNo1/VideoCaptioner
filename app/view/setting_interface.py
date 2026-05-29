@@ -449,6 +449,13 @@ class SettingInterface(ScrollArea):
             texts=["简体中文", "繁體中文", "English", self.tr("使用系统设置")],
             parent=self.personalGroup,
         )
+        self.desktopNotificationsCard = SwitchSettingCard(
+            FIF.RINGER,
+            self.tr("桌面通知"),
+            self.tr("长任务完成或失败时发送系统通知"),
+            cfg.desktop_notifications_enabled,
+            self.personalGroup,
+        )
 
         # 关于卡片
         self.helpCard = HyperlinkCard(
@@ -500,6 +507,7 @@ class SettingInterface(ScrollArea):
         self.personalGroup.addSettingCard(self.themeColorCard)
         self.personalGroup.addSettingCard(self.zoomCard)
         self.personalGroup.addSettingCard(self.languageCard)
+        self.personalGroup.addSettingCard(self.desktopNotificationsCard)
 
         self.aboutGroup.addSettingCard(self.helpCard)
         self.aboutGroup.addSettingCard(self.feedbackCard)

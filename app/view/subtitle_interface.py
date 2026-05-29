@@ -739,6 +739,11 @@ class SubtitleInterface(QWidget):
         self.progress_bar.error()
         self.append_task_log(self.tr("错误: ") + str(error))
         InfoBar.error(self.tr("优化失败"), self.tr(error), duration=20000, parent=self)
+        send_desktop_notification(
+            self.tr("字幕处理失败"),
+            str(error),
+            target="subtitle",
+        )
 
     def on_subtitle_optimization_progress(self, value, status):
         self.progress_bar.setValue(value)

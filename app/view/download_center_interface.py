@@ -1900,6 +1900,11 @@ class DownloadCenterInterface(QWidget):
         self.status_label.setText(self.tr("下载失败"))
         self._reset_download_detail_panel()
         InfoBar.error(self.tr("下载失败"), error, duration=5000, parent=self)
+        send_desktop_notification(
+            self.tr("下载失败"),
+            str(error),
+            target="download_center",
+        )
 
     def open_result_folder(self):
         target_dir = self.last_result.get("work_dir")

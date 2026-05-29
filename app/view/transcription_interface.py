@@ -249,6 +249,11 @@ class VideoInfoCard(CardWidget):
             duration=3000,
             parent=self.parent().parent(),
         )
+        send_desktop_notification(
+            self.tr("转录失败"),
+            str(error),
+            target="transcription",
+        )
 
     def on_transcript_finished(self, task):
         """转录完成处理"""

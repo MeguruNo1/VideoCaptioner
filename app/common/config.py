@@ -393,6 +393,9 @@ class Config(QConfig):
         "Subtitle", "NeedMaskOriginalProfanity", False, BoolValidator()
     )
     custom_prompt_text = ConfigItem("Subtitle", "CustomPromptText", "")
+    desktop_notifications_enabled = ConfigItem(
+        "General", "DesktopNotificationsEnabled", True, BoolValidator()
+    )
 
     # ------------------- 提示词中心 -------------------
     prompt_split_semantic = ConfigItem("PromptCenter", "SplitSemantic", "")
