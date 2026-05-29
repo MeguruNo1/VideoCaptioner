@@ -62,6 +62,11 @@ env/
 # === App-specific directories (ignored) ===
 /AppData/
 /resource/
+!/resource/
+/resource/*
+!/resource/assets/
+/resource/assets/*
+!/resource/assets/logo.png
 /runtime/
 /work-dir/
 /VideoCapitoner/

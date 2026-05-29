@@ -90,7 +90,7 @@ class MLXWhisperASRTests(unittest.TestCase):
             mlx_chunk_overlap=30,
         )
 
-        with patch("app.core.bk_asr.transcribe.MLXWhisperASR") as mocked_mlx_asr:
+        with patch("app.core.bk_asr.mlx_whisper.MLXWhisperASR") as mocked_mlx_asr:
             mocked_mlx_asr.return_value.run.return_value = "mlx-result"
             result = transcribe("sample.wav", config)
 

@@ -49,7 +49,6 @@ from app.core.task_factory import TaskFactory
 from app.core.utils.get_subtitle_style import get_subtitle_style
 from app.core.utils.desktop_notification import send_desktop_notification
 from app.core.utils.platform_utils import open_path
-from app.thread.subtitle_thread import SubtitleThread
 from app.view.setting_interface import PromptCenterDialog
 
 
@@ -687,6 +686,8 @@ class SubtitleInterface(QWidget):
             self.task.subtitle_config.need_mask_original_profanity = (
                 cfg.need_mask_original_profanity.value
             )
+        from app.thread.subtitle_thread import SubtitleThread
+
         self.subtitle_optimization_thread = SubtitleThread(self.task)
         self.subtitle_optimization_thread.finished.connect(
             self.on_subtitle_optimization_finished

@@ -13,11 +13,7 @@ from app.core.entities import (
     TargetLanguageEnum,
     TranslatorServiceEnum,
 )
-from app.core.subtitle_processor.split import SubtitleSplitter
-from app.core.subtitle_processor.optimize import SubtitleOptimizer
-from app.core.subtitle_processor.translate import TranslatorFactory, TranslatorType
 from app.core.utils.logger import setup_logger
-from app.core.utils.test_opanai import test_openai
 from app.core.storage.cache_manager import ServiceUsageManager
 from app.core.storage.database import DatabaseManager
 from app.config import CACHE_PATH
@@ -80,6 +76,8 @@ class SubtitleThread(QThread):
             return self.task.subtitle_config
 
         if self.task.subtitle_config.base_url and self.task.subtitle_config.api_key:
+            from app.core.utils.test_opanai import test_openai
+
             if not test_openai(
                 self.task.subtitle_config.base_url,
                 self.task.subtitle_config.api_key,
@@ -167,6 +165,8 @@ class SubtitleThread(QThread):
 
             # 2. 重新断句（对于字词级字幕）
             if asr_data.is_word_timestamp():
+                from app.core.subtitle_processor.split import SubtitleSplitter
+
                 self._emit_progress(5, self.tr("字幕断句..."))
                 logger.info("正在字幕断句...")
                 splitter = SubtitleSplitter(
@@ -190,6 +190,8 @@ class SubtitleThread(QThread):
             self.subtitle_length = len(asr_data.segments)
 
             if subtitle_config.need_optimize:
+                from app.core.subtitle_processor.optimize import SubtitleOptimizer
+
                 self._emit_progress(0, self.tr("优化字幕..."))
                 logger.info("正在优化字幕...")
                 self.finished_subtitle_length = 0  # 重置计数器
@@ -210,6 +212,8 @@ class SubtitleThread(QThread):
                 self.update_all.emit(asr_data.to_json())
 
             # 4. 翻译字幕
+            from app.core.subtitle_processor.translate import TranslatorType
+
             translator_map = {
                 TranslatorServiceEnum.OPENAI: TranslatorType.OPENAI,
                 TranslatorServiceEnum.DEEPLX: TranslatorType.DEEPLX,
@@ -217,6 +221,8 @@ class SubtitleThread(QThread):
                 TranslatorServiceEnum.GOOGLE: TranslatorType.GOOGLE,
             }
             if subtitle_config.need_translate:
+                from app.core.subtitle_processor.translate import TranslatorFactory
+
                 self._emit_progress(0, self.tr("翻译字幕..."))
                 logger.info("正在翻译字幕...")
                 self.finished_subtitle_length = 0  # 重置计数器

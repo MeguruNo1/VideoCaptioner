@@ -1,6 +1,4 @@
 from app.core.bk_asr.asr_data import ASRData
-from app.core.bk_asr.mlx_whisper import MLXWhisperASR, build_mlx_initial_prompt
-from app.core.bk_asr.whisper_x_auto import WhisperXASR
 from app.core.entities import TranscribeConfig, TranscribeModelEnum
 
 
@@ -20,6 +18,11 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
         callback = lambda x, y: None
 
     if config.transcribe_model == TranscribeModelEnum.MLX_WHISPER:
+        from app.core.bk_asr.mlx_whisper import (
+            MLXWhisperASR,
+            build_mlx_initial_prompt,
+        )
+
         asr = MLXWhisperASR(
             audio_path,
             use_cache=config.use_asr_cache,
@@ -73,6 +76,8 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
     )
 
     # 创建ASR实例并运行
+    from app.core.bk_asr.whisper_x_auto import WhisperXASR
+
     asr = WhisperXASR(audio_path, **asr_args)
 
     asr_data = asr.run(callback=callback)

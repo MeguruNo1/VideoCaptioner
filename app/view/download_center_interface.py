@@ -44,10 +44,8 @@ from qfluentwidgets import (
 
 from app.common.config import cfg
 from app.config import APPDATA_PATH
-from app.core.utils.edge_cookie_utils import export_browser_cookies
 from app.core.utils.desktop_notification import send_desktop_notification
 from app.core.utils.platform_utils import open_path
-from app.thread.video_download_thread import VideoDownloadThread, VideoPreviewThread
 
 
 class AspectRatioLabel(QLabel):
@@ -1353,6 +1351,8 @@ class DownloadCenterInterface(QWidget):
     def _refresh_edge_cookie_if_needed(self):
         if not bool(cfg.get(cfg.download_auto_refresh_edge_cookies)):
             return
+        from app.core.utils.edge_cookie_utils import export_browser_cookies
+
         result = export_browser_cookies(
             browser=str(cfg.get(cfg.download_cookie_browser))
         )
@@ -1384,6 +1384,8 @@ class DownloadCenterInterface(QWidget):
         self._set_preview_visible(False)
         self.progress_bar.setValue(0)
         self.status_label.setText(self.tr("正在解析链接…"))
+        from app.thread.video_download_thread import VideoPreviewThread
+
         self.preview_thread = VideoPreviewThread(url=url, download_engine_strategy=str(cfg.get(cfg.download_engine_strategy) or "智能选择"))
         self.preview_thread.finished.connect(self.on_preview_finished)
         self.preview_thread.error.connect(self.on_preview_error)
@@ -1858,6 +1860,8 @@ class DownloadCenterInterface(QWidget):
         self._set_download_action_state("downloading")
         self.progress_bar.setValue(0)
         self.status_label.setText(self.tr("开始下载…"))
+        from app.thread.video_download_thread import VideoDownloadThread
+
         self.download_thread = VideoDownloadThread(
             url=url,
             work_dir=self._effective_output_dir(),

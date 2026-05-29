@@ -28,7 +28,6 @@ from app.components.MySettingCard import (
 )
 from app.config import SUBTITLE_STYLE_PATH, ASSETS_PATH
 from app.core.utils.platform_utils import open_path
-from app.core.utils.subtitle_preview import generate_preview
 
 PERVIEW_TEXTS = {
     "长文本": (
@@ -78,6 +77,8 @@ class PreviewThread(QThread):
         self.height = height
 
     def run(self):
+        from app.core.utils.subtitle_preview import generate_preview
+
         preview_path = generate_preview(
             style_str=self.style_str,
             preview_text=self.preview_text,

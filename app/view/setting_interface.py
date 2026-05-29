@@ -41,13 +41,11 @@ from app.core.subtitle_processor.prompt import (
     get_required_prompt_variables,
     validate_prompt_template,
 )
-from app.core.utils.edge_cookie_utils import export_browser_cookies, verify_cookie_file
 from app.core.utils.proxy_utils import (
     PROXY_MODE_MANUAL,
     PROXY_MODE_OFF,
     get_effective_download_proxy_url,
 )
-from app.core.utils.test_opanai import get_openai_models, test_openai
 from app.thread.version_manager_thread import VersionManager
 from app.components.MySettingCard import ComboBoxSettingCard as MyComboBoxSettingCard
 
@@ -1029,10 +1027,14 @@ class SettingInterface(ScrollArea):
         )
 
     def __refreshCookieStatus(self):
+        from app.core.utils.edge_cookie_utils import verify_cookie_file
+
         result = verify_cookie_file()
         self.edgeCookieStatusCard.setContent(self.__formatCookieStatusContent(result))
 
     def __exportEdgeCookies(self):
+        from app.core.utils.edge_cookie_utils import export_browser_cookies
+
         result = export_browser_cookies(
             browser=str(cfg.get(cfg.download_cookie_browser))
         )
@@ -1282,6 +1284,8 @@ class LLMConnectionThread(QThread):
     def run(self):
         """检查 LLM 连接并获取模型列表"""
         try:
+            from app.core.utils.test_opanai import get_openai_models, test_openai
+
             is_success, message = test_openai(
                 self.api_base,
                 self.api_key,

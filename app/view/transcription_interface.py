@@ -49,8 +49,6 @@ from app.core.entities import (
 from app.core.task_factory import TaskFactory
 from app.core.utils.desktop_notification import send_desktop_notification
 from app.core.utils.platform_utils import open_path
-from app.thread.transcript_thread_clean import TranscriptThread
-from app.thread.video_info_thread import VideoInfoThread
 
 DEFAULT_THUMBNAIL_PATH = RESOURCE_PATH / "assets" / "default_thumbnail.jpg"
 
@@ -236,6 +234,8 @@ class VideoInfoCard(CardWidget):
 
         if force_no_asr_cache and self.task and self.task.transcribe_config:
             self.task.transcribe_config.use_asr_cache = False
+
+        from app.thread.transcript_thread_clean import TranscriptThread
 
         self.transcript_thread = TranscriptThread(self.task)
         self.transcript_thread.finished.connect(self.on_transcript_finished)
@@ -489,6 +489,8 @@ class TranscriptionInterface(QWidget):
 
     def update_info(self, file_path):
         """设置UI"""
+        from app.thread.video_info_thread import VideoInfoThread
+
         self.video_info_thread = VideoInfoThread(file_path)
         self.video_info_thread.finished.connect(self.video_info_card.update_info)
         self.video_info_thread.error.connect(self._on_video_info_error)
