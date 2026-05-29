@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import ComboBoxSettingCard, PushSettingCard
 from qfluentwidgets import FluentIcon as FIF
@@ -11,7 +11,6 @@ from qfluentwidgets import (
     PushButton,
     RangeSettingCard,
     SettingCardGroup,
-    SingleDirectionScrollArea,
     TextEdit,
 )
 from qfluentwidgets import SwitchSettingCard
@@ -216,17 +215,15 @@ class WhisperXHotwordsDialog(MessageBoxBase):
                 )
                 return
 
-            current_hotwords = self.hotwordsEdit.toPlainText()
-            cfg.set(cfg.whisperx_hotwords, current_hotwords)
-            self.statusLabel.setText(self.tr("正在合并热词并更新配置..."))
+            self.statusLabel.setText(self.tr("正在覆盖热词并更新配置..."))
             result = apply_terms_to_whisperx_hotwords(terms)
             self.hotwordsEdit.setPlainText(result["whisperx_hotwords"])
             self.statusLabel.setText(
-                self.tr("提取完成，已合并 {0} 条候选热词").format(len(terms))
+                self.tr("提取完成，已覆盖为 {0} 条候选热词").format(len(terms))
             )
             InfoBar.success(
                 self.tr("提取完成"),
-                self.tr("已合并 {0} 条候选热词，旧翻译术语已清理").format(len(terms)),
+                self.tr("已覆盖为 {0} 条候选热词，旧翻译术语已清理").format(len(terms)),
                 duration=3000,
                 parent=self,
             )
@@ -283,7 +280,7 @@ class WhisperXHotwordsDialog(MessageBoxBase):
             apply_terms_to_document_prompt(terms)
             InfoBar.success(
                 self.tr("术语已生成"),
-                self.tr("已写入 {0} 条翻译术语到文稿提示").format(len(terms)),
+                self.tr("已覆盖写入 {0} 条翻译术语到文稿提示").format(len(terms)),
                 duration=3500,
                 parent=self,
             )
@@ -310,15 +307,8 @@ class WhisperXSettingWidget(QWidget):
             cfg.set(cfg.whisperx_align, True)
 
         self.main_layout = QVBoxLayout(self)
-
-        self.scrollArea = SingleDirectionScrollArea(orient=Qt.Vertical, parent=self)
-        self.scrollArea.setStyleSheet(
-            "QScrollArea{background: transparent; border: none}"
-        )
-
-        self.container = QWidget(self)
-        self.container.setStyleSheet("QWidget{background: transparent}")
-        self.containerLayout = QVBoxLayout(self.container)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
 
         self.setting_group = SettingCardGroup(
             self.tr("WhisperX 设置（CPU / 词级时间轴）")
@@ -471,13 +461,7 @@ class WhisperXSettingWidget(QWidget):
             self.word_timestamps_card.setEnabled(False)
             self.align_card.setEnabled(False)
 
-        self.containerLayout.addWidget(self.setting_group)
-        self.containerLayout.addStretch(1)
-
-        self.scrollArea.setWidget(self.container)
-        self.scrollArea.setWidgetResizable(True)
-
-        self.main_layout.addWidget(self.scrollArea)
+        self.main_layout.addWidget(self.setting_group)
 
         self.hotwords_card.clicked.connect(self.__on_hotwords_clicked)
         self.local_silero_dir_card.clicked.connect(self.__on_local_silero_dir_clicked)

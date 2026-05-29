@@ -132,6 +132,18 @@ def merge_hotwords(existing_hotwords: str, terms: list[dict[str, str]]) -> str:
     return ", ".join(values)
 
 
+def format_hotwords_from_terms(terms: list[dict[str, str]]) -> str:
+    values = []
+    seen = set()
+    for term in terms:
+        text = _clean_term_text(term.get("original"))
+        key = text.casefold()
+        if text and key not in seen:
+            seen.add(key)
+            values.append(text)
+    return ", ".join(values)
+
+
 def format_terms_for_document_prompt(terms: list[dict[str, str]]) -> str:
     rows = []
     for term in terms:
@@ -547,7 +559,7 @@ def extract_translation_terms_from_hotwords(
 def apply_terms_to_whisperx_hotwords(terms: list[dict[str, str]]) -> dict[str, str]:
     from app.common.config import cfg
 
-    hotwords = merge_hotwords(cfg.whisperx_hotwords.value, terms)
+    hotwords = format_hotwords_from_terms(terms)
     document_prompt = remove_generated_document_prompt_terms(cfg.custom_prompt_text.value)
     cfg.set(cfg.whisperx_hotwords, hotwords)
     cfg.set(cfg.custom_prompt_text, document_prompt)
@@ -557,7 +569,7 @@ def apply_terms_to_whisperx_hotwords(terms: list[dict[str, str]]) -> dict[str, s
 def apply_terms_to_mlx_hotwords(terms: list[dict[str, str]]) -> dict[str, str]:
     from app.common.config import cfg
 
-    hotwords = merge_hotwords(cfg.mlx_hotwords.value, terms)
+    hotwords = format_hotwords_from_terms(terms)
     document_prompt = remove_generated_document_prompt_terms(cfg.custom_prompt_text.value)
     cfg.set(cfg.mlx_hotwords, hotwords)
     cfg.set(cfg.custom_prompt_text, document_prompt)

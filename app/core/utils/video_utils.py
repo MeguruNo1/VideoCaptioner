@@ -139,6 +139,28 @@ def _get_available_ffmpeg_encoders() -> set[str]:
         return set()
 
 
+def _get_available_ffmpeg_hwaccels() -> set[str]:
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-hwaccels"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=_ffmpeg_creationflags(),
+        )
+        output = f"{result.stdout}\n{result.stderr}"
+        hwaccels = set()
+        for line in output.splitlines():
+            value = line.strip().lower()
+            if value and not value.startswith("hardware acceleration"):
+                hwaccels.add(value)
+        return hwaccels
+    except Exception as exc:
+        logger.exception("获取 FFmpeg 硬件加速列表失败: %s", exc)
+        return set()
+
+
 def pick_hardware_hevc_encoder() -> Optional[str]:
     encoders = _get_available_ffmpeg_encoders()
     for encoder in ("hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox"):
@@ -147,43 +169,52 @@ def pick_hardware_hevc_encoder() -> Optional[str]:
     return None
 
 
-def transcode_video_to_hevc(
-    input_file: str,
-    output_file: str,
+def pick_software_hevc_encoder() -> Optional[str]:
+    encoders = _get_available_ffmpeg_encoders()
+    if "libx265" in encoders:
+        return "libx265"
+    return None
+
+
+def _build_hevc_transcode_command(
+    input_path: Path,
+    output_path: Path,
+    encoder: str,
+    *,
+    use_videotoolbox_decode: bool = False,
+) -> list[str]:
+    cmd = ["ffmpeg"]
+    if use_videotoolbox_decode:
+        cmd.extend(["-hwaccel", "videotoolbox"])
+    cmd.extend(
+        [
+            "-i",
+            str(input_path),
+            "-map",
+            "0",
+            "-c:a",
+            "copy",
+            "-c:s",
+            "copy",
+            "-c:v",
+            encoder,
+            "-tag:v",
+            "hvc1",
+            "-y",
+            str(output_path),
+        ]
+    )
+    return cmd
+
+
+def _run_hevc_transcode_command(
+    cmd: list[str],
+    output_path: Path,
     progress_callback: callable = None,
-) -> str:
-    input_path = Path(input_file)
-    output_path = Path(output_file)
-
-    if not input_path.is_file():
-        raise FileNotFoundError(f"输入视频不存在: {input_file}")
-
-    encoder = pick_hardware_hevc_encoder()
-    if not encoder:
-        raise RuntimeError("当前 FFmpeg 环境不可用硬件 HEVC 编码器")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    cmd = [
-        "ffmpeg",
-        "-i",
-        str(input_path),
-        "-map",
-        "0",
-        "-c:a",
-        "copy",
-        "-c:s",
-        "copy",
-        "-c:v",
-        encoder,
-        "-tag:v",
-        "hvc1",
-        "-y",
-        str(output_path),
-    ]
-    logger.info("开始将视频转为 HEVC: %s -> %s (%s)", input_file, output_file, encoder)
-
+    progress_message: str = "正在转码为 H.265",
+) -> None:
     process = None
+    stderr_lines: list[str] = []
     try:
         process = subprocess.Popen(
             cmd,
@@ -196,7 +227,6 @@ def transcode_video_to_hevc(
         )
 
         total_duration = None
-        current_time = 0.0
 
         while True:
             output_line = process.stderr.readline()
@@ -205,6 +235,7 @@ def transcode_video_to_hevc(
             if not output_line:
                 continue
 
+            stderr_lines.append(output_line)
             if progress_callback:
                 if total_duration is None:
                     duration_match = re.search(
@@ -221,28 +252,112 @@ def transcode_video_to_hevc(
                     h, m, s = map(float, time_match.groups())
                     current_time = h * 3600 + m * 60 + s
                     if total_duration:
-                        progress = max(0, min(100, round(current_time / total_duration * 100)))
-                        progress_callback(progress, "正在转码为 H.265")
+                        progress = max(
+                            0, min(100, round(current_time / total_duration * 100))
+                        )
+                        progress_callback(progress, progress_message)
 
         return_code = process.wait()
         if return_code != 0 or not output_path.is_file():
-            error_info = process.stderr.read() if process and process.stderr else ""
+            error_info = "".join(stderr_lines).strip()
             raise RuntimeError(f"FFmpeg HEVC 转码失败: {error_info or return_code}")
-
-        if progress_callback:
-            progress_callback(100, "H.265 转码完成")
-        logger.info("HEVC 转码完成: %s", output_path)
-        return encoder
-    except Exception:
-        if output_path.exists():
-            try:
-                output_path.unlink()
-            except OSError:
-                logger.warning("清理失败的 HEVC 输出文件失败: %s", output_path)
-        raise
     finally:
         if process and process.poll() is None:
             process.kill()
+
+
+def transcode_video_to_hevc(
+    input_file: str,
+    output_file: str,
+    progress_callback: callable = None,
+) -> str:
+    input_path = Path(input_file)
+    output_path = Path(output_file)
+
+    if not input_path.is_file():
+        raise FileNotFoundError(f"输入视频不存在: {input_file}")
+
+    hardware_encoder = pick_hardware_hevc_encoder()
+    software_encoder = pick_software_hevc_encoder()
+    if not hardware_encoder and not software_encoder:
+        raise RuntimeError("当前 FFmpeg 环境不可用 HEVC 编码器")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    attempts: list[tuple[str, str, list[str], str]] = []
+    if hardware_encoder == "hevc_videotoolbox" and "videotoolbox" in _get_available_ffmpeg_hwaccels():
+        attempts.append(
+            (
+                hardware_encoder,
+                "VideoToolbox AV1 硬解 + HEVC 硬编",
+                _build_hevc_transcode_command(
+                    input_path,
+                    output_path,
+                    hardware_encoder,
+                    use_videotoolbox_decode=True,
+                ),
+                "正在使用 VideoToolbox 硬解转码为 H.265",
+            )
+        )
+    if hardware_encoder:
+        attempts.append(
+            (
+                hardware_encoder,
+                "普通解码 + HEVC 硬编",
+                _build_hevc_transcode_command(input_path, output_path, hardware_encoder),
+                "正在转码为 H.265",
+            )
+        )
+    if software_encoder and software_encoder != hardware_encoder:
+        attempts.append(
+            (
+                software_encoder,
+                "普通解码 + libx265 软件编码",
+                _build_hevc_transcode_command(input_path, output_path, software_encoder),
+                "正在使用 libx265 转码为 H.265",
+            )
+        )
+
+    last_error: Exception | None = None
+    for index, (encoder, label, cmd, progress_message) in enumerate(attempts):
+        try:
+            logger.info(
+                "开始将视频转为 HEVC: %s -> %s (%s, %s)",
+                input_file,
+                output_file,
+                encoder,
+                label,
+            )
+            _run_hevc_transcode_command(
+                cmd,
+                output_path,
+                progress_callback=progress_callback,
+                progress_message=progress_message,
+            )
+            if progress_callback:
+                progress_callback(100, "H.265 转码完成")
+            logger.info("HEVC 转码完成: %s (%s)", output_path, label)
+            if index == 0 and label.startswith("VideoToolbox"):
+                return f"{encoder}+videotoolbox_decode"
+            return encoder
+        except Exception as exc:
+            last_error = exc
+            if output_path.exists():
+                try:
+                    output_path.unlink()
+                except OSError:
+                    logger.warning("清理失败的 HEVC 输出文件失败: %s", output_path)
+            if index < len(attempts) - 1:
+                logger.warning(
+                    "HEVC 转码尝试失败，回退下一策略: %s: %s", label, exc
+                )
+                if progress_callback:
+                    next_label = attempts[index + 1][1]
+                    progress_callback(0, f"{label}失败，回退{next_label}")
+                continue
+            raise
+
+    raise RuntimeError(f"FFmpeg HEVC 转码失败: {last_error}")
 
 
 def add_subtitles(

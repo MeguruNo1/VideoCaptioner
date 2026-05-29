@@ -1,4 +1,3 @@
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
@@ -8,7 +7,6 @@ from qfluentwidgets import (
     PushButton,
     PushSettingCard,
     SettingCardGroup,
-    SingleDirectionScrollArea,
     SwitchSettingCard,
     TextEdit,
 )
@@ -166,17 +164,15 @@ class MLXHotwordsDialog(MessageBoxBase):
                 )
                 return
 
-            current_hotwords = self.hotwordsEdit.toPlainText()
-            cfg.set(cfg.mlx_hotwords, current_hotwords)
-            self.statusLabel.setText(self.tr("正在合并热词并更新配置..."))
+            self.statusLabel.setText(self.tr("正在覆盖热词并更新配置..."))
             result = apply_terms_to_mlx_hotwords(terms)
             self.hotwordsEdit.setPlainText(result["mlx_hotwords"])
             self.statusLabel.setText(
-                self.tr("提取完成，已合并 {0} 条候选热词").format(len(terms))
+                self.tr("提取完成，已覆盖为 {0} 条候选热词").format(len(terms))
             )
             InfoBar.success(
                 self.tr("提取完成"),
-                self.tr("已合并 {0} 条候选热词，旧翻译术语已清理").format(len(terms)),
+                self.tr("已覆盖为 {0} 条候选热词，旧翻译术语已清理").format(len(terms)),
                 duration=3000,
                 parent=self,
             )
@@ -233,7 +229,7 @@ class MLXHotwordsDialog(MessageBoxBase):
             apply_terms_to_document_prompt(terms)
             InfoBar.success(
                 self.tr("术语已生成"),
-                self.tr("已写入 {0} 条翻译术语到文稿提示").format(len(terms)),
+                self.tr("已覆盖写入 {0} 条翻译术语到文稿提示").format(len(terms)),
                 duration=3500,
                 parent=self,
             )
@@ -253,15 +249,8 @@ class MLXWhisperSettingWidget(QWidget):
 
     def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
-
-        self.scrollArea = SingleDirectionScrollArea(orient=Qt.Vertical, parent=self)
-        self.scrollArea.setStyleSheet(
-            "QScrollArea{background: transparent; border: none}"
-        )
-
-        self.container = QWidget(self)
-        self.container.setStyleSheet("QWidget{background: transparent}")
-        self.containerLayout = QVBoxLayout(self.container)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
 
         self.setting_group = SettingCardGroup(
             self.tr("MLX Whisper 设置（Apple Silicon GPU）"),
@@ -373,12 +362,7 @@ class MLXWhisperSettingWidget(QWidget):
         self.setting_group.addSettingCard(self.hotwords_card)
         self.setting_group.addSettingCard(self.initial_prompt_card)
 
-        self.containerLayout.addWidget(self.setting_group)
-        self.containerLayout.addStretch(1)
-
-        self.scrollArea.setWidget(self.container)
-        self.scrollArea.setWidgetResizable(True)
-        self.main_layout.addWidget(self.scrollArea)
+        self.main_layout.addWidget(self.setting_group)
 
         self.hotwords_card.clicked.connect(self.__on_hotwords_clicked)
 

@@ -88,6 +88,28 @@ class AspectRatioLabel(QLabel):
 
 class DownloadCenterInterface(QWidget):
     send_to_transcription = pyqtSignal(str)
+    PR_SUPPORTED_AUDIO_EXTS = {"aac", "aif", "aiff", "bwf", "m4a", "mp3", "mp4", "wav"}
+    PR_SUPPORTED_AUDIO_CODECS = (
+        "pcm",
+        "sowt",
+        "twos",
+        "alac",
+        "mp4a",
+        "aac",
+        "mp3",
+    )
+    PR_UNSUPPORTED_AUDIO_CODECS = ("opus", "vorbis")
+    PR_SMART_AUDIO_FILTERS = (
+        "[ext=m4a]",
+        "[acodec*=mp4a]",
+        "[acodec*=aac]",
+        "[ext=mp3]",
+        "[acodec*=mp3]",
+        "[ext=wav]",
+        "[ext=aif]",
+        "[ext=aiff]",
+        "[ext=bwf]",
+    )
     SIMPLE_PRESETS = [
         ("best_quality", "最高画质（自动组装）"),
         ("mp4_compatible", "MP4 兼容优先"),
@@ -1501,6 +1523,11 @@ class DownloadCenterInterface(QWidget):
             unique_selectors.append(normalized)
         return "/".join(unique_selectors)
 
+    def _build_pr_smart_audio_pair_selector(self, video_expr: str) -> str:
+        return self._combine_selector_chains(
+            [f"{video_expr}+bestaudio{audio_filter}" for audio_filter in self.PR_SMART_AUDIO_FILTERS]
+        )
+
     @staticmethod
     def _codec_rank(codec: str, preferred_codecs: tuple[str, ...]) -> int:
         lowered = str(codec or "").lower()
@@ -1509,16 +1536,58 @@ class DownloadCenterInterface(QWidget):
                 return index
         return len(preferred_codecs)
 
-    def _pick_pr_smart_video_format(self) -> dict | None:
+    @classmethod
+    def _is_pr_supported_audio_format(cls, item: dict | None) -> bool:
+        if not item:
+            return False
+        lowered_codec = str(item.get("acodec") or "").lower()
+        lowered_ext = str(item.get("ext") or "").lower()
+        if not lowered_codec or lowered_codec == "none":
+            return False
+        if any(codec in lowered_codec for codec in cls.PR_UNSUPPORTED_AUDIO_CODECS):
+            return False
+        if any(codec in lowered_codec for codec in cls.PR_SUPPORTED_AUDIO_CODECS):
+            return True
+        return lowered_ext in cls.PR_SUPPORTED_AUDIO_EXTS
+
+    @classmethod
+    def _pr_audio_quality_key(cls, item: dict) -> tuple[int, int, int, int]:
+        return (
+            int(item.get("abr") or 0),
+            int(item.get("filesize") or 0),
+            int(item.get("channels") or 0),
+            -cls._codec_rank(item.get("acodec"), cls.PR_SUPPORTED_AUDIO_CODECS),
+        )
+
+    def _pick_pr_smart_video_format(self, can_pair_supported_audio: bool | None = None) -> dict | None:
         formats = list((self.preview_data or {}).get("video_formats") or [])
         if not formats:
             return None
 
-        max_height = max(int(item.get("height") or 0) for item in formats)
+        if can_pair_supported_audio is None:
+            can_pair_supported_audio = bool(self._pick_pr_smart_audio_format())
+
+        compatible_formats = []
+        for item in formats:
+            if item.get("has_audio"):
+                if self._is_pr_supported_audio_format(item):
+                    compatible_formats.append(item)
+            elif can_pair_supported_audio:
+                compatible_formats.append(item)
+
+        ranked_formats = compatible_formats or formats
+        max_height = max(int(item.get("height") or 0) for item in ranked_formats)
         same_tier = [item for item in formats if int(item.get("height") or 0) == max_height] or formats
         preferred_codecs = ("hevc", "h265") if max_height <= 1080 else ("hevc", "h265", "av01", "av1", "avc1")
+
+        def audio_rank(item: dict) -> int:
+            if item.get("has_audio"):
+                return 1 if self._is_pr_supported_audio_format(item) else 2
+            return 0 if can_pair_supported_audio else 1
+
         same_tier.sort(
             key=lambda item: (
+                audio_rank(item),
                 self._codec_rank(item.get("vcodec"), preferred_codecs),
                 -(int(item.get("fps") or 0)),
                 -(int(item.get("filesize") or 0)),
@@ -1531,36 +1600,27 @@ class DownloadCenterInterface(QWidget):
         if not formats:
             return None
 
-        preferred = []
-        fallback = []
-        for item in formats:
-            lowered_codec = str(item.get("acodec") or "").lower()
-            lowered_ext = str(item.get("ext") or "").lower()
-            target = preferred if ("mp4a" in lowered_codec or lowered_ext == "m4a") else fallback
-            target.append(item)
-
-        ranked = preferred or fallback
-        ranked.sort(
-            key=lambda item: (
-                -(int(item.get("abr") or 0)),
-                -(int(item.get("filesize") or 0)),
-                -(int(item.get("channels") or 0)),
-            )
-        )
+        ranked = [item for item in formats if self._is_pr_supported_audio_format(item)]
+        ranked.sort(key=self._pr_audio_quality_key, reverse=True)
         return ranked[0] if ranked else None
 
     def _build_pr_smart_request(self) -> dict:
-        video_format = self._pick_pr_smart_video_format()
         audio_format = self._pick_pr_smart_audio_format()
+        video_format = self._pick_pr_smart_video_format(can_pair_supported_audio=bool(audio_format))
         if not video_format:
             return {
                 "need_video": True,
                 "download_mode": "video_audio",
                 "selected_video_format_id": "",
                 "selected_audio_format_id": "",
-                "format_selector": "bv*+ba/bestvideo+bestaudio/best",
+                "format_selector": self._combine_selector_chains(
+                    [
+                        self._build_pr_smart_audio_pair_selector("bv*"),
+                        "best[ext=mp4]",
+                    ]
+                ),
                 "pr_smart_video_summary": self.tr("回退到通用最高画质"),
-                "pr_smart_audio_summary": self.tr("回退到通用最佳音频"),
+                "pr_smart_audio_summary": self.tr("回退到 PR 支持音频优先"),
             }
 
         video_id = str(video_format.get("format_id") or "")
@@ -1577,6 +1637,9 @@ class DownloadCenterInterface(QWidget):
         }
 
         if video_format.get("has_audio"):
+            if not self._is_pr_supported_audio_format(video_format):
+                request["pr_smart_audio_summary"] = self.tr("未找到 PR 支持的独立音频，使用视频内嵌音频")
+                return request
             return request
 
         if audio_format:
@@ -1591,10 +1654,14 @@ class DownloadCenterInterface(QWidget):
             return request
 
         request.update(
-            format_selector="bv*+ba/bestvideo+bestaudio/best",
-            selected_video_format_id="",
-            pr_smart_video_summary=self.tr("回退到通用最高画质"),
-            pr_smart_audio_summary=self.tr("回退到通用最佳音频"),
+            format_selector=self._combine_selector_chains(
+                [
+                    self._build_pr_smart_audio_pair_selector(video_id),
+                    "bv*+bestaudio[ext=m4a]",
+                    video_id,
+                ]
+            ),
+            pr_smart_audio_summary=self.tr("未在解析结果中找到 PR 支持音频，回退到 PR 支持音频优先"),
         )
         return request
 

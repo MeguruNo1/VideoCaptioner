@@ -29,6 +29,7 @@ from qfluentwidgets import (
     ProgressRing,
     PushButton,
     RoundMenu,
+    SingleDirectionScrollArea,
     TransparentDropDownPushButton,
     setFont,
 )
@@ -52,6 +53,17 @@ from app.thread.transcript_thread_clean import TranscriptThread
 from app.thread.video_info_thread import VideoInfoThread
 
 DEFAULT_THUMBNAIL_PATH = RESOURCE_PATH / "assets" / "default_thumbnail.jpg"
+
+
+class TrackpadFriendlyScrollArea(SingleDirectionScrollArea):
+    def wheelEvent(self, event):
+        pixel_delta = event.pixelDelta()
+        if pixel_delta.y():
+            bar = self.verticalScrollBar()
+            bar.setValue(bar.value() - pixel_delta.y())
+            event.accept()
+            return
+        super().wheelEvent(event)
 
 
 class VideoInfoCard(CardWidget):
@@ -303,12 +315,27 @@ class TranscriptionInterface(QWidget):
         # 添加命令栏
         self._setup_command_bar()
 
+        self.scroll_area = TrackpadFriendlyScrollArea(orient=Qt.Vertical, parent=self)
+        self.scroll_area.setStyleSheet(
+            "QScrollArea{background: transparent; border: none}"
+        )
+        self.scroll_content = QWidget(self)
+        self.scroll_content.setStyleSheet("QWidget{background: transparent}")
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
+        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.scroll_layout.setSpacing(20)
+
         self.video_info_card = VideoInfoCard(self)
-        self.main_layout.addWidget(self.video_info_card)
+        self.scroll_layout.addWidget(self.video_info_card)
 
         # 添加转录设置卡片
         self.transcription_setting_card = TranscriptionSettingCard(self)
-        self.main_layout.addWidget(self.transcription_setting_card)
+        self.scroll_layout.addWidget(self.transcription_setting_card)
+        self.scroll_layout.addStretch(1)
+
+        self.scroll_area.setWidget(self.scroll_content)
+        self.scroll_area.setWidgetResizable(True)
+        self.main_layout.addWidget(self.scroll_area, 1)
 
     def _setup_command_bar(self):
         """设置命令栏"""

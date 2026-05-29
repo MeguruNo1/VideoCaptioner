@@ -4,13 +4,16 @@ import unittest
 from unittest.mock import patch
 
 from app.core.utils.transcript_terms import (
+    apply_terms_to_document_prompt,
     apply_terms_to_mlx_hotwords,
+    apply_terms_to_whisperx_hotwords,
     _build_hotword_translation_messages,
     _split_hotwords_by_glossary,
     GENERATED_TERMS_BEGIN,
     GENERATED_TERMS_END,
     extract_translation_terms_from_hotwords,
     filter_document_prompt_for_text,
+    format_hotwords_from_terms,
     format_terms_for_document_prompt,
     merge_document_prompt,
     merge_hotwords,
@@ -40,9 +43,40 @@ class TranscriptTermsTests(unittest.TestCase):
                 [{"original": "MLX Whisper", "translation": "MLX Whisper"}]
             )
 
-            self.assertEqual(result["mlx_hotwords"], "Existing, MLX Whisper")
-            self.assertEqual(cfg.mlx_hotwords.value, "Existing, MLX Whisper")
+            self.assertEqual(result["mlx_hotwords"], "MLX Whisper")
+            self.assertEqual(cfg.mlx_hotwords.value, "MLX Whisper")
             self.assertEqual(cfg.whisperx_hotwords.value, "WhisperXOnly")
+            self.assertEqual(cfg.custom_prompt_text.value, "keep")
+
+            cfg.set(cfg.mlx_hotwords, old_mlx_hotwords)
+            cfg.set(cfg.whisperx_hotwords, old_whisperx_hotwords)
+            cfg.set(cfg.custom_prompt_text, old_custom_prompt_text)
+
+    def test_apply_terms_to_whisperx_hotwords_overwrites_existing_hotwords(self):
+        from app.common.config import cfg
+
+        old_mlx_hotwords = cfg.mlx_hotwords.value
+        old_whisperx_hotwords = cfg.whisperx_hotwords.value
+        old_custom_prompt_text = cfg.custom_prompt_text.value
+        with patch.object(cfg, "save", return_value=None):
+            cfg.set(cfg.mlx_hotwords, "MLXOnly")
+            cfg.set(cfg.whisperx_hotwords, "Existing, Old")
+            cfg.set(
+                cfg.custom_prompt_text,
+                f"keep\n{GENERATED_TERMS_BEGIN}\nold\n{GENERATED_TERMS_END}",
+            )
+
+            result = apply_terms_to_whisperx_hotwords(
+                [
+                    {"original": "WhisperX", "translation": "WhisperX"},
+                    {"original": "whisperx", "translation": "duplicate"},
+                    {"original": "VideoCaptioner", "translation": "视频字幕助手"},
+                ]
+            )
+
+            self.assertEqual(result["whisperx_hotwords"], "WhisperX, VideoCaptioner")
+            self.assertEqual(cfg.whisperx_hotwords.value, "WhisperX, VideoCaptioner")
+            self.assertEqual(cfg.mlx_hotwords.value, "MLXOnly")
             self.assertEqual(cfg.custom_prompt_text.value, "keep")
 
             cfg.set(cfg.mlx_hotwords, old_mlx_hotwords)
@@ -262,6 +296,18 @@ class TranscriptTermsTests(unittest.TestCase):
 
         self.assertEqual(hotwords, "OpenAI, Existing, WhisperX")
 
+    def test_format_hotwords_from_terms_dedupes_without_existing_hotwords(self):
+        hotwords = format_hotwords_from_terms(
+            [
+                {"original": "OpenAI", "translation": "开放人工智能"},
+                {"original": "openai", "translation": "duplicate"},
+                {"original": "WhisperX", "translation": "WhisperX"},
+                {"original": "", "translation": "empty"},
+            ],
+        )
+
+        self.assertEqual(hotwords, "OpenAI, WhisperX")
+
     def test_parse_hotwords_supports_common_separators_and_dedupes(self):
         hotwords = parse_hotwords_text("OpenAI， WhisperX; OpenAI\nVideoCaptioner")
 
@@ -279,6 +325,30 @@ class TranscriptTermsTests(unittest.TestCase):
         self.assertNotIn("OpenAI -> 开放人工智能", updated_prompt)
         self.assertIn("WhisperX -> WhisperX", updated_prompt)
         self.assertEqual(updated_prompt.count(GENERATED_TERMS_BEGIN), 1)
+
+    def test_apply_terms_to_document_prompt_replaces_previous_generated_terms(self):
+        from app.common.config import cfg
+
+        old_custom_prompt_text = cfg.custom_prompt_text.value
+        with patch.object(cfg, "save", return_value=None):
+            cfg.set(
+                cfg.custom_prompt_text,
+                merge_document_prompt(
+                    "保留用户提示",
+                    [{"original": "OpenAI", "translation": "开放人工智能"}],
+                ),
+            )
+
+            result = apply_terms_to_document_prompt(
+                [{"original": "WhisperX", "translation": "WhisperX"}]
+            )
+
+            self.assertIn("保留用户提示", result["custom_prompt_text"])
+            self.assertNotIn("OpenAI -> 开放人工智能", result["custom_prompt_text"])
+            self.assertIn("WhisperX -> WhisperX", result["custom_prompt_text"])
+            self.assertEqual(result["custom_prompt_text"].count(GENERATED_TERMS_BEGIN), 1)
+
+            cfg.set(cfg.custom_prompt_text, old_custom_prompt_text)
 
     def test_remove_generated_document_prompt_terms_preserves_user_prompt(self):
         prompt = merge_document_prompt(
