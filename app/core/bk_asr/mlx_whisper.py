@@ -112,6 +112,8 @@ class MLXWhisperASR(BaseASR):
         return segments
 
     def _transcribe_once(self, mlx_whisper, audio_path: str | Path) -> dict:
+        if isinstance(audio_path, Path):
+            audio_path = str(audio_path)
         return mlx_whisper.transcribe(
             audio_path,
             path_or_hf_repo=self.model,

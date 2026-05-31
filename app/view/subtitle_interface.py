@@ -48,7 +48,6 @@ from app.core.entities import (
 from app.core.task_factory import TaskFactory
 from app.core.utils.get_subtitle_style import get_subtitle_style
 from app.core.utils.desktop_notification import send_desktop_notification
-from app.core.utils.platform_utils import open_path
 from app.view.setting_interface import PromptCenterDialog
 
 
@@ -227,7 +226,13 @@ class SubtitleInterface(QWidget):
         self.command_bar.setToolButtonStyle(
             Qt.ToolButtonTextBesideIcon
         )  # 设置图标和文字并排显示
+        self.command_bar.setFixedHeight(40)
         top_layout.addWidget(self.command_bar, 1)  # 设置stretch为1，使其尽可能占用空间
+
+        self.command_bar.addAction(
+            Action(FIF.FOLDER, self.tr("打开文件"), triggered=self.on_file_select)
+        )
+        self.command_bar.addSeparator()
 
         # 创建保存按钮的下拉菜单
         save_menu = RoundMenu(parent=self)
@@ -240,12 +245,12 @@ class SubtitleInterface(QWidget):
             save_menu.addAction(action)
 
         # 添加保存按钮(带下拉菜单)
-        save_button = TransparentDropDownPushButton("", self, FIF.SAVE)
+        save_button = TransparentDropDownPushButton(self.tr("保存"), self, FIF.SAVE)
         save_button.setMenu(save_menu)
         save_button.setFixedHeight(34)
-        save_button.setFixedWidth(46)
+        save_button.setMinimumWidth(90)
         save_button.setToolTip(self.tr("保存"))
-        top_layout.addWidget(save_button)
+        self.command_bar.addWidget(save_button)
 
         # 添加字幕排布下拉按钮
         self.layout_button = TransparentDropDownPushButton(
@@ -335,18 +340,6 @@ class SubtitleInterface(QWidget):
 
         # 添加视频播放按钮
         # self.command_bar.addAction(Action(FIF.VIDEO, "", triggered=self.show_video_player))
-
-        # 添加打开文件夹按钮
-        self.command_bar.addAction(
-            Action(FIF.FOLDER, "", triggered=self.on_open_folder_clicked)
-        )
-
-        self.command_bar.addSeparator()
-
-        # 添加文件选择按钮
-        self.command_bar.addAction(
-            Action(FIF.FOLDER_ADD, "", triggered=self.on_file_select)
-        )
 
         # 添加开始按钮到水平布局
         self.start_button = PrimaryPushButton(self.tr("开始"), self, icon=FIF.PLAY)
@@ -860,21 +853,6 @@ class SubtitleInterface(QWidget):
                 duration=5000,
                 parent=self,
             )
-
-    def on_open_folder_clicked(self):
-        """打开文件夹按钮点击事件"""
-        if not self.task:
-            InfoBar.warning(
-                self.tr("警告"), self.tr("请先加载字幕文件"), duration=3000, parent=self
-            )
-            return
-        output_path = Path(self.task.output_path)
-        target_dir = str(
-            output_path.parent
-            if output_path.exists()
-            else Path(self.task.subtitle_path).parent
-        )
-        open_path(target_dir)
 
     def load_subtitle_file(self, file_path):
         self.subtitle_path = file_path

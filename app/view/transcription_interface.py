@@ -27,7 +27,6 @@ from qfluentwidgets import (
     PillPushButton,
     PrimaryPushButton,
     ProgressRing,
-    PushButton,
     RoundMenu,
     SingleDirectionScrollArea,
     TransparentDropDownPushButton,
@@ -38,7 +37,7 @@ from app.common.config import cfg
 from app.common.signal_bus import signalBus
 from app.components.LanguageSettingDialog import LanguageSettingDialog
 from app.components.transcription_setting_card import TranscriptionSettingCard
-from app.config import RESOURCE_PATH
+from app.config import RESOURCE_PATH, WORK_PATH
 from app.core.entities import (
     SupportedAudioFormats,
     SupportedVideoFormats,
@@ -48,7 +47,6 @@ from app.core.entities import (
 )
 from app.core.task_factory import TaskFactory
 from app.core.utils.desktop_notification import send_desktop_notification
-from app.core.utils.platform_utils import open_path
 
 DEFAULT_THUMBNAIL_PATH = RESOURCE_PATH / "assets" / "default_thumbnail.jpg"
 
@@ -139,9 +137,7 @@ class VideoInfoCard(CardWidget):
 
     def setup_button_layout(self):
         self.button_layout = QVBoxLayout()
-        self.open_folder_button = PushButton(self.tr("打开文件夹"), self)
         self.start_button = PrimaryPushButton(self.tr("开始转录"), self)
-        self.button_layout.addWidget(self.open_folder_button)
         self.button_layout.addWidget(self.start_button)
 
         self.start_button.setDisabled(True)
@@ -182,7 +178,6 @@ class VideoInfoCard(CardWidget):
 
     def setup_signals(self):
         self.start_button.clicked.connect(self.on_start_button_clicked)
-        self.open_folder_button.clicked.connect(self.on_open_folder_clicked)
 
     def show_language_settings(self):
         """显示语言设置对话框"""
@@ -202,24 +197,6 @@ class VideoInfoCard(CardWidget):
         self.progress_ring.setValue(100)
         self.start_button.setDisabled(True)
         self.start_transcription(force_no_asr_cache=force_no_asr_cache)
-
-    def on_open_folder_clicked(self):
-        """打开文件夹按钮点击事件"""
-        if self.task and self.task.output_path:
-            original_subtitle_save_path = Path(self.task.output_path)
-            target_dir = str(
-                original_subtitle_save_path.parent
-                if original_subtitle_save_path.exists()
-                else Path(self.task.file_path).parent
-            )
-            open_path(target_dir)
-        else:
-            InfoBar.warning(
-                self.tr("警告"),
-                self.tr("没有可用的字幕文件夹"),
-                duration=2000,
-                parent=self,
-            )
 
     def start_transcription(self, need_create_task=True, force_no_asr_cache=False):
         """开始转录过程"""
@@ -468,7 +445,7 @@ class TranscriptionInterface(QWidget):
 
     def _on_file_select(self):
         """文件选择处理"""
-        desktop_path = QStandardPaths.writableLocation(QStandardPaths.DesktopLocation)
+        default_dir = str(WORK_PATH)
         file_dialog = QFileDialog()
 
         video_formats = " ".join(f"*.{fmt.value}" for fmt in SupportedVideoFormats)
@@ -476,7 +453,7 @@ class TranscriptionInterface(QWidget):
         filter_str = f"{self.tr('媒体文件')} ({video_formats} {audio_formats});;{self.tr('视频文件')} ({video_formats});;{self.tr('音频文件')} ({audio_formats})"
 
         file_path, _ = file_dialog.getOpenFileName(
-            self, self.tr("选择媒体文件"), desktop_path, filter_str
+            self, self.tr("选择媒体文件"), default_dir, filter_str
         )
         if file_path:
             self._clear_current_task()

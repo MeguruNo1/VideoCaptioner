@@ -1,5 +1,6 @@
 import unittest
 import types
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from app.core.bk_asr.mlx_whisper import MLXWhisperASR, build_mlx_initial_prompt
@@ -59,6 +60,27 @@ class MLXWhisperASRTests(unittest.TestCase):
             language="zh",
             word_timestamps=True,
             initial_prompt="请优先识别：VideoCaptioner, MLX Whisper",
+        )
+
+    def test_transcribe_once_passes_path_as_string(self):
+        asr = MLXWhisperASR(
+            b"audio",
+            model="mlx-community/whisper-large-v3-turbo",
+            language="en",
+            need_word_time_stamp=True,
+        )
+
+        mocked_transcribe = Mock(return_value={"segments": []})
+        fake_mlx_whisper = types.SimpleNamespace(transcribe=mocked_transcribe)
+        audio_path = Path("/tmp/videocaptioner-mlx/chunk-0001.wav")
+
+        self.assertEqual(asr._transcribe_once(fake_mlx_whisper, audio_path), {"segments": []})
+        mocked_transcribe.assert_called_once_with(
+            str(audio_path),
+            path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
+            language="en",
+            word_timestamps=True,
+            initial_prompt=None,
         )
 
     def test_builds_initial_prompt_from_mlx_prompt_and_hotwords(self):

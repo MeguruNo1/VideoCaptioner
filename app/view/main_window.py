@@ -27,6 +27,7 @@ from app.view.setting_interface import SettingInterface
 from app.view.subtitle_style_interface import SubtitleStyleInterface
 
 LOGO_PATH = ASSETS_PATH / "logo.png"
+MAC_TRAFFIC_LIGHT_ROW_HEIGHT = 48
 MAC_TITLE_BAR_HEIGHT = 48
 
 
@@ -114,6 +115,15 @@ class MainWindow(FluentWindow):
         """Place native macOS traffic-light buttons on the left."""
         return QRect(0, 0 if self.isFullScreen() else 8, 75, size.height())
 
+    def _macTrafficLightRowHeight(self) -> int:
+        if sys.platform != "darwin" or self.isFullScreen():
+            return 0
+        return MAC_TRAFFIC_LIGHT_ROW_HEIGHT
+
+    def _macContentTopMargin(self) -> int:
+        title_bar_height = self.titleBar.height() or MAC_TITLE_BAR_HEIGHT
+        return self._macTrafficLightRowHeight() + title_bar_height
+
     def _moveNavigationReturnButtonToTitleBar(self):
         """Keep the navigation back button clear of native macOS controls."""
         if sys.platform != "darwin" or not hasattr(self.titleBar, "buttonLayout"):
@@ -126,16 +136,25 @@ class MainWindow(FluentWindow):
         return_button.setCompacted(True)
         self.titleBar.buttonLayout.insertWidget(0, return_button, 0, Qt.AlignTop)
 
-    def _reserveMacTitleBarSpaceForNavigation(self):
-        """Prevent navigation from occupying the native macOS title bar area."""
+    def _reserveMacTitleBarSpace(self):
+        """Reserve a dedicated macOS traffic-light row above app chrome."""
         if sys.platform != "darwin":
             return
 
+        traffic_light_row_height = self._macTrafficLightRowHeight()
+        self.titleBar.move(0, traffic_light_row_height)
+
+        content_top_margin = self._macContentTopMargin()
+        self.widgetLayout.setContentsMargins(0, content_top_margin, 0, 0)
+
         panel = self.navigationInterface.panel
-        title_bar_height = self.titleBar.height() or MAC_TITLE_BAR_HEIGHT
-        available_height = max(0, self.height() - title_bar_height)
-        panel.move(0, title_bar_height)
+        available_height = max(0, self.height() - content_top_margin)
+        panel.move(0, content_top_margin)
         panel.setFixedHeight(available_height)
+
+    def _reserveMacTitleBarSpaceForNavigation(self):
+        """Prevent navigation from occupying the native macOS title bar area."""
+        self._reserveMacTitleBarSpace()
 
     def initWindow(self):
         """初始化窗口"""
@@ -242,7 +261,8 @@ class MainWindow(FluentWindow):
             self.splashScreen.resize(self.size())
 
     def eventFilter(self, obj, event):
-        if obj is self.navigationInterface and event.type() == QEvent.Resize:
+        navigation_interface = getattr(self, "navigationInterface", None)
+        if obj is navigation_interface and event.type() == QEvent.Resize:
             QTimer.singleShot(0, self._reserveMacTitleBarSpaceForNavigation)
         return super().eventFilter(obj, event)
 
