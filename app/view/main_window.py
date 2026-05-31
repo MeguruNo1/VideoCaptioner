@@ -6,12 +6,12 @@ import psutil
 from PyQt5.QtCore import QEvent, QRect, Qt, QSize, QThread, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices, QIcon
 from PyQt5.QtWidgets import QApplication
+from qframelesswindow.utils import startSystemMove
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import (
     FluentWindow,
     InfoBar,
     MessageBox,
-    NavigationAvatarWidget,
     NavigationItemPosition,
     SplashScreen,
 )
@@ -28,13 +28,18 @@ from app.view.subtitle_style_interface import SubtitleStyleInterface
 LOGO_PATH = ASSETS_PATH / "logo.png"
 MAC_TRAFFIC_LIGHT_ROW_HEIGHT = 32
 MAC_TITLE_BAR_HEIGHT = 48
+MAC_CHROME_LEFT_PADDING = 14
+MAC_TRAFFIC_LIGHT_BUTTON_AREA_WIDTH = 96
 
 
 class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self._moveNavigationReturnButtonToTitleBar()
+        self._mac_drag_widgets = ()
+        self._hideNavigationReturnButton()
+        self._styleMacTitleBarBrand()
+        self._installMacDragEventFilters()
         self.navigationInterface.displayModeChanged.connect(
             self._reserveMacTitleBarSpaceForNavigation
         )
@@ -123,17 +128,47 @@ class MainWindow(FluentWindow):
         title_bar_height = self.titleBar.height() or MAC_TITLE_BAR_HEIGHT
         return self._macTrafficLightRowHeight() + title_bar_height
 
-    def _moveNavigationReturnButtonToTitleBar(self):
-        """Keep the navigation back button clear of native macOS controls."""
-        if sys.platform != "darwin" or not hasattr(self.titleBar, "buttonLayout"):
+    def _hideNavigationReturnButton(self):
+        """This branch uses no navigation back button in the window chrome."""
+        if not hasattr(self.navigationInterface, "panel"):
             return
 
-        panel = self.navigationInterface.panel
-        return_button = panel.returnButton
-        panel.topLayout.removeWidget(return_button)
-        return_button.setParent(self.titleBar)
-        return_button.setCompacted(True)
-        self.titleBar.buttonLayout.insertWidget(0, return_button, 0, Qt.AlignTop)
+        self.navigationInterface.panel.setReturnButtonVisible(False)
+        self.navigationInterface.panel.returnButton.setDisabled(True)
+
+    def _styleMacTitleBarBrand(self):
+        """Align title-bar branding with the compact navigation icon column."""
+        if sys.platform != "darwin":
+            return
+
+        if hasattr(self.titleBar, "hBoxLayout"):
+            self.titleBar.hBoxLayout.setContentsMargins(
+                MAC_CHROME_LEFT_PADDING, 0, 0, 0
+            )
+            self.titleBar.hBoxLayout.setSpacing(8)
+
+        if hasattr(self.titleBar, "titleLabel"):
+            self.titleBar.titleLabel.setStyleSheet(
+                "font-size: 16px; font-weight: 600;"
+            )
+
+    def _installMacDragEventFilters(self):
+        if sys.platform != "darwin":
+            return
+
+        widgets = [self.titleBar, self.navigationInterface, self.navigationInterface.panel]
+        for attr_name in ("iconLabel", "titleLabel"):
+            widget = getattr(self.titleBar, attr_name, None)
+            if widget is not None:
+                widgets.append(widget)
+
+        scroll_widget = getattr(self.navigationInterface.panel, "scrollWidget", None)
+        if scroll_widget is not None:
+            widgets.append(scroll_widget)
+
+        self._mac_drag_widgets = tuple(widgets)
+        for widget in self._mac_drag_widgets:
+            widget.installEventFilter(self)
 
     def _reserveMacTitleBarSpace(self):
         """Reserve a dedicated macOS traffic-light row above app chrome."""
@@ -171,6 +206,21 @@ class MainWindow(FluentWindow):
             widget.setStyleSheet(
                 f"QWidget#{object_name} {{ background: rgba(255, 255, 255, 0.70); }}"
             )
+
+    def _isMacTrafficLightRowDragPoint(self, pos) -> bool:
+        return (
+            sys.platform == "darwin"
+            and not self.isFullScreen()
+            and pos.y() < self._macTrafficLightRowHeight()
+            and pos.x() > MAC_TRAFFIC_LIGHT_BUTTON_AREA_WIDTH
+        )
+
+    def _startMacWindowDrag(self, global_pos):
+        if sys.platform != "darwin" or self.isFullScreen():
+            return False
+
+        startSystemMove(self, global_pos)
+        return True
 
     def initWindow(self):
         """初始化窗口"""
@@ -275,7 +325,32 @@ class MainWindow(FluentWindow):
         if hasattr(self, "splashScreen"):
             self.splashScreen.resize(self.size())
 
+    def mousePressEvent(self, event):
+        if (
+            event.button() == Qt.LeftButton
+            and self._isMacTrafficLightRowDragPoint(event.pos())
+            and self._startMacWindowDrag(event.globalPos())
+        ):
+            event.accept()
+            return
+
+        super().mousePressEvent(event)
+
     def eventFilter(self, obj, event):
+        if (
+            sys.platform == "darwin"
+            and event.type() == QEvent.MouseButtonPress
+            and event.button() == Qt.LeftButton
+            and obj in getattr(self, "_mac_drag_widgets", ())
+        ):
+            if obj is self.titleBar and hasattr(self.titleBar, "canDrag"):
+                if not self.titleBar.canDrag(event.pos()):
+                    return super().eventFilter(obj, event)
+
+            if self._startMacWindowDrag(event.globalPos()):
+                event.accept()
+                return True
+
         navigation_interface = getattr(self, "navigationInterface", None)
         if obj is navigation_interface and event.type() == QEvent.Resize:
             QTimer.singleShot(0, self._reserveMacTitleBarSpaceForNavigation)

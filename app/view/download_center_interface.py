@@ -87,6 +87,8 @@ class AspectRatioLabel(QLabel):
 class DownloadCenterInterface(QWidget):
     send_to_transcription = pyqtSignal(str)
     PR_SUPPORTED_AUDIO_EXTS = {"aac", "aif", "aiff", "bwf", "m4a", "mp3", "mp4", "wav"}
+    PR_SMART_PREFERRED_AUDIO_EXTS = {"aac", "m4a"}
+    PR_SMART_PREFERRED_AUDIO_CODECS = ("mp4a", "aac")
     PR_SUPPORTED_AUDIO_CODECS = (
         "pcm",
         "sowt",
@@ -99,6 +101,7 @@ class DownloadCenterInterface(QWidget):
     PR_UNSUPPORTED_AUDIO_CODECS = ("opus", "vorbis")
     PR_SMART_AUDIO_FILTERS = (
         "[ext=m4a]",
+        "[ext=aac]",
         "[acodec*=mp4a]",
         "[acodec*=aac]",
         "[ext=mp3]",
@@ -1553,6 +1556,17 @@ class DownloadCenterInterface(QWidget):
         return lowered_ext in cls.PR_SUPPORTED_AUDIO_EXTS
 
     @classmethod
+    def _is_pr_smart_preferred_audio_format(cls, item: dict | None) -> bool:
+        if not cls._is_pr_supported_audio_format(item):
+            return False
+
+        lowered_codec = str(item.get("acodec") or "").lower()
+        lowered_ext = str(item.get("ext") or "").lower()
+        return lowered_ext in cls.PR_SMART_PREFERRED_AUDIO_EXTS or any(
+            codec in lowered_codec for codec in cls.PR_SMART_PREFERRED_AUDIO_CODECS
+        )
+
+    @classmethod
     def _pr_audio_quality_key(cls, item: dict) -> tuple[int, int, int, int]:
         return (
             int(item.get("abr") or 0),
@@ -1602,7 +1616,11 @@ class DownloadCenterInterface(QWidget):
         if not formats:
             return None
 
-        ranked = [item for item in formats if self._is_pr_supported_audio_format(item)]
+        ranked = [
+            item for item in formats if self._is_pr_smart_preferred_audio_format(item)
+        ]
+        if not ranked:
+            ranked = [item for item in formats if self._is_pr_supported_audio_format(item)]
         ranked.sort(key=self._pr_audio_quality_key, reverse=True)
         return ranked[0] if ranked else None
 
@@ -1660,6 +1678,7 @@ class DownloadCenterInterface(QWidget):
                 [
                     self._build_pr_smart_audio_pair_selector(video_id),
                     "bv*+bestaudio[ext=m4a]",
+                    "bv*+bestaudio[ext=aac]",
                     video_id,
                 ]
             ),

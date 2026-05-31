@@ -42,7 +42,7 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
 
         self.assertEqual(selected["format_id"], "140")
 
-    def test_pr_smart_audio_uses_highest_spec_among_supported_formats(self):
+    def test_pr_smart_audio_uses_highest_spec_among_aac_or_m4a_formats(self):
         interface = self._interface_with_preview(
             {
                 "audio_formats": [
@@ -52,6 +52,14 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
                         "ext": "m4a",
                         "abr": 129,
                         "filesize": 5_000_000,
+                        "channels": 2,
+                    },
+                    {
+                        "format_id": "m4a-256",
+                        "acodec": "mp4a.40.2",
+                        "ext": "m4a",
+                        "abr": 256,
+                        "filesize": 9_000_000,
                         "channels": 2,
                     },
                     {
@@ -68,7 +76,7 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
 
         selected = interface._pick_pr_smart_audio_format()
 
-        self.assertEqual(selected["format_id"], "mp3-320")
+        self.assertEqual(selected["format_id"], "m4a-256")
 
     def test_pr_smart_request_pairs_video_only_stream_with_supported_audio(self):
         interface = self._interface_with_preview(
@@ -125,6 +133,34 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
         self.assertEqual(request["selected_video_format_id"], "av1-video")
         self.assertEqual(request["selected_audio_format_id"], "140")
         self.assertEqual(request["format_selector"], "av1-video+140")
+
+    def test_pr_smart_audio_falls_back_to_supported_audio_when_no_aac_or_m4a(self):
+        interface = self._interface_with_preview(
+            {
+                "audio_formats": [
+                    {
+                        "format_id": "mp3-192",
+                        "acodec": "mp3",
+                        "ext": "mp3",
+                        "abr": 192,
+                        "filesize": 7_000_000,
+                        "channels": 2,
+                    },
+                    {
+                        "format_id": "wav",
+                        "acodec": "pcm_s16le",
+                        "ext": "wav",
+                        "abr": 1411,
+                        "filesize": 40_000_000,
+                        "channels": 2,
+                    },
+                ]
+            }
+        )
+
+        selected = interface._pick_pr_smart_audio_format()
+
+        self.assertEqual(selected["format_id"], "wav")
 
     def test_pr_smart_audio_does_not_select_unsupported_audio_only_formats(self):
         interface = self._interface_with_preview(
