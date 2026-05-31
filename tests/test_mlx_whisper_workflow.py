@@ -18,9 +18,9 @@ class MLXWhisperWorkflowTests(unittest.TestCase):
         self.assertEqual(
             windows,
             [
-                (0.0, 600.0, 0.0, 570.0),
-                (570.0, 1170.0, 600.0, 1140.0),
-                (1140.0, 1250.0, 1170.0, 1250.0),
+                (0.0, 600.0, 0.0, 585.0),
+                (570.0, 1170.0, 585.0, 1155.0),
+                (1140.0, 1250.0, 1155.0, 1250.0),
             ],
         )
 
@@ -43,14 +43,39 @@ class MLXWhisperWorkflowTests(unittest.TestCase):
                 ]
             },
             offset_seconds=570.0,
-            keep_start_seconds=600.0,
-            keep_end_seconds=1140.0,
+            keep_start_seconds=585.0,
+            keep_end_seconds=1155.0,
         )
 
         self.assertEqual(len(result["segments"]), 1)
         self.assertEqual(result["segments"][0]["text"], "kept")
         self.assertEqual(result["segments"][0]["start"], 601.0)
         self.assertEqual(result["segments"][0]["words"][0]["start"], 601.0)
+
+    def test_offsets_result_filters_words_without_dropping_boundary_segment(self):
+        result = offset_transcription_result(
+            {
+                "segments": [
+                    {
+                        "start": 10.0,
+                        "end": 40.0,
+                        "text": "drop keep",
+                        "words": [
+                            {"word": "drop", "start": 10.0, "end": 10.4},
+                            {"word": "keep", "start": 31.0, "end": 31.5},
+                        ],
+                    },
+                ]
+            },
+            offset_seconds=570.0,
+            keep_start_seconds=600.0,
+            keep_end_seconds=650.0,
+        )
+
+        self.assertEqual(len(result["segments"]), 1)
+        self.assertEqual(result["segments"][0]["text"], "keep")
+        self.assertEqual(result["segments"][0]["start"], 601.0)
+        self.assertEqual(result["segments"][0]["end"], 601.5)
 
     def test_merges_results_and_dedupes_overlap_words(self):
         merged = merge_transcription_results(

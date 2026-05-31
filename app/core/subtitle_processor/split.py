@@ -36,6 +36,7 @@ MAX_WORD_COUNT_CJK = 25  # 中日韩文本最大字数
 MAX_WORD_COUNT_ENGLISH = 18  # 英文文本最大单词数
 SEGMENT_THRESHOLD = 300  # 每个分段的最大字数
 MAX_GAP = 1500  # 允许每个词语之间的最大时间间隔（毫秒）
+SPLIT_STRATEGY_VERSION = "strict-terminal-punctuation-v1"
 
 
 def is_pure_punctuation(text: str) -> bool:
@@ -156,7 +157,7 @@ def preprocess_segments(
 ) -> List[ASRDataSeg]:
     """
     预处理ASR数据分段:
-    1. 移除纯标点符号的分段
+    1. 将纯标点符号的分段合并到前一个分段，保留句末边界
     2. 对仅包含字母、数字和撇号的文本进行小写处理并添加空格
 
     Args:
@@ -168,14 +169,23 @@ def preprocess_segments(
     """
     new_segments = []
     for seg in segments:
-        if not is_pure_punctuation(seg.text):
-            # 如果文本只包含字母、数字和撇号，则将其转换为小写并添加一个空格
-            if re.match(r"^[a-zA-Z0-9\']+$", seg.text.strip()):
-                if need_lower:
-                    seg.text = seg.text.lower() + " "
-                else:
-                    seg.text = seg.text + " "
-            new_segments.append(seg)
+        text = (seg.text or "").strip()
+        if not text:
+            continue
+
+        if is_pure_punctuation(text):
+            if new_segments:
+                new_segments[-1].text = f"{new_segments[-1].text.rstrip()}{text}"
+                new_segments[-1].end_time = max(new_segments[-1].end_time, seg.end_time)
+            continue
+
+        # 如果文本只包含字母、数字和撇号，则将其转换为小写并添加一个空格
+        if re.match(r"^[a-zA-Z0-9\']+$", text):
+            if need_lower:
+                seg.text = text.lower() + " "
+            else:
+                seg.text = text + " "
+        new_segments.append(seg)
     return new_segments
 
 
@@ -197,6 +207,8 @@ class SubtitleSplitter:
         "：",
         "、",
     )
+    STRONG_TERMINAL_SUFFIXES = (".", "!", "?", "。", "！", "？")
+    TERMINAL_STRIP_CHARS = ' \t\r\n"\'”’）)]}】》'
     ENGLISH_PREFIX_SPLIT_WORDS = {
         "and",
         "or",
@@ -296,6 +308,12 @@ class SubtitleSplitter:
         if is_mainly_cjk(raw_text):
             return raw_text
         return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
+
+    @classmethod
+    def _has_strong_terminal_boundary(cls, text: str) -> bool:
+        return (text or "").rstrip(cls.TERMINAL_STRIP_CHARS).endswith(
+            cls.STRONG_TERMINAL_SUFFIXES
+        )
 
     def _init_client(self):
         """初始化OpenAI客户端"""
@@ -527,6 +545,7 @@ class SubtitleSplitter:
             "temperature": self.temperature,
             "split_stage": stage,
             "prompt_hash": hashlib.md5(system_prompt.encode("utf-8")).hexdigest(),
+            "split_strategy_version": SPLIT_STRATEGY_VERSION,
         }
         if cache_extra:
             param.update(cache_extra)
@@ -663,17 +682,18 @@ class SubtitleSplitter:
         # 2. 按常用词分割, 只处理长句
         common_result_groups = []
         for group in segment_groups:
-            group_text = self._join_segment_texts(group)
-            max_word_count = (
-                self.max_word_count_cjk
-                if is_mainly_cjk(group_text)
-                else self.max_word_count_english
-            )
-            if count_words(group_text) > max_word_count:
-                split_groups = self._split_by_common_words(group)
-                common_result_groups.extend(split_groups)
-            else:
-                common_result_groups.append(group)
+            for strict_group in self._split_by_strong_terminal_punctuation(group):
+                group_text = self._join_segment_texts(strict_group)
+                max_word_count = (
+                    self.max_word_count_cjk
+                    if is_mainly_cjk(group_text)
+                    else self.max_word_count_english
+                )
+                if count_words(group_text) > max_word_count:
+                    split_groups = self._split_by_common_words(strict_group)
+                    common_result_groups.extend(split_groups)
+                else:
+                    common_result_groups.append(strict_group)
 
         # 3. 处理过长的分段，并合并group为seg
         result_segments = []
@@ -738,6 +758,29 @@ class SubtitleSplitter:
         if current_group:
             result.append(current_group)
 
+        return result
+
+    def _split_by_strong_terminal_punctuation(
+        self, segments: List[ASRDataSeg]
+    ) -> List[List[ASRDataSeg]]:
+        """按句末强终止标点切分，避免问号等边界被长度阈值吞掉。"""
+        if not segments:
+            return []
+
+        result = []
+        current_group = []
+        for index, seg in enumerate(segments):
+            current_group.append(seg)
+            if (
+                index < len(segments) - 1
+                and self._has_strong_terminal_boundary(seg.text)
+            ):
+                result.append(current_group)
+                logger.debug(f"在强终止标点后分割: {seg.text}")
+                current_group = []
+
+        if current_group:
+            result.append(current_group)
         return result
 
     def _split_by_common_words(
@@ -838,10 +881,20 @@ class SubtitleSplitter:
                 else self.max_word_count_english
             )
 
+            # 强终止标点是硬边界，不受最小长度阈值限制
+            if (
+                i > 0
+                and current_group
+                and self._has_strong_terminal_boundary(segments[i - 1].text)
+            ):
+                result.append(current_group)
+                logger.debug(f"在强终止标点 {segments[i-1].text} 后分割")
+                current_group = []
+
             # 如果当前词是前缀词且前面已经累积了足够多的词
             if any(
                 seg.text.lower().startswith(word) for word in prefix_split_words
-            ) and len(current_group) >= int(max_word_count * 0.6):
+            ) and current_group and len(current_group) >= int(max_word_count * 0.6):
                 result.append(current_group)
                 logger.debug(f"在前缀词 {seg.text} 前分割")
                 current_group = []
@@ -879,13 +932,31 @@ class SubtitleSplitter:
             拆分后的分段列表
         """
         result_segs = []
-        segments_to_process = [segments]  # 使用列表作为处理队列
+        segments_to_process = [(segments, hint_text)]  # 使用列表作为处理队列
 
         while segments_to_process:
-            current_segments = segments_to_process.pop(0)
+            current_segments, current_hint_text = segments_to_process.pop(0)
 
             # 添加空列表检查
             if not current_segments:
+                continue
+
+            strict_groups = self._split_by_strong_terminal_punctuation(
+                current_segments
+            )
+            if len(strict_groups) > 1:
+                segments_to_process = [
+                    (group, "") for group in strict_groups
+                ] + segments_to_process
+                continue
+
+            hint_groups = self._split_by_hint_terminal_boundaries(
+                current_segments, current_hint_text
+            )
+            if len(hint_groups) > 1:
+                segments_to_process = [
+                    (group, "") for group in hint_groups
+                ] + segments_to_process
                 continue
 
             merged_text = self._join_segment_texts(current_segments)
@@ -908,7 +979,7 @@ class SubtitleSplitter:
                 continue
 
             natural_split_index = self._find_natural_split_index(
-                current_segments, max_word_count, hint_text
+                current_segments, max_word_count, current_hint_text
             )
             if natural_split_index is not None:
                 split_index = natural_split_index
@@ -940,7 +1011,7 @@ class SubtitleSplitter:
             first_segs = current_segments[: split_index + 1]
             second_segs = current_segments[split_index + 1 :]
 
-            segments_to_process.extend([first_segs, second_segs])
+            segments_to_process.extend([(first_segs, ""), (second_segs, "")])
 
         # 按时间排序
         result_segs.sort(key=lambda seg: seg.start_time)
@@ -974,6 +1045,10 @@ class SubtitleSplitter:
             right_text = self._join_segment_texts(right)
             left_count = count_words(left_text)
             right_count = count_words(right_text)
+            current_text = segments[index].text.strip()
+            if self._has_strong_terminal_boundary(current_text) and right_count > 0:
+                return index
+
             if (
                 left_count < min_left_count
                 or left_count > max_word_count
@@ -981,7 +1056,6 @@ class SubtitleSplitter:
             ):
                 continue
 
-            current_text = segments[index].text.strip()
             next_text = segments[index + 1].text.strip()
             if left_count in hint_boundary_counts:
                 candidates.append((0, abs(left_count - target_count), index))
@@ -1008,6 +1082,59 @@ class SubtitleSplitter:
 
         candidates.sort()
         return candidates[0][2]
+
+    def _split_by_hint_terminal_boundaries(
+        self, segments: List[ASRDataSeg], hint_text: str = ""
+    ) -> List[List[ASRDataSeg]]:
+        """按 LLM 恢复文本中的强终止标点边界切回原始时间轴。"""
+        if not hint_text or len(segments) < 2:
+            return [segments]
+
+        is_cjk_text = is_mainly_cjk(self._join_segment_texts(segments))
+        boundaries = self._hint_terminal_boundary_counts(hint_text, is_cjk_text)
+        if not boundaries:
+            return [segments]
+
+        result = []
+        current_group = []
+        cumulative_count = 0
+        for index, seg in enumerate(segments):
+            current_group.append(seg)
+            cumulative_count += count_words(seg.text)
+            if index < len(segments) - 1 and cumulative_count in boundaries:
+                result.append(current_group)
+                logger.debug("按恢复文本强终止标点边界分割: %s", cumulative_count)
+                current_group = []
+
+        if current_group:
+            result.append(current_group)
+        return result or [segments]
+
+    def _hint_terminal_boundary_counts(
+        self, hint_text: str, is_cjk_text: bool
+    ) -> set[int]:
+        """只从 LLM 恢复文本里的强终止标点提取硬边界。"""
+        boundaries: set[int] = set()
+        if not hint_text:
+            return boundaries
+
+        if is_cjk_text:
+            visible_count = 0
+            for char in hint_text:
+                if char in self.STRONG_TERMINAL_SUFFIXES:
+                    if visible_count > 0:
+                        boundaries.add(visible_count)
+                    continue
+                if char in self.PUNCTUATION_SPLIT_SUFFIXES or char.isspace():
+                    continue
+                visible_count += 1
+            return boundaries
+
+        words = [word for word in hint_text.split() if word.strip()]
+        for index, word in enumerate(words):
+            if self._has_strong_terminal_boundary(word):
+                boundaries.add(index + 1)
+        return boundaries
 
     def _hint_boundary_counts(self, hint_text: str, is_cjk_text: bool) -> set[int]:
         """从 LLM 返回文本中的标点和连接词推断建议断点位置。"""
@@ -1094,6 +1221,10 @@ class SubtitleSplitter:
                 if is_mainly_cjk(current_seg.text)
                 else self.max_word_count_english
             )
+
+            if self._has_strong_terminal_boundary(current_seg.text):
+                i += 1
+                continue
 
             if (
                 time_gap < 200

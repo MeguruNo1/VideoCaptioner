@@ -34,8 +34,12 @@ def build_chunk_windows(
     while start < duration:
         end = min(duration, start + chunk_duration)
         next_start = start + step
-        keep_start = 0.0 if not windows else min(end, start + overlap)
-        keep_end = duration if next_start >= duration else next_start
+        keep_start = 0.0 if not windows else min(end, start + overlap / 2)
+        keep_end = (
+            duration
+            if next_start >= duration
+            else min(end, next_start + overlap / 2)
+        )
         windows.append(
             (
                 round(start, 3),
@@ -77,8 +81,6 @@ def offset_transcription_result(
         segment = copy.deepcopy(raw_segment)
         start = float(segment.get("start") or 0) + offset
         end = float(segment.get("end") or start) + offset
-        if not _is_inside_keep_range(start, end, keep_start_seconds, keep_end_seconds):
-            continue
 
         segment["start"] = round(start, 3)
         segment["end"] = round(end, 3)
@@ -98,6 +100,21 @@ def offset_transcription_result(
             if not words:
                 continue
             segment["words"] = words
+            segment["start"] = round(
+                min(float(word.get("start") or 0) for word in words), 3
+            )
+            segment["end"] = round(
+                max(float(word.get("end") or 0) for word in words), 3
+            )
+            segment["text"] = " ".join(
+                str(word.get("word") or word.get("text") or "").strip()
+                for word in words
+                if str(word.get("word") or word.get("text") or "").strip()
+            )
+        elif not _is_inside_keep_range(
+            start, end, keep_start_seconds, keep_end_seconds
+        ):
+            continue
         shifted["segments"].append(segment)
 
     shifted["text"] = " ".join(
