@@ -27,7 +27,7 @@ from app.view.setting_interface import SettingInterface
 from app.view.subtitle_style_interface import SubtitleStyleInterface
 
 LOGO_PATH = ASSETS_PATH / "logo.png"
-MAC_TRAFFIC_LIGHT_ROW_HEIGHT = 48
+MAC_TRAFFIC_LIGHT_ROW_HEIGHT = 32
 MAC_TITLE_BAR_HEIGHT = 48
 
 
@@ -156,6 +156,23 @@ class MainWindow(FluentWindow):
         """Prevent navigation from occupying the native macOS title bar area."""
         self._reserveMacTitleBarSpace()
 
+    def _applyMacWindowChromeStyle(self):
+        """Use a light translucent chrome without covering Qt content."""
+        if sys.platform != "darwin":
+            return
+
+        chrome_widgets = (
+            ("macTitleBarChrome", self.titleBar),
+            ("macNavigationChrome", self.navigationInterface),
+            ("macNavigationPanelChrome", self.navigationInterface.panel),
+        )
+        for object_name, widget in chrome_widgets:
+            widget.setObjectName(object_name)
+            widget.setAttribute(Qt.WA_TranslucentBackground, True)
+            widget.setStyleSheet(
+                f"QWidget#{object_name} {{ background: rgba(255, 255, 255, 0.70); }}"
+            )
+
     def initWindow(self):
         """初始化窗口"""
         self.resize(1200, 800)
@@ -176,6 +193,7 @@ class MainWindow(FluentWindow):
         self.move(w // 2 - self.width() // 2, h // 2 - self.height() // 2)
 
         self.show()
+        self._applyMacWindowChromeStyle()
         QApplication.processEvents()
 
     def onGithubDialog(self):
