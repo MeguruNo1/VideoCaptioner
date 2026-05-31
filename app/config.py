@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-from app.core.utils.platform_utils import app_data_dir, default_work_dir, is_macos
+from app.core.utils.platform_utils import app_data_dir, default_work_dir
 
 VERSION = "v1.3.3"
 YEAR = 2025
@@ -21,18 +21,18 @@ FEEDBACK_URL = "https://github.com/WEIFENG2333/VideoCaptioner/issues"
 ROOT_PATH = Path(__file__).parent
 
 RESOURCE_PATH = ROOT_PATH.parent / "resource"
-APPDATA_PATH = app_data_dir(APP_NAME) if is_macos() else ROOT_PATH.parent / "AppData"
-WORK_PATH = default_work_dir(APP_NAME) if is_macos() else ROOT_PATH.parent / "work-dir"
+APP_DATA_PATH = app_data_dir(APP_NAME)
+WORK_PATH = default_work_dir(APP_NAME)
 
 
-BIN_PATH = RESOURCE_PATH / "bin" / "macos-arm64" if is_macos() else RESOURCE_PATH / "bin"
+BIN_PATH = RESOURCE_PATH / "bin" / "macos-arm64"
 ASSETS_PATH = RESOURCE_PATH / "assets"
 SUBTITLE_STYLE_PATH = RESOURCE_PATH / "subtitle_style"
 
-LOG_PATH = APPDATA_PATH / "logs"
-SETTINGS_PATH = APPDATA_PATH / "settings.json"
-CACHE_PATH = APPDATA_PATH / "cache"
-MODEL_PATH = APPDATA_PATH / "models"
+LOG_PATH = APP_DATA_PATH / "logs"
+SETTINGS_PATH = APP_DATA_PATH / "settings.json"
+CACHE_PATH = APP_DATA_PATH / "cache"
+MODEL_PATH = APP_DATA_PATH / "models"
 
 # 日志配置
 LOG_LEVEL = logging.INFO

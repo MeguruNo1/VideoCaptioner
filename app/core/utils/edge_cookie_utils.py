@@ -6,9 +6,9 @@ from typing import Any, Iterable
 
 from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
 
-from app.config import APPDATA_PATH
+from app.config import APP_DATA_PATH
 
-COOKIE_FILE_PATH = APPDATA_PATH / "cookies.txt"
+COOKIE_FILE_PATH = APP_DATA_PATH / "cookies.txt"
 COOKIE_BROWSER_LABELS = {
     "safari": "Safari",
     "chrome": "Chrome",

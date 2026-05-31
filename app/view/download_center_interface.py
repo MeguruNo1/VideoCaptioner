@@ -43,7 +43,7 @@ from qfluentwidgets import (
 )
 
 from app.common.config import cfg
-from app.config import APPDATA_PATH
+from app.config import APP_DATA_PATH
 from app.core.utils.desktop_notification import send_desktop_notification
 from app.core.utils.platform_utils import open_path
 
@@ -1377,7 +1377,7 @@ class DownloadCenterInterface(QWidget):
             InfoBar.error(self.tr("错误"), self.tr("请输入有效的视频 URL"), duration=3000, parent=self)
             return
         self._refresh_edge_cookie_if_needed()
-        cookiefile_path = APPDATA_PATH / "cookies.txt"
+        cookiefile_path = APP_DATA_PATH / "cookies.txt"
         if not cookiefile_path.exists():
             InfoBar.warning(self.tr("提示"), self.tr("建议配置 cookies.txt，以提高高清视频与字幕的可用性。"), duration=4000, parent=self, position=InfoBarPosition.BOTTOM_RIGHT)
         self._set_controls_enabled(False)

@@ -10,7 +10,6 @@ from app.core.utils.proxy_utils import (
     get_effective_download_proxy_url,
 )
 from app.core.utils.logger import setup_logger
-from app.core.utils.platform_utils import subprocess_no_window_kwargs
 
 logger = setup_logger("download_thread")
 
@@ -65,8 +64,7 @@ class FileDownloadThread(QThread):
                 'encoding': 'utf-8',
                 'env': build_download_proxy_env(),
             }
-            subprocess_args.update(subprocess_no_window_kwargs())
-            
+
             logger.info("运行下载命令: %s", " ".join(cmd))
             
             self.process = subprocess.Popen(

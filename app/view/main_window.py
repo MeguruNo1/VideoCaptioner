@@ -16,7 +16,6 @@ from qfluentwidgets import (
     SplashScreen,
 )
 
-from app.common.config import cfg
 from app.common.signal_bus import signalBus
 from app.components.DonateDialog import DonateDialog
 from app.config import ASSETS_PATH, GITHUB_REPO_URL
@@ -157,7 +156,7 @@ class MainWindow(FluentWindow):
         self._reserveMacTitleBarSpace()
 
     def _applyMacWindowChromeStyle(self):
-        """Use a light translucent chrome without covering Qt content."""
+        """Use Qt translucent chrome without covering the main content."""
         if sys.platform != "darwin":
             return
 
@@ -179,8 +178,6 @@ class MainWindow(FluentWindow):
         self.setMinimumWidth(700)
         self.setWindowIcon(QIcon(str(LOGO_PATH)))
         self.setWindowTitle(self.tr("卡卡字幕助手 -- VideoCaptioner"))
-
-        self.setMicaEffectEnabled(cfg.get(cfg.micaEnabled))
 
         # 创建启动画面
         self.splashScreen = SplashScreen(self.windowIcon(), self)

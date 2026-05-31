@@ -43,11 +43,6 @@ def video2audio(input_file: str, output: str = "") -> bool:
             check=True,
             encoding="utf-8",
             errors="replace",
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW
-                if hasattr(subprocess, "CREATE_NO_WINDOW")
-                else 0
-            ),
         )
         if result.returncode == 0 and Path(output).is_file():
             return True
@@ -68,11 +63,6 @@ def check_cuda_available() -> bool:
             ["ffmpeg", "-hwaccels"],
             capture_output=True,
             text=True,
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW
-                if hasattr(subprocess, "CREATE_NO_WINDOW")
-                else 0
-            ),
         )
         if "cuda" not in result.stdout.lower():
             logger.info("CUDA不在支持的硬件加速器列表中")
@@ -83,7 +73,6 @@ def check_cuda_available() -> bool:
             ["ffmpeg", "-hide_banner", "-init_hw_device", "cuda"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
 
         # 如果stderr中包含"Cannot load cuda" 或 "Failed to load"等错误信息，说明CUDA不可用
@@ -102,14 +91,6 @@ def check_cuda_available() -> bool:
         return False
 
 
-def _ffmpeg_creationflags() -> int:
-    return (
-        subprocess.CREATE_NO_WINDOW
-        if hasattr(subprocess, "CREATE_NO_WINDOW")
-        else 0
-    )
-
-
 def get_video_codec(file_path: str) -> str:
     video_info = get_video_info(file_path)
     if not video_info:
@@ -125,7 +106,6 @@ def _get_available_ffmpeg_encoders() -> set[str]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            creationflags=_ffmpeg_creationflags(),
         )
         output = f"{result.stdout}\n{result.stderr}"
         encoders = set()
@@ -428,11 +408,6 @@ def add_subtitles(
             text=True,
             encoding="utf-8",
             errors="replace",
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW
-                if hasattr(subprocess, "CREATE_NO_WINDOW")
-                else 0
-            ),
         )
     else:
         logger.info("使用硬字幕")
@@ -482,11 +457,6 @@ def add_subtitles(
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                creationflags=(
-                    subprocess.CREATE_NO_WINDOW
-                    if hasattr(subprocess, "CREATE_NO_WINDOW")
-                    else 0
-                ),
             )
 
             # 实时读取输出并调用回调函数
@@ -555,11 +525,6 @@ def get_video_info(file_path: str) -> Optional[Dict]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW
-                if hasattr(subprocess, "CREATE_NO_WINDOW")
-                else 0
-            ),
         )
         info = result.stderr
 

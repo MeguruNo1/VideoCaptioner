@@ -76,7 +76,6 @@ scripts/build_macos_app.sh --install
 
 ## macOS Notes
 
-- The branch does not ship a bundled Windows runtime or Windows executables.
 - The app uses the system `ffmpeg` from Homebrew.
 - Browser cookies are exported through yt-dlp browser integration, trying Chrome, Edge, then Safari.
 - The local `.app` launcher starts `.venv/bin/python main.py` from this checkout.

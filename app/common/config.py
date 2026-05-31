@@ -506,7 +506,6 @@ class Config(QConfig):
     )
 
     # ------------------- 软件页面配置 -------------------
-    micaEnabled = ConfigItem("MainWindow", "MicaEnabled", False, BoolValidator())
     dpiScale = OptionsConfigItem(
         "MainWindow",
         "DpiScale",

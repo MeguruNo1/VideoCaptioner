@@ -44,7 +44,6 @@ class VideoInfoThread(QThread):
                 text=True,
                 encoding='utf-8',
                 errors='replace',
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
             )
             info = result.stderr
 
@@ -132,10 +131,9 @@ class VideoInfoThread(QThread):
                 text=True, 
                 encoding='utf-8', 
                 errors='replace',
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             return result.returncode == 0
 
         except Exception as e:
             logger.exception(f"提取缩略图时出错: {str(e)}")
-            return False 
+            return False

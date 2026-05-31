@@ -38,7 +38,6 @@ def run_subprocess(command: list):
             command,
             check=True,
             capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
     except subprocess.CalledProcessError as e:
         logger.error(f"Subprocess error: {e.stderr}")

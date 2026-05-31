@@ -331,7 +331,6 @@ class WhisperXASR(BaseASR):
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
 
             output_lines = []
@@ -432,7 +431,6 @@ class WhisperXASR(BaseASR):
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                 timeout=15,
             )
         except Exception:

@@ -10,7 +10,7 @@ import requests
 import yt_dlp
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from app.config import APPDATA_PATH
+from app.config import APP_DATA_PATH
 from app.core.utils.logger import setup_logger
 from app.core.utils.download_description import write_description_txt_file
 from app.core.utils.subtitle_transcript import write_transcript_txt_file
@@ -54,7 +54,7 @@ SUBTITLE_EXTENSIONS = {
     ".srv2",
     ".srv3",
 }
-NO_COOKIE_FILE_PATH = APPDATA_PATH / "__no_cookie__.txt"
+NO_COOKIE_FILE_PATH = APP_DATA_PATH / "__no_cookie__.txt"
 
 
 class DownloadCancelledError(Exception):
@@ -72,33 +72,6 @@ def sanitize_filename(name: str, replacement: str = "_") -> str:
         base, ext = os.path.splitext(sanitized)
         base_max_length = max_length - len(ext)
         sanitized = base[:base_max_length] + ext
-
-    windows_reserved_names = {
-        "CON",
-        "PRN",
-        "AUX",
-        "NUL",
-        "COM1",
-        "COM2",
-        "COM3",
-        "COM4",
-        "COM5",
-        "COM6",
-        "COM7",
-        "COM8",
-        "COM9",
-        "LPT1",
-        "LPT2",
-        "LPT3",
-        "LPT4",
-        "LPT5",
-        "LPT6",
-        "LPT7",
-        "LPT8",
-        "LPT9",
-    }
-    if os.path.splitext(sanitized)[0].upper() in windows_reserved_names:
-        sanitized = f"{sanitized}_"
 
     return sanitized or "default_filename"
 
@@ -554,7 +527,7 @@ def _build_download_ranges_callback(download_sections: list[str]):
 
 def extract_preview(url: str, download_engine_strategy: str | None = None) -> dict:
     proxy_url = apply_download_proxy_environment()
-    cookiefile_path = APPDATA_PATH / "cookies.txt"
+    cookiefile_path = APP_DATA_PATH / "cookies.txt"
     effective_strategy = _resolve_download_engine_strategy(
         download_engine_strategy, proxy_url, cookiefile_path
     )
@@ -912,7 +885,7 @@ class VideoDownloadThread(QThread):
         self._download_started_at = time.time()
         self._raise_if_terminated()
         proxy_url = apply_download_proxy_environment()
-        cookiefile_path = APPDATA_PATH / "cookies.txt"
+        cookiefile_path = APP_DATA_PATH / "cookies.txt"
         effective_strategy = _resolve_download_engine_strategy(
             self.download_engine_strategy, proxy_url, cookiefile_path
         )

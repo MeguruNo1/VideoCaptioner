@@ -3,28 +3,10 @@ import math
 import re
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
-import os
-import platform
 
 from app.core.utils.profanity_filter import mask_english_profanity
 
 SEPARATE_ORIGINAL_TRANSLATE_LAYOUT = "单独输出原文和译文"
-
-
-def handle_long_path(path: str) -> str:
-    """Return a path variant compatible with the current filesystem.
-
-    Args:
-        path: 原始路径
-
-    Returns:
-        处理后的路径
-    """
-    if platform.system() == "Windows":
-        if len(path) > 260 and not path.startswith("\\\\?\\"):
-            abs_path = os.path.abspath(path)
-            return f"\\\\?\\{abs_path}"
-    return path
 
 
 class ASRDataSeg:
@@ -251,9 +233,6 @@ class ASRData:
             ass_style: ASS样式字符串,为空则使用默认样式
             layout: 字幕布局,可选值["原文在上", "译文在上", "仅原文", "仅译文"]
         """
-        # 处理Windows长路径问题
-        save_path = handle_long_path(save_path)
-
         # 创建目录
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -371,9 +350,6 @@ class ASRData:
             result.append(text)
         text = "\n".join(result)
         if save_path:
-            # 处理Windows长路径问题
-            save_path = handle_long_path(save_path)
-
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(result))
         return text
@@ -412,9 +388,6 @@ class ASRData:
 
         srt_text = "\n".join(srt_lines)
         if save_path:
-            # 处理Windows长路径问题
-            save_path = handle_long_path(save_path)
-
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write(srt_text)
         return srt_text
@@ -528,9 +501,6 @@ class ASRData:
                 )
 
         if save_path:
-            # 处理Windows长路径问题
-            save_path = handle_long_path(save_path)
-
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write(ass_content)
         return ass_content
