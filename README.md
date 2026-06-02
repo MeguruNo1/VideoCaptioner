@@ -72,7 +72,7 @@ scripts/build_macos_app.sh --install
 | -------- | ---------------------------------------------------- |
 | Video    | MP4, MKV, MOV, AVI, WebM, WMV, FLV, TS, and more     |
 | Audio    | MP3, WAV, AAC, FLAC, OGG, OPUS, M4A, WMA, and more   |
-| Subtitle | SRT, ASS, VTT, JSON, TXT                             |
+| Subtitle | SRT, VTT, JSON, TXT                                  |
 
 ## macOS Notes
 

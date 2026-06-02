@@ -59,7 +59,6 @@ class SupportedSubtitleFormats(Enum):
     """支持的字幕格式"""
 
     SRT = "srt"
-    ASS = "ass"
     VTT = "vtt"
 
 
@@ -67,7 +66,6 @@ class OutputSubtitleFormatEnum(Enum):
     """字幕输出格式"""
 
     SRT = "srt"
-    ASS = "ass"
     VTT = "vtt"
     JSON = "json"
     TXT = "txt"
@@ -628,7 +626,6 @@ class SubtitleConfig:
     max_word_count_english: int = 18
     need_split: bool = True
     target_language: Optional[TargetLanguageEnum] = None
-    subtitle_style: Optional[str] = None
     need_remove_translated_chinese_commas: bool = False
     need_remove_punctuation: bool = False
     need_mask_original_profanity: bool = False

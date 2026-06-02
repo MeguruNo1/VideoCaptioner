@@ -30,6 +30,7 @@ from qfluentwidgets import (
     RoundMenu,
     SingleDirectionScrollArea,
     TransparentDropDownPushButton,
+    isDarkTheme,
     setFont,
 )
 
@@ -275,6 +276,7 @@ class TranscriptionInterface(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("TranscriptionInterface")
         self.setAcceptDrops(True)
         self.task = None
         self.is_processing = False
@@ -282,6 +284,8 @@ class TranscriptionInterface(QWidget):
         self._init_ui()
         self._setup_signals()
         self._set_value()
+        cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
+        self._apply_theme_styles()
 
     def _init_ui(self):
         """初始化UI"""
@@ -303,10 +307,12 @@ class TranscriptionInterface(QWidget):
         self.scroll_layout.setSpacing(20)
 
         self.video_info_card = VideoInfoCard(self)
+        self.video_info_card.setObjectName("videoInfoPanel")
         self.scroll_layout.addWidget(self.video_info_card)
 
         # 添加转录设置卡片
         self.transcription_setting_card = TranscriptionSettingCard(self)
+        self.transcription_setting_card.setObjectName("transcriptionSettingPanel")
         self.scroll_layout.addWidget(self.transcription_setting_card)
         self.scroll_layout.addStretch(1)
 
@@ -360,6 +366,46 @@ class TranscriptionInterface(QWidget):
         self.command_bar.addAction(self.send_to_translate_action)
 
         self.main_layout.addWidget(self.command_bar)
+
+    def _apply_theme_styles(self):
+        if isDarkTheme():
+            page_background = "#202124"
+            panel_background = "rgba(255, 255, 255, 0.05)"
+            panel_border = "rgba(255, 255, 255, 0.08)"
+            thumbnail_background = "#1E1F22"
+            thumbnail_border = "rgba(255, 255, 255, 0.08)"
+        else:
+            page_background = "#F5F7FA"
+            panel_background = "#FFFFFF"
+            panel_border = "rgba(17, 24, 39, 0.12)"
+            thumbnail_background = "#F8FAFC"
+            thumbnail_border = "rgba(17, 24, 39, 0.12)"
+
+        self.setStyleSheet(
+            f"""
+            QWidget#TranscriptionInterface {{
+                background-color: {page_background};
+            }}
+            QWidget#videoInfoPanel, QWidget#transcriptionSettingPanel {{
+                background-color: {panel_background};
+                border: 1px solid {panel_border};
+                border-radius: 8px;
+            }}
+            QScrollArea {{
+                background: transparent;
+                border: none;
+            }}
+            """
+        )
+        self.video_info_card.video_thumbnail.setStyleSheet(
+            f"""
+            QLabel {{
+                background-color: {thumbnail_background};
+                border: 1px solid {thumbnail_border};
+                border-radius: 6px;
+            }}
+            """
+        )
 
     def _setup_signals(self):
         """设置信号连接"""

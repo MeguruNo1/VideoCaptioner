@@ -48,6 +48,8 @@ class MacOSAppLauncherTests(unittest.TestCase):
             plist = plistlib.load(plist_file)
 
         self.assertEqual(plist["CFBundleIconFile"], "AppIcon")
+        self.assertNotIn("CFBundleShortVersionString", plist)
+        self.assertNotIn("CFBundleVersion", plist)
         self.assertTrue(icon_path.exists())
 
 

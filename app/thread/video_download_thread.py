@@ -46,8 +46,6 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 SUBTITLE_EXTENSIONS = {
     ".srt",
     ".vtt",
-    ".ass",
-    ".ssa",
     ".lrc",
     ".json3",
     ".srv1",

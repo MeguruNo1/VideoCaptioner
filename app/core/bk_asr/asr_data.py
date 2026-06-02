@@ -32,10 +32,6 @@ class ASRDataSeg:
         """Convert to LRC timestamp format"""
         return f"[{self._ms_to_lrc_time(self.start_time)}]"
 
-    def to_ass_ts(self) -> Tuple[str, str]:
-        """Convert to ASS timestamp format"""
-        return self._ms_to_ass_ts(self.start_time), self._ms_to_ass_ts(self.end_time)
-
     def _ms_to_lrc_time(self, ms: int) -> str:
         seconds = ms / 1000
         minutes, seconds = divmod(seconds, 60)
@@ -48,15 +44,6 @@ class ASRDataSeg:
         minutes, seconds = divmod(total_seconds, 60)
         hours, minutes = divmod(minutes, 60)
         return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02},{int(milliseconds):03}"
-
-    @staticmethod
-    def _ms_to_ass_ts(ms: int) -> str:
-        """Convert milliseconds to ASS timestamp format (H:MM:SS.cc)"""
-        total_seconds, milliseconds = divmod(ms, 1000)
-        minutes, seconds = divmod(total_seconds, 60)
-        hours, minutes = divmod(minutes, 60)
-        centiseconds = int(milliseconds / 10)
-        return f"{int(hours):01}:{int(minutes):02}:{int(seconds):02}.{centiseconds:02}"
 
     @property
     def transcript(self) -> str:
@@ -222,22 +209,19 @@ class ASRData:
             seg.text = mask_english_profanity(seg.text)
         return self
 
-    def save(
-        self, save_path: str, ass_style: str = None, layout: str = "原文在上"
-    ) -> None:
+    def save(self, save_path: str, layout: str = "原文在上") -> None:
         """
         Save the ASRData to a file
 
         Args:
             save_path: 保存路径
-            ass_style: ASS样式字符串,为空则使用默认样式
             layout: 字幕布局,可选值["原文在上", "译文在上", "仅原文", "仅译文"]
         """
         # 创建目录
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
         if layout == SEPARATE_ORIGINAL_TRANSLATE_LAYOUT:
-            self._save_separate_original_and_translated(save_path, ass_style)
+            self._save_separate_original_and_translated(save_path)
             return
 
         if save_path.endswith(".srt"):
@@ -247,19 +231,10 @@ class ASRData:
         elif save_path.endswith(".json"):
             with open(save_path, "w", encoding="utf-8") as f:
                 json.dump(self.to_json(), f, ensure_ascii=False)
-        elif save_path.endswith(".ass"):
-            self.to_ass(
-                save_path=save_path,
-                style_str=ass_style,
-                layout=layout,
-                include_speaker=True,
-            )
         else:
             raise ValueError(f"Unsupported file extension: {save_path}")
 
-    def _save_with_layout(
-        self, save_path: str, layout: str, ass_style: str = None
-    ) -> None:
+    def _save_with_layout(self, save_path: str, layout: str) -> None:
         if save_path.endswith(".srt"):
             self.to_srt(save_path=save_path, layout=layout, include_speaker=True)
         elif save_path.endswith(".txt"):
@@ -267,19 +242,10 @@ class ASRData:
         elif save_path.endswith(".json"):
             with open(save_path, "w", encoding="utf-8") as f:
                 json.dump(self.to_json(), f, ensure_ascii=False)
-        elif save_path.endswith(".ass"):
-            self.to_ass(
-                save_path=save_path,
-                style_str=ass_style,
-                layout=layout,
-                include_speaker=True,
-            )
         else:
             raise ValueError(f"Unsupported file extension: {save_path}")
 
-    def _save_separate_original_and_translated(
-        self, save_path: str, ass_style: str = None
-    ) -> None:
+    def _save_separate_original_and_translated(self, save_path: str) -> None:
         target_path = Path(save_path)
         original_path = target_path.with_name(
             f"{target_path.stem}-仅原文{target_path.suffix}"
@@ -290,10 +256,10 @@ class ASRData:
 
         # Keep the primary output path valid for downstream steps, while also
         # exporting explicit original/translated single-language files.
-        self._save_with_layout(str(target_path), "仅译文", ass_style)
-        self._save_with_layout(str(original_path), "仅原文", ass_style)
+        self._save_with_layout(str(target_path), "仅译文")
+        self._save_with_layout(str(original_path), "仅原文")
         if translated_path != target_path:
-            self._save_with_layout(str(translated_path), "仅译文", ass_style)
+            self._save_with_layout(str(translated_path), "仅译文")
 
     @staticmethod
     def _speaker_prefix(speaker: str) -> str:
@@ -412,99 +378,6 @@ class ASRData:
             }
         return result_json
 
-    def to_ass(
-        self,
-        style_str: str = None,
-        layout: str = "原文在上",
-        save_path: str = None,
-        include_speaker: bool = False,
-    ) -> str:
-        """转换为ASS字幕格式
-
-        Args:
-            style_str: ASS样式字符串,为空则使用默认样式
-            layout: 字幕布局,可选值["译文在上", "原文在上", "仅原文", "仅译文"]
-
-        Returns:
-            ASS格式字幕内容
-        """
-        if not style_str:
-            style_str = (
-                "[V4+ Styles]\n"
-                "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,"
-                "Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,"
-                "Alignment,MarginL,MarginR,MarginV,Encoding\n"
-                "Style: Default,MicrosoftYaHei-Bold,40,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,"
-                "0,0,1,2,0,2,10,10,15,1\n"
-                "Style: Secondary,MicrosoftYaHei-Bold,30,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,"
-                "0,0,1,2,0,2,10,10,15,1"
-            )
-
-        ass_content = (
-            "[Script Info]\n"
-            "; Script generated by VideoCaptioner\n"
-            "; https://github.com/weifeng2333\n"
-            "ScriptType: v4.00+\n"
-            "PlayResX: 1280\n"
-            "PlayResY: 720\n\n"
-            f"{style_str}\n\n"
-            "[Events]\n"
-            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-        )
-
-        dialogue_template = "Dialogue: 0,{},{},{},,0,0,0,,{}\n"
-        last_speaker = None
-        for seg in self.segments:
-            start_time, end_time = seg.to_ass_ts()
-            original = seg.text
-            translated = seg.translated_text
-            if include_speaker:
-                original, translated, last_speaker = self._apply_speaker_label(
-                    seg, original, translated, last_speaker
-                )
-
-            # 检查是否有译文
-            has_translation = bool(translated and translated.strip())
-
-            if layout == "译文在上":
-                if has_translation:
-                    ass_content += dialogue_template.format(
-                        start_time, end_time, "Secondary", original
-                    )
-                    ass_content += dialogue_template.format(
-                        start_time, end_time, "Default", translated
-                    )
-                else:
-                    ass_content += dialogue_template.format(
-                        start_time, end_time, "Default", original
-                    )
-            elif layout == "原文在上":
-                if has_translation:
-                    ass_content += dialogue_template.format(
-                        start_time, end_time, "Secondary", translated
-                    )
-                    ass_content += dialogue_template.format(
-                        start_time, end_time, "Default", original
-                    )
-                else:
-                    ass_content += dialogue_template.format(
-                        start_time, end_time, "Default", original
-                    )
-            elif layout == "仅原文":
-                ass_content += dialogue_template.format(
-                    start_time, end_time, "Default", original
-                )
-            elif layout in ["仅译文", SEPARATE_ORIGINAL_TRANSLATE_LAYOUT]:
-                text = translated if has_translation else original
-                ass_content += dialogue_template.format(
-                    start_time, end_time, "Default", text
-                )
-
-        if save_path:
-            with open(save_path, "w", encoding="utf-8") as f:
-                f.write(ass_content)
-        return ass_content
-
     def to_vtt(self, save_path=None) -> str:
         """转换为WebVTT字幕格式
 
@@ -615,7 +488,7 @@ class ASRData:
         """从文件路径加载ASRData实例
 
         Args:
-            file_path: 字幕文件路径，支持.srt、.vtt、.ass、.json格式
+            file_path: 字幕文件路径，支持.srt、.vtt、.json格式
 
         Returns:
             ASRData: 解析后的ASRData实例
@@ -640,8 +513,6 @@ class ASRData:
             if "<c>" in content:  # YouTube VTT格式包含字级时间戳
                 return ASRData.from_youtube_vtt(content)
             return ASRData.from_vtt(content)
-        elif suffix == ".ass":
-            return ASRData.from_ass(content)
         elif suffix == ".json":
             return ASRData.from_json(json.loads(content))
         else:
@@ -866,94 +737,3 @@ class ASRData:
                 segments.extend(word_segments)
 
         return ASRData(segments)
-
-    @staticmethod
-    def from_ass(ass_str: str) -> "ASRData":
-        """
-        从ASS格式的字符串创建ASRData实例。
-
-        :param ass_str: 包含ASS格式字幕的字符串
-        :return: ASRData实例
-        """
-        segments = []
-        ass_time_pattern = re.compile(
-            r"Dialogue: \d+,(\d+:\d{2}:\d{2}\.\d{2}),(\d+:\d{2}:\d{2}\.\d{2}),(.*?),.*?,\d+,\d+,\d+,.*?,(.*?)$"
-        )
-
-        def parse_ass_time(time_str: str) -> int:
-            """将ASS时间戳转换为毫秒"""
-            hours, minutes, seconds = time_str.split(":")
-            seconds, centiseconds = seconds.split(".")
-            return (
-                int(hours) * 3600000
-                + int(minutes) * 60000
-                + int(seconds) * 1000
-                + int(centiseconds) * 10
-            )
-
-        # 检查是否是VideoCaptioner生成的字幕
-        has_translation = "Script generated by VideoCaptioner" in ass_str
-
-        # 用于临时存储相同时间戳的字幕
-        temp_segments = {}
-
-        # 按行处理ASS文件
-        for line in ass_str.splitlines():
-            if line.startswith("Dialogue:"):
-                match = ass_time_pattern.match(line)
-                if match:
-                    start_time = parse_ass_time(match.group(1))
-                    end_time = parse_ass_time(match.group(2))
-                    style = match.group(3).strip()
-                    text = match.group(4)
-
-                    text = re.sub(r"\{[^}]*\}", "", text)
-                    text = text.replace("\\N", "\n")
-                    text = text.strip()
-
-                    if not text:
-                        continue
-
-                    if has_translation:
-                        # 使用时间戳作为键
-                        time_key = f"{start_time}-{end_time}"
-                        if time_key in temp_segments:
-                            # 如果已存在相同时间戳的字幕，合并原文和译文
-                            if style == "Default":
-                                temp_segments[time_key].translated_text = text
-                            else:
-                                temp_segments[time_key].text = text
-                            # 创建新的字幕段并清除临时存储
-                            segments.append(temp_segments[time_key])
-                            del temp_segments[time_key]
-                        else:
-                            # 创建新的字幕段并存储
-                            segment = ASRDataSeg(
-                                text="", start_time=start_time, end_time=end_time
-                            )
-                            if style == "Default":
-                                segment.translated_text = text
-                            else:
-                                segment.text = text
-                            temp_segments[time_key] = segment
-                    else:
-                        segments.append(ASRDataSeg(text, start_time, end_time))
-
-        # 处理剩余的未配对字幕
-        for segment in temp_segments.values():
-            segments.append(segment)
-
-        return ASRData(segments)
-
-
-if __name__ == "__main__":
-    from pathlib import Path
-
-    # 示例：从SRT文件创建ASRData并转换为ASS格式
-    srt_file_path = "示例路径/字幕文件.srt"
-    asr_data = ASRData.from_srt(Path(srt_file_path).read_text(encoding="utf-8"))
-    print(
-        asr_data.to_ass(
-            style_str="示例样式字符串", save_path=srt_file_path.replace(".srt", ".ass")
-        )
-    )

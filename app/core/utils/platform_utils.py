@@ -1,11 +1,6 @@
 import os
 import subprocess
-import sys
 from pathlib import Path
-
-
-def is_macos() -> bool:
-    return sys.platform == "darwin"
 
 
 def app_data_dir(app_name: str) -> Path:

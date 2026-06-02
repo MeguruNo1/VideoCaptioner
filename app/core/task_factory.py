@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.common.config import cfg
-from app.config import MODEL_PATH, SUBTITLE_STYLE_PATH, WHISPERX_ONLY_MODE
+from app.config import MODEL_PATH, WHISPERX_ONLY_MODE
 from app.core.entities import (
     LANGUAGES,
     LLMServiceEnum,
@@ -19,21 +19,6 @@ from app.core.entities import (
 
 class TaskFactory:
     """任务工厂类，用于创建各种类型的任务"""
-
-    @staticmethod
-    def get_subtitle_style(style_name: str) -> str:
-        """获取字幕样式内容
-
-        Args:
-            style_name: 样式名称
-
-        Returns:
-            str: 样式内容字符串，如果样式文件不存在则返回None
-        """
-        style_path = SUBTITLE_STYLE_PATH / f"{style_name}.txt"
-        if style_path.exists():
-            return style_path.read_text(encoding="utf-8")
-        return None
 
     @staticmethod
     def create_transcribe_task(
@@ -127,14 +112,7 @@ class TaskFactory:
             f"-{cfg.translator_service.value.value}" if cfg.need_translate.value else ""
         )
 
-        if need_next_task:
-            output_path = str(
-                Path(file_path).parent / f"【样式字幕】{output_name}{suffix}.ass"
-            )
-        else:
-            output_path = str(
-                Path(file_path).parent / f"【字幕】{output_name}{suffix}.srt"
-            )
+        output_path = str(Path(file_path).parent / f"【字幕】{output_name}{suffix}.srt")
 
         if cfg.split_type.value == SplitTypeEnum.SENTENCE.value:
             split_type = "sentence"
@@ -207,11 +185,8 @@ class TaskFactory:
             batch_size=cfg.batch_size.value,
             translation_max_length=cfg.translation_max_length.value,
             final_translation_rework_max_chars=cfg.final_translation_rework_max_chars.value,
-            # 字幕布局、样式
+            # 字幕布局
             subtitle_layout=cfg.subtitle_layout.value,
-            subtitle_style=TaskFactory.get_subtitle_style(
-                cfg.subtitle_style_name.value
-            ),
             # 字幕分割
             max_word_count_cjk=cfg.max_word_count_cjk.value,
             max_word_count_english=cfg.max_word_count_english.value,

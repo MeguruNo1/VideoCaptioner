@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import uuid
 
 from PyQt5.QtGui import QIcon
@@ -35,9 +34,6 @@ def _on_message_clicked():
 
 
 def _ensure_mac_notification_center():
-    if sys.platform != "darwin":
-        return None
-
     global _mac_notification_center, _mac_notification_delegate
     if _mac_notification_center is not None:
         return _mac_notification_center
@@ -213,9 +209,7 @@ def send_desktop_notification(
         return False
 
     try:
-        if sys.platform == "darwin" and _send_macos_native_notification(
-            title, message, timeout_ms, target
-        ):
+        if _send_macos_native_notification(title, message, timeout_ms, target):
             return True
         return _send_qt_tray_notification(title, message, timeout_ms, target)
     except Exception as exc:

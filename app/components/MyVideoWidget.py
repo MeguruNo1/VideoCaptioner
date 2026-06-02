@@ -625,7 +625,7 @@ class MyVideoWidget(QWidget):
                 url.toLocalFile()
                 .lower()
                 .endswith(
-                    (".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".srt", ".ass")
+                    (".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".srt")
                 )
                 for url in urls
             ):
@@ -636,7 +636,7 @@ class MyVideoWidget(QWidget):
         urls = event.mimeData().urls()
         for url in urls:
             file_path = url.toLocalFile().lower()
-            if file_path.endswith((".srt", ".ass")):
+            if file_path.endswith(".srt"):
                 # 处理字幕文件
                 self.vlc_player.add_subtitle(url.toLocalFile())
             elif file_path.endswith((".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv")):

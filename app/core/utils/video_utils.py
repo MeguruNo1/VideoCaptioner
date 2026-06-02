@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Dict, Literal, Optional
 
 from ..utils.logger import setup_logger
-from ..utils.ass_auto_wrap import auto_wrap_ass_file
 
 logger = setup_logger("video_utils")
 
@@ -364,19 +363,14 @@ def add_subtitles(
 
     # 移动到临时文件  Fix: 路径错误
     suffix = Path(subtitle_file).suffix.lower()
+    if suffix not in {".srt", ".vtt"}:
+        raise ValueError(f"Unsupported subtitle format: {suffix}")
+
     temp_dir = Path(tempfile.gettempdir()) / "VideoCaptioner"
     temp_dir.mkdir(exist_ok=True)
     temp_subtitle = temp_dir / f"temp_subtitle_{uuid.uuid4().hex}.{suffix}"
     shutil.copy2(subtitle_file, temp_subtitle)
     subtitle_file = str(temp_subtitle)
-
-    # video_info = get_video_info(input_file)
-    if suffix == ".ass":
-        subtitle_file = auto_wrap_ass_file(
-            subtitle_file,
-            # video_width=video_info["width"],
-            # video_height=video_info["height"],
-        )
 
     # 如果是WebM格式，强制使用硬字幕
     if Path(output).suffix.lower() == ".webm":
@@ -412,12 +406,7 @@ def add_subtitles(
     else:
         logger.info("使用硬字幕")
         subtitle_file = Path(subtitle_file).as_posix().replace(":", r"\:")
-        # 根据输出文件后缀决定vf参数
-        if Path(output).suffix.lower() == ".ass":
-            vf = f"ass='{subtitle_file}'"
-        else:
-            # 其他格式使用默认的vf参数
-            vf = f"subtitles='{subtitle_file}'"
+        vf = f"subtitles='{subtitle_file}'"
 
         if Path(output).suffix.lower() == ".webm":
             vcodec = "libvpx-vp9"

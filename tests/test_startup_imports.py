@@ -31,7 +31,6 @@ class StartupImportTests(unittest.TestCase):
                 "app.core.subtitle_processor.optimize",
                 "app.core.subtitle_processor.translate",
                 "app.core.utils.video_utils",
-                "app.core.utils.subtitle_preview",
             ]
             print(
                 json.dumps(

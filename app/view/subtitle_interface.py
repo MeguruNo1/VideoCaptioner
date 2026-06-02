@@ -32,12 +32,12 @@ from qfluentwidgets import (
     TableView,
     TextEdit,
     TransparentDropDownPushButton,
+    isDarkTheme,
 )
 
 from app.common.config import cfg
 from app.common.signal_bus import signalBus
 from app.components.SubtitleSettingDialog import SubtitleSettingDialog
-from app.config import SUBTITLE_STYLE_PATH
 from app.core.bk_asr.asr_data import ASRData
 from app.core.entities import (
     OutputSubtitleFormatEnum,
@@ -46,7 +46,6 @@ from app.core.entities import (
     TargetLanguageEnum,
 )
 from app.core.task_factory import TaskFactory
-from app.core.utils.get_subtitle_style import get_subtitle_style
 from app.core.utils.desktop_notification import send_desktop_notification
 from app.view.setting_interface import PromptCenterDialog
 
@@ -179,6 +178,7 @@ class SubtitleInterface(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("SubtitleInterface")
         self.setAcceptDrops(True)
         self.task = None
         self.subtitle_path = None
@@ -188,6 +188,9 @@ class SubtitleInterface(QWidget):
         self._setup_signals()
         self._update_prompt_button_style()
         self.set_values()
+        cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
+        cfg.themeColor.valueChanged.connect(lambda *_: self._refresh_accent_icons())
+        self._apply_theme_styles()
 
     @staticmethod
     def _extract_supported_subtitle_paths(urls):
@@ -369,6 +372,9 @@ class SubtitleInterface(QWidget):
         self.original_table = TableView(self)
         self.subtitle_table = TableView(self)
         self.log_text = TextEdit(self)
+        self.original_table.setObjectName("subtitleOriginalTable")
+        self.subtitle_table.setObjectName("subtitleTranslatedTable")
+        self.log_text.setObjectName("subtitleLogText")
         self.log_text.setReadOnly(True)
 
         self.original_model = SubtitleTableModel("", "original")
@@ -406,6 +412,94 @@ class SubtitleInterface(QWidget):
         self.content_splitter.setStretchFactor(1, 3)
         self.content_splitter.setStretchFactor(2, 2)
         self.main_layout.addWidget(self.content_splitter, 1)
+
+    def _apply_theme_styles(self):
+        if isDarkTheme():
+            page_background = "#202124"
+            panel_background = "rgba(255, 255, 255, 0.04)"
+            table_background = "rgba(255, 255, 255, 0.04)"
+            border_color = "rgba(255, 255, 255, 0.08)"
+            grid_color = "rgba(255, 255, 255, 0.07)"
+            header_background = "rgba(255, 255, 255, 0.06)"
+            text_color = "#F5F5F5"
+            handle_color = "rgba(255, 255, 255, 0.12)"
+        else:
+            page_background = "#F5F7FA"
+            panel_background = "#FFFFFF"
+            table_background = "#FFFFFF"
+            border_color = "rgba(17, 24, 39, 0.12)"
+            grid_color = "rgba(17, 24, 39, 0.10)"
+            header_background = "#F2F4F7"
+            text_color = "#1D2939"
+            handle_color = "rgba(17, 24, 39, 0.16)"
+
+        self.setStyleSheet(
+            f"""
+            QWidget#SubtitleInterface {{
+                background-color: {page_background};
+            }}
+            QTableView#subtitleOriginalTable,
+            QTableView#subtitleTranslatedTable,
+            QTextEdit#subtitleLogText {{
+                background-color: {table_background};
+                color: {text_color};
+                border: 1px solid {border_color};
+                border-radius: 8px;
+                gridline-color: {grid_color};
+            }}
+            QHeaderView::section {{
+                background-color: {header_background};
+                color: {text_color};
+                border: none;
+                border-bottom: 1px solid {border_color};
+                padding: 6px;
+            }}
+            QSplitter::handle {{
+                background: {handle_color};
+                border: none;
+            }}
+            """
+        )
+        self.content_splitter.setStyleSheet(
+            f"""
+            QSplitter::handle {{
+                background: {handle_color};
+                border: none;
+            }}
+            QSplitter::handle:horizontal {{
+                width: 1px;
+            }}
+            """
+        )
+        for table in (self.original_table, self.subtitle_table):
+            table.setStyleSheet(
+                f"""
+                QTableView {{
+                    background-color: {panel_background};
+                    color: {text_color};
+                    border: 1px solid {border_color};
+                    border-radius: 8px;
+                    gridline-color: {grid_color};
+                }}
+                QHeaderView::section {{
+                    background-color: {header_background};
+                    color: {text_color};
+                    border: none;
+                    border-bottom: 1px solid {border_color};
+                    padding: 6px;
+                }}
+                """
+            )
+        self.log_text.setStyleSheet(
+            f"""
+            QTextEdit {{
+                background-color: {panel_background};
+                color: {text_color};
+                border: 1px solid {border_color};
+                border-radius: 8px;
+            }}
+            """
+        )
 
     def _setup_synced_subtitle_scrollbars(self):
         self._syncing_subtitle_scrollbars = False
@@ -502,12 +596,21 @@ class SubtitleInterface(QWidget):
 
     def _update_prompt_button_style(self):
         if self.custom_prompt_text.strip():
-            green_icon = FIF.DOCUMENT.colored(
-                QColor(76, 255, 165), QColor(76, 255, 165)
-            )
-            self.prompt_button.setIcon(green_icon)
+            accent_color = self._theme_accent_color()
+            self.prompt_button.setIcon(FIF.DOCUMENT.colored(accent_color, accent_color))
         else:
             self.prompt_button.setIcon(FIF.DOCUMENT)
+
+    @staticmethod
+    def _theme_accent_color() -> QColor:
+        color = cfg.themeColor.value
+        if isinstance(color, QColor):
+            return QColor(color)
+        return QColor(str(color))
+
+    def _refresh_accent_icons(self):
+        self._update_prompt_button_style()
+        self._update_translation_button_state()
 
     def _update_full_script_button_state(self):
         self.full_script_button.setEnabled(bool(self.model._data))
@@ -816,11 +919,7 @@ class SubtitleInterface(QWidget):
             asr_data = ASRData.from_json(self.model._data)
             layout = cfg.subtitle_layout.value
 
-            if file_path.endswith(".ass"):
-                style_str = get_subtitle_style(cfg.subtitle_style_name.value)
-                asr_data.to_ass(style_str, layout, file_path)
-            else:
-                asr_data.save(file_path, layout=layout)
+            asr_data.save(file_path, layout=layout)
             self.append_task_log(self.tr("字幕已保存: ") + file_path)
             if layout == "单独输出原文和译文":
                 target_path = Path(file_path)
@@ -943,18 +1042,11 @@ class SubtitleInterface(QWidget):
         def signal_update():
             if not self.model._data:
                 return
-            ass_style_name = cfg.subtitle_style_name.value
-            ass_style_path = SUBTITLE_STYLE_PATH / f"{ass_style_name}.txt"
-            if ass_style_path.exists():
-                subtitle_style_srt = ass_style_path.read_text(encoding="utf-8")
-            else:
-                subtitle_style_srt = None
-            temp_srt_path = os.path.join(tempfile.gettempdir(), "temp_subtitle.ass")
+            temp_srt_path = os.path.join(tempfile.gettempdir(), "temp_subtitle.srt")
             asr_data = ASRData.from_json(self.model._data)
             asr_data.save(
                 temp_srt_path,
                 layout=cfg.subtitle_layout.value,
-                ass_style=subtitle_style_srt,
             )
             signalBus.add_subtitle(temp_srt_path)
 
@@ -1149,10 +1241,10 @@ class SubtitleInterface(QWidget):
         for action in self.target_language_actions:
             action.setChecked(action.text() == target_language)
         if enabled:
-            enabled_icon = FIF.LANGUAGE.colored(
-                QColor(76, 255, 165), QColor(76, 255, 165)
+            accent_color = self._theme_accent_color()
+            self.translation_button.setIcon(
+                FIF.LANGUAGE.colored(accent_color, accent_color)
             )
-            self.translation_button.setIcon(enabled_icon)
             self.translation_button.setText(self.tr("字幕翻译"))
         else:
             self.translation_button.setIcon(FIF.LANGUAGE)

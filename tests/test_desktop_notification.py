@@ -26,7 +26,6 @@ class DesktopNotificationTests(unittest.TestCase):
 
     def test_macos_native_sender_is_preferred(self):
         with patch.object(desktop_notification.cfg, "get", return_value=True), \
-            patch.object(desktop_notification.sys, "platform", "darwin"), \
             patch.object(
                 desktop_notification,
                 "_send_macos_native_notification",
@@ -43,7 +42,6 @@ class DesktopNotificationTests(unittest.TestCase):
 
     def test_macos_native_failure_falls_back_to_qt(self):
         with patch.object(desktop_notification.cfg, "get", return_value=True), \
-            patch.object(desktop_notification.sys, "platform", "darwin"), \
             patch.object(
                 desktop_notification,
                 "_send_macos_native_notification",
@@ -64,7 +62,6 @@ class DesktopNotificationTests(unittest.TestCase):
 
     def test_macos_native_exception_falls_back_to_qt(self):
         with patch.object(desktop_notification.cfg, "get", return_value=True), \
-            patch.object(desktop_notification.sys, "platform", "darwin"), \
             patch.object(
                 desktop_notification,
                 "_send_macos_native_notification",

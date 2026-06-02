@@ -2,18 +2,16 @@ from pathlib import Path
 from typing import Iterable
 
 
-SUPPORTED_TRANSCRIPT_SUFFIXES = {".txt", ".srt", ".vtt", ".ass", ".json"}
+SUPPORTED_TRANSCRIPT_SUFFIXES = {".txt", ".srt", ".vtt", ".json"}
 VIDEO_TRANSCRIPT_PATTERN = "【视频文稿】*.txt"
 SUBTITLE_PATTERNS = (
     "subtitle/【原始字幕】*.srt",
     "subtitle/【下载字幕】*.srt",
     "subtitle/【下载字幕】*.vtt",
-    "subtitle/【下载字幕】*.ass",
     "subtitle/【下载字幕】*.json",
     "【原始字幕】*.srt",
     "【下载字幕】*.srt",
     "【下载字幕】*.vtt",
-    "【下载字幕】*.ass",
     "【下载字幕】*.json",
 )
 

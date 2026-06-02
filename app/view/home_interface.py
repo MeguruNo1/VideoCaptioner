@@ -2,8 +2,9 @@ from pathlib import Path
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
-from qfluentwidgets import SegmentedWidget
+from qfluentwidgets import SegmentedWidget, isDarkTheme
 
+from app.common.config import cfg
 from app.core.task_factory import TaskFactory
 from app.view.subtitle_interface import SubtitleInterface
 from app.view.task_creation_interface import TaskCreationInterface
@@ -15,13 +16,7 @@ class HomeInterface(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # 设置对象名称和样式
         self.setObjectName("HomeInterface")
-        self.setStyleSheet(
-            """
-            HomeInterface{background: white}
-        """
-        )
 
         # 创建分段控件和堆叠控件
         self.pivot = SegmentedWidget(self)
@@ -60,6 +55,29 @@ class HomeInterface(QWidget):
         )
         self.transcription_interface.send_to_translate.connect(
             self.open_subtitle_optimization
+        )
+        cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
+        self._apply_theme_styles()
+
+    def _apply_theme_styles(self):
+        if isDarkTheme():
+            background_color = "#202124"
+            border_color = "rgba(255, 255, 255, 0.08)"
+        else:
+            background_color = "#F5F7FA"
+            border_color = "rgba(17, 24, 39, 0.10)"
+
+        self.setStyleSheet(
+            f"""
+            QWidget#HomeInterface {{
+                background-color: {background_color};
+                border-top: 1px solid {border_color};
+            }}
+            QStackedWidget {{
+                background-color: transparent;
+                border: none;
+            }}
+            """
         )
 
     def switch_to_transcription(self, file_path):

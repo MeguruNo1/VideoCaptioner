@@ -71,7 +71,7 @@ class HotwordExtractionThread(QThread):
     @staticmethod
     def _read_text_file(file_path: str) -> str:
         suffix = Path(file_path).suffix.lower()
-        if suffix in {".srt", ".vtt", ".ass", ".json"}:
+        if suffix in {".srt", ".vtt", ".json"}:
             return ASRData.from_subtitle_file(file_path).to_txt(layout="仅原文")
         return Path(file_path).read_text(encoding="utf-8-sig")
 
@@ -143,7 +143,7 @@ class WhisperXHotwordsDialog(MessageBoxBase):
             self,
             self.tr("选择视频文稿或字幕文件"),
             initial_path,
-            self.tr("文稿或字幕 (*.txt *.srt *.vtt *.ass *.json);;所有文件 (*)"),
+            self.tr("文稿或字幕 (*.txt *.srt *.vtt *.json);;所有文件 (*)"),
         )
         return file_path
 

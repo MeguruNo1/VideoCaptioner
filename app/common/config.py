@@ -409,10 +409,15 @@ class Config(QConfig):
     prompt_single_translate = ConfigItem("PromptCenter", "SingleTranslate", "")
     prompt_term_glossary = ConfigItem("PromptCenter", "TermGlossary", "")
 
-    # ------------------- 字幕样式配置 -------------------
-    subtitle_style_name = ConfigItem("SubtitleStyle", "StyleName", "default")
-    subtitle_layout = ConfigItem("SubtitleStyle", "Layout", "译文在上")
-    subtitle_preview_image = ConfigItem("SubtitleStyle", "PreviewImage", "")
+    # ------------------- 字幕布局配置 -------------------
+    subtitle_layout = OptionsConfigItem(
+        "Subtitle",
+        "Layout",
+        "译文在上",
+        OptionsValidator(
+            ["译文在上", "原文在上", "仅译文", "仅原文", "单独输出原文和译文"]
+        ),
+    )
 
     # ------------------- 保存配置 -------------------
     work_dir = ConfigItem("Save", "Work_Dir", WORK_PATH, FolderValidator())
@@ -520,11 +525,6 @@ class Config(QConfig):
         OptionsValidator(Language),
         LanguageSerializer(),
         restart=True,
-    )
-
-    # ------------------- 更新配置 -------------------
-    checkUpdateAtStartUp = ConfigItem(
-        "Update", "CheckUpdateAtStartUp", True, BoolValidator()
     )
 
     # ------------------- 下载代理配置 -------------------

@@ -1,5 +1,3 @@
-import webbrowser
-
 from PyQt5.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import QApplication, QFileDialog, QLabel, QSizePolicy, QWidget
@@ -31,7 +29,7 @@ from app.common.signal_bus import signalBus
 from app.components.EditComboBoxSettingCard import EditComboBoxSettingCard
 from app.components.LineEditSettingCard import LineEditSettingCard
 from app.components.SpinBoxSettingCard import SpinBoxSettingCard
-from app.config import AUTHOR, FEEDBACK_URL, HELP_URL, RELEASE_URL, VERSION, YEAR
+from app.config import AUTHOR, FEEDBACK_URL, HELP_URL, YEAR
 from app.core.entities import LLMServiceEnum, TranscribeModelEnum, TranslatorServiceEnum
 from app.core.subtitle_processor.prompt import (
     PROMPT_CENTER_ITEMS,
@@ -46,8 +44,6 @@ from app.core.utils.proxy_utils import (
     PROXY_MODE_OFF,
     get_effective_download_proxy_url,
 )
-from app.thread.version_manager_thread import VersionManager
-from app.components.MySettingCard import ComboBoxSettingCard as MyComboBoxSettingCard
 
 
 class DefaultPromptDialog(MessageBoxBase):
@@ -321,22 +317,13 @@ class SettingInterface(ScrollArea):
             self.promptCenterGroup,
         )
 
-        # 字幕合成配置卡片
-        self.subtitleStyleCard = HyperlinkCard(
-            "",
-            self.tr("修改"),
-            FIF.FONT,
-            self.tr("字幕样式"),
-            self.tr("选择字幕的样式（颜色、大小、字体等）"),
-            self.subtitleGroup,
-        )
-        self.subtitleLayoutCard = HyperlinkCard(
-            "",
-            self.tr("修改"),
-            FIF.FONT,
+        self.subtitleLayoutCard = ComboBoxSettingCard(
+            cfg.subtitle_layout,
+            FIF.ALIGNMENT,
             self.tr("字幕布局"),
             self.tr("选择字幕的布局（单语、双语）"),
-            self.subtitleGroup,
+            texts=[layout for layout in cfg.subtitle_layout.validator.options],
+            parent=self.subtitleGroup,
         )
         # 保存配置卡片
         self.savePathCard = PushSettingCard(
@@ -472,15 +459,12 @@ class SettingInterface(ScrollArea):
             self.aboutGroup,
         )
         self.aboutCard = PrimaryPushSettingCard(
-            self.tr("检查更新"),
+            self.tr("查看"),
             FIF.INFO,
             self.tr("关于"),
             "© "
             + self.tr("版权所有")
-            + f" {YEAR}, {AUTHOR}. "
-            + self.tr("版本")
-            + " "
-            + VERSION,
+            + f" {YEAR}, {AUTHOR}.",
             self.aboutGroup,
         )
 
@@ -490,7 +474,6 @@ class SettingInterface(ScrollArea):
         self.translateGroup.addSettingCard(self.targetLanguageCard)
         self.promptCenterGroup.addSettingCard(self.promptCenterCard)
 
-        self.subtitleGroup.addSettingCard(self.subtitleStyleCard)
         self.subtitleGroup.addSettingCard(self.subtitleLayoutCard)
 
         self.saveGroup.addSettingCard(self.savePathCard)
@@ -922,14 +905,6 @@ class SettingInterface(ScrollArea):
         self.edgeCookieExportCard.clicked.connect(self.__exportEdgeCookies)
         self.edgeCookieStatusCard.clicked.connect(self.__refreshCookieStatus)
 
-        # 字幕样式修改跳转
-        self.subtitleStyleCard.linkButton.clicked.connect(
-            lambda: self.window().switchTo(self.window().subtitleStyleInterface)
-        )
-        self.subtitleLayoutCard.linkButton.clicked.connect(
-            lambda: self.window().switchTo(self.window().subtitleStyleInterface)
-        )
-
         # 个性化
         self.themeCard.optionChanged.connect(self.__onThemeCardChanged)
         self.themeColorCard.colorChanged.connect(setThemeColor)
@@ -940,7 +915,9 @@ class SettingInterface(ScrollArea):
         )
 
         # 关于
-        self.aboutCard.clicked.connect(self.checkUpdate)
+        self.aboutCard.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(HELP_URL))
+        )
 
         # 全局 signalBus
         self.transcribeModelCard.comboBox.currentTextChanged.connect(
@@ -971,20 +948,44 @@ class SettingInterface(ScrollArea):
         self.llmBatchContextMaxCharsCard.setEnabled(bool(checked))
 
     def __applyPageStyles(self):
-        label_color = "#F5F5F5" if isDarkTheme() else "#202020"
+        if isDarkTheme():
+            page_background = "#202124"
+            label_color = "#F5F5F5"
+            group_title_color = "#F1F2F4"
+            card_background = "rgba(255, 255, 255, 0.05)"
+            card_border = "rgba(255, 255, 255, 0.08)"
+        else:
+            page_background = "#F5F7FA"
+            label_color = "#1D2939"
+            group_title_color = "#344054"
+            card_background = "#FFFFFF"
+            card_border = "rgba(17, 24, 39, 0.10)"
+
         self.setStyleSheet(
             f"""        
             SettingInterface, #scrollWidget {{
-                background-color: transparent;
+                background-color: {page_background};
             }}
             QScrollArea {{
                 border: none;
-                background-color: transparent;
+                background-color: {page_background};
             }}
             QLabel#settingLabel {{
                 font: 33px 'Microsoft YaHei';
                 background-color: transparent;
                 color: {label_color};
+            }}
+            SettingCardGroup > QLabel {{
+                color: {group_title_color};
+                font-weight: 600;
+            }}
+            SettingCard, SwitchSettingCard, PushSettingCard,
+            PrimaryPushSettingCard, ComboBoxSettingCard, CustomColorSettingCard,
+            OptionsSettingCard, RangeSettingCard, HyperlinkCard,
+            LineEditSettingCard, SpinBoxSettingCard, EditComboBoxSettingCard {{
+                background-color: {card_background};
+                border: 1px solid {card_border};
+                border-radius: 8px;
             }}
         """
         )
@@ -1192,9 +1193,6 @@ class SettingInterface(ScrollArea):
             InfoBar.success(
                 self.tr("LLM 连接测试成功"), message, duration=3000, parent=self
             )
-
-    def checkUpdate(self):
-        webbrowser.open(RELEASE_URL)
 
     def __onLLMServiceChanged(self, service):
         """处理LLM服务切换事件"""

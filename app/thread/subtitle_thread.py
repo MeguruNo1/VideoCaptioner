@@ -266,7 +266,6 @@ class SubtitleThread(QThread):
             # 6. 保存字幕
             asr_data.save(
                 save_path=self.task.output_path,
-                ass_style=subtitle_config.subtitle_style,
                 layout=subtitle_config.subtitle_layout,
             )
             logger.info(f"字幕保存到 {self.task.output_path}")

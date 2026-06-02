@@ -731,6 +731,9 @@ class DownloadCenterInterface(QWidget):
 
     def _apply_theme_styles(self):
         if isDarkTheme():
+            page_background = "#202124"
+            card_background = "rgba(255, 255, 255, 0.05)"
+            card_border = "rgba(255, 255, 255, 0.08)"
             primary_color = "#F5F5F5"
             hint_color = "#999999"
             value_color = "#D4D4D4"
@@ -741,18 +744,26 @@ class DownloadCenterInterface(QWidget):
             thumbnail_bg = "rgba(255, 255, 255, 0.04)"
             thumbnail_border = "rgba(255, 255, 255, 0.08)"
         else:
-            primary_color = "#1F1F1F"
-            hint_color = "#8A8A8A"
-            value_color = "#5F6368"
-            title_color = "#1F1F1F"
-            separator_color = "rgba(0, 0, 0, 0.08)"
-            table_header_background = "rgba(0, 0, 0, 0.04)"
-            table_grid = "rgba(0, 0, 0, 0.06)"
-            thumbnail_bg = "rgba(0, 0, 0, 0.03)"
-            thumbnail_border = "rgba(0, 0, 0, 0.08)"
+            page_background = "#F5F7FA"
+            card_background = "#FFFFFF"
+            card_border = "rgba(17, 24, 39, 0.12)"
+            primary_color = "#1D2939"
+            hint_color = "#667085"
+            value_color = "#475467"
+            title_color = "#101828"
+            separator_color = "rgba(17, 24, 39, 0.12)"
+            table_header_background = "#F2F4F7"
+            table_grid = "rgba(17, 24, 39, 0.10)"
+            thumbnail_bg = "#F8FAFC"
+            thumbnail_border = "rgba(17, 24, 39, 0.14)"
 
         self.setStyleSheet(f"""
-            QWidget#DownloadCenterInterface {{ background: transparent; }}
+            QWidget#DownloadCenterInterface {{ background: {page_background}; }}
+            CardWidget {{
+                background-color: {card_background};
+                border: 1px solid {card_border};
+                border-radius: 8px;
+            }}
             QWidget#downloadScrollContent {{
                 background: transparent;
             }}
@@ -791,7 +802,7 @@ class DownloadCenterInterface(QWidget):
                 border: none;
             }}
             QTableWidget#downloadFormatTable {{
-                background: transparent;
+                background: {card_background};
                 color: {value_color};
                 gridline-color: {table_grid};
                 border: 1px solid {separator_color};

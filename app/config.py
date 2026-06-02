@@ -5,7 +5,6 @@ from pathlib import Path
 
 from app.core.utils.platform_utils import app_data_dir, default_work_dir
 
-VERSION = "v1.3.3"
 YEAR = 2025
 APP_NAME = "VideoCaptioner"
 AUTHOR = "Weifeng"
@@ -14,7 +13,6 @@ WHISPERX_ONLY_MODE = True
 
 HELP_URL = "https://github.com/WEIFENG2333/VideoCaptioner"
 GITHUB_REPO_URL = "https://github.com/WEIFENG2333/VideoCaptioner"
-RELEASE_URL = "https://github.com/WEIFENG2333/VideoCaptioner/releases/latest"
 FEEDBACK_URL = "https://github.com/WEIFENG2333/VideoCaptioner/issues"
 
 # 路径
@@ -27,7 +25,6 @@ WORK_PATH = default_work_dir(APP_NAME)
 
 BIN_PATH = RESOURCE_PATH / "bin" / "macos-arm64"
 ASSETS_PATH = RESOURCE_PATH / "assets"
-SUBTITLE_STYLE_PATH = RESOURCE_PATH / "subtitle_style"
 
 LOG_PATH = APP_DATA_PATH / "logs"
 SETTINGS_PATH = APP_DATA_PATH / "settings.json"

@@ -23,12 +23,12 @@ from qfluentwidgets import (
     LineEdit,
     ProgressBar,
     ToolButton,
+    isDarkTheme,
 )
 
 from app.common.config import cfg
-from app.components.DonateDialog import DonateDialog
 from app.components.LanguageSettingDialog import LanguageSettingDialog
-from app.config import ASSETS_PATH, VERSION
+from app.config import ASSETS_PATH
 from app.core.entities import (
     LLMServiceEnum,
     SupportedAudioFormats,
@@ -53,6 +53,9 @@ class TaskCreationInterface(QWidget):
         self.setup_ui()
         self.setup_values()
         self.setup_signals()
+        cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
+        cfg.themeColor.valueChanged.connect(lambda *_: self._apply_theme_styles())
+        self._apply_theme_styles()
 
     def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -138,25 +141,76 @@ class TaskCreationInterface(QWidget):
         bottom_layout = QHBoxLayout(bottom_container)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
         self.log_button = HyperlinkButton(url="", text=self.tr("查看日志"), parent=self)
-        self.log_button.setStyleSheet(self.log_button.styleSheet() + "QPushButton { font-size: 12px; color: #2F8D63; text-decoration: underline; }")
-        self.donate_button = HyperlinkButton(url="", text=self.tr("捐助"), parent=self)
-        self.donate_button.setStyleSheet(self.donate_button.styleSheet() + "QPushButton { font-size: 12px; color: #2F8D63; text-decoration: underline; }")
-        self.info_label = BodyLabel(self.tr(f"VideoCaptioner {VERSION} · By Weifeng"), self)
+        self.info_label = BodyLabel(self.tr("VideoCaptioner · By Weifeng"), self)
         self.info_label.setAlignment(Qt.AlignCenter)
         self.info_label.setStyleSheet("font-size: 12px; color: #888888;")
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.info_label)
         bottom_layout.addWidget(self.log_button)
-        bottom_layout.addWidget(self.donate_button)
         bottom_layout.addStretch()
         self.main_layout.addStretch()
         self.main_layout.addWidget(bottom_container)
+
+    def _apply_theme_styles(self):
+        if isDarkTheme():
+            page_background = "#202124"
+            input_background = "rgba(255, 255, 255, 0.06)"
+            input_border = "rgba(255, 255, 255, 0.16)"
+            input_hover_border = "rgba(255, 255, 255, 0.24)"
+            muted_color = "#A4A7AE"
+        else:
+            page_background = "#F5F7FA"
+            input_background = "#FFFFFF"
+            input_border = "rgba(17, 24, 39, 0.16)"
+            input_hover_border = "rgba(17, 24, 39, 0.24)"
+            muted_color = "#667085"
+        theme_color = cfg.themeColor.value
+        link_color = theme_color.name() if hasattr(theme_color, "name") else str(theme_color)
+
+        self.setStyleSheet(
+            f"""
+            QWidget#TaskCreationInterface {{
+                background-color: {page_background};
+            }}
+            """
+        )
+        self.search_input.setStyleSheet(
+            f"""
+            QLineEdit {{
+                border-radius: 18px;
+                padding: 0 20px;
+                background-color: {input_background};
+                border: 1px solid {input_border};
+            }}
+            QLineEdit:hover {{
+                border: 1px solid {input_hover_border};
+            }}
+            QLineEdit:focus[transparent=true] {{
+                border: 1px solid rgba(47, 141, 99, 0.58);
+            }}
+            """
+        )
+        self.status_label.setStyleSheet(f"font-size: 14px; color: {muted_color};")
+        self.info_label.setStyleSheet(f"font-size: 12px; color: {muted_color};")
+        link_style = (
+            "QPushButton { "
+            f"font-size: 12px; color: {link_color}; "
+            "text-decoration: underline; "
+            "background: transparent; border: none; padding: 0 2px; "
+            "}"
+            "QPushButton:hover { "
+            f"color: {link_color}; background: transparent; border: none; "
+            "}"
+            "QPushButton:pressed { "
+            f"color: {link_color}; background: transparent; border: none; "
+            "}"
+        )
+        self.log_button.setStyleSheet(link_style)
 
     def setup_signals(self):
         self.start_button.clicked.connect(self.on_start_clicked)
         self.search_input.textChanged.connect(self.on_search_input_changed)
         self.log_button.clicked.connect(self.show_log_window)
-        self.donate_button.clicked.connect(self.show_donate_dialog)
 
     def setup_values(self):
         self.search_input.setText("")
@@ -253,10 +307,6 @@ class TaskCreationInterface(QWidget):
             self.log_window.show()
         else:
             self.log_window.activateWindow()
-
-    def show_donate_dialog(self):
-        DonateDialog(self).exec_()
-
 
 if __name__ == "__main__":
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)

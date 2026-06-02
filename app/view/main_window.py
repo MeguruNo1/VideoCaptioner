@@ -1,9 +1,8 @@
 import os
-import sys
 from pathlib import Path
 
 import psutil
-from PyQt5.QtCore import QEvent, QRect, Qt, QSize, QThread, QTimer, QUrl
+from PyQt5.QtCore import QEvent, QRect, Qt, QSize, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices, QIcon
 from PyQt5.QtWidgets import QApplication
 from qframelesswindow.utils import startSystemMove
@@ -14,16 +13,15 @@ from qfluentwidgets import (
     MessageBox,
     NavigationItemPosition,
     SplashScreen,
+    isDarkTheme,
 )
 
+from app.common.config import cfg
 from app.common.signal_bus import signalBus
-from app.components.DonateDialog import DonateDialog
 from app.config import ASSETS_PATH, GITHUB_REPO_URL
-from app.thread.version_manager_thread import VersionManager
 from app.view.download_center_interface import DownloadCenterInterface
 from app.view.home_interface import HomeInterface
 from app.view.setting_interface import SettingInterface
-from app.view.subtitle_style_interface import SubtitleStyleInterface
 
 LOGO_PATH = ASSETS_PATH / "logo.png"
 MAC_TRAFFIC_LIGHT_ROW_HEIGHT = 32
@@ -46,29 +44,18 @@ class MainWindow(FluentWindow):
         self.navigationInterface.panel.expandAni.finished.connect(
             self._reserveMacTitleBarSpaceForNavigation
         )
+        cfg.themeMode.valueChanged.connect(lambda *_: self._applyMacWindowChromeStyle())
         self.navigationInterface.installEventFilter(self)
         self.initWindow()
 
         # 创建子界面
         self.homeInterface = HomeInterface(self)
         self.settingInterface = SettingInterface(self)
-        self.subtitleStyleInterface = SubtitleStyleInterface(self)
         self.downloadCenterInterface = DownloadCenterInterface(self)
         self.downloadCenterInterface.send_to_transcription.connect(
             self.open_downloaded_video_in_transcription
         )
         signalBus.notification_clicked.connect(self.on_notification_clicked)
-
-        # 初始化版本管理器
-        self.versionManager = VersionManager()
-        self.versionManager.newVersionAvailable.connect(self.onNewVersion)
-        self.versionManager.announcementAvailable.connect(self.onAnnouncement)
-
-        # 创建版本检查线程
-        self.versionThread = QThread()
-        self.versionManager.moveToThread(self.versionThread)
-        self.versionThread.started.connect(self.versionManager.performCheck)
-        self.versionThread.start()
 
         # 初始化导航界面
         self.initNavigation()
@@ -86,7 +73,6 @@ class MainWindow(FluentWindow):
         self.addSubInterface(
             self.downloadCenterInterface, FIF.DOWNLOAD, self.tr("下载中心")
         )
-        self.addSubInterface(self.subtitleStyleInterface, FIF.FONT, self.tr("字幕样式"))
 
         self.navigationInterface.addSeparator()
 
@@ -120,7 +106,7 @@ class MainWindow(FluentWindow):
         return QRect(0, 0 if self.isFullScreen() else 8, 75, size.height())
 
     def _macTrafficLightRowHeight(self) -> int:
-        if sys.platform != "darwin" or self.isFullScreen():
+        if self.isFullScreen():
             return 0
         return MAC_TRAFFIC_LIGHT_ROW_HEIGHT
 
@@ -138,9 +124,6 @@ class MainWindow(FluentWindow):
 
     def _styleMacTitleBarBrand(self):
         """Align title-bar branding with the compact navigation icon column."""
-        if sys.platform != "darwin":
-            return
-
         if hasattr(self.titleBar, "hBoxLayout"):
             self.titleBar.hBoxLayout.setContentsMargins(
                 MAC_CHROME_LEFT_PADDING, 0, 0, 0
@@ -153,10 +136,11 @@ class MainWindow(FluentWindow):
             )
 
     def _installMacDragEventFilters(self):
-        if sys.platform != "darwin":
-            return
-
-        widgets = [self.titleBar, self.navigationInterface, self.navigationInterface.panel]
+        widgets = [
+            self.titleBar,
+            self.navigationInterface,
+            self.navigationInterface.panel,
+        ]
         for attr_name in ("iconLabel", "titleLabel"):
             widget = getattr(self.titleBar, attr_name, None)
             if widget is not None:
@@ -172,9 +156,6 @@ class MainWindow(FluentWindow):
 
     def _reserveMacTitleBarSpace(self):
         """Reserve a dedicated macOS traffic-light row above app chrome."""
-        if sys.platform != "darwin":
-            return
-
         traffic_light_row_height = self._macTrafficLightRowHeight()
         self.titleBar.move(0, traffic_light_row_height)
 
@@ -192,31 +173,84 @@ class MainWindow(FluentWindow):
 
     def _applyMacWindowChromeStyle(self):
         """Use Qt translucent chrome without covering the main content."""
-        if sys.platform != "darwin":
-            return
+        panel = self.navigationInterface.panel
+        panel.scrollArea.setObjectName("macNavigationScrollArea")
+        panel.scrollArea.viewport().setObjectName("macNavigationScrollViewport")
+        panel.scrollWidget.setObjectName("macNavigationScrollWidget")
+        panel.scrollArea.setAttribute(Qt.WA_TranslucentBackground, True)
+        panel.scrollArea.viewport().setAttribute(Qt.WA_TranslucentBackground, True)
+        panel.scrollWidget.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        chrome_widgets = (
-            ("macTitleBarChrome", self.titleBar),
-            ("macNavigationChrome", self.navigationInterface),
-            ("macNavigationPanelChrome", self.navigationInterface.panel),
-        )
-        for object_name, widget in chrome_widgets:
+        if isDarkTheme():
+            styles = {
+                "macTitleBarChrome": (
+                    "background: rgba(26, 27, 30, 0.84);"
+                    "border-bottom: 1px solid rgba(255, 255, 255, 0.08);"
+                ),
+                "macNavigationChrome": (
+                    "background: rgba(24, 25, 28, 0.86);"
+                    "border-right: 1px solid rgba(255, 255, 255, 0.08);"
+                ),
+                "macNavigationPanelChrome": (
+                    "background: transparent;"
+                    "border: none;"
+                ),
+            }
+        else:
+            styles = {
+                "macTitleBarChrome": (
+                    "background: rgba(255, 255, 255, 0.88);"
+                    "border-bottom: 1px solid rgba(17, 24, 39, 0.10);"
+                ),
+                "macNavigationChrome": (
+                    "background: rgba(250, 251, 253, 0.94);"
+                    "border-right: 1px solid rgba(17, 24, 39, 0.12);"
+                ),
+                "macNavigationPanelChrome": (
+                    "background: transparent;"
+                    "border: none;"
+                ),
+            }
+
+        chrome_widgets = {
+            "macTitleBarChrome": self.titleBar,
+            "macNavigationChrome": self.navigationInterface,
+            "macNavigationPanelChrome": panel,
+        }
+        for object_name, widget in chrome_widgets.items():
             widget.setObjectName(object_name)
             widget.setAttribute(Qt.WA_TranslucentBackground, True)
             widget.setStyleSheet(
-                f"QWidget#{object_name} {{ background: rgba(255, 255, 255, 0.70); }}"
+                f"QWidget#{object_name} {{ {styles[object_name]} }}"
             )
+
+        navigation_inner_style = """
+            QScrollArea#macNavigationScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QWidget#macNavigationScrollViewport {
+                background: transparent;
+                border: none;
+            }
+            QWidget#macNavigationScrollWidget {
+                background: transparent;
+                border: none;
+            }
+        """
+        panel.scrollArea.setStyleSheet(navigation_inner_style)
+        panel.scrollArea.viewport().setStyleSheet(navigation_inner_style)
+        panel.scrollWidget.setStyleSheet(navigation_inner_style)
 
     def _isMacTrafficLightRowDragPoint(self, pos) -> bool:
         return (
-            sys.platform == "darwin"
-            and not self.isFullScreen()
+            not self.isFullScreen()
             and pos.y() < self._macTrafficLightRowHeight()
             and pos.x() > MAC_TRAFFIC_LIGHT_BUTTON_AREA_WIDTH
         )
 
     def _startMacWindowDrag(self, global_pos):
-        if sys.platform != "darwin" or self.isFullScreen():
+        if self.isFullScreen():
             return False
 
         startSystemMove(self, global_pos)
@@ -253,13 +287,9 @@ class MainWindow(FluentWindow):
             self,
         )
         w.yesButton.setText(self.tr("打开 GitHub"))
-        w.cancelButton.setText(self.tr("支持作者"))
+        w.cancelButton.hide()
         if w.exec():
             QDesktopServices.openUrl(QUrl(GITHUB_REPO_URL))
-        else:
-            # 点击"支持作者"按钮时打开捐赠对话框
-            donate_dialog = DonateDialog(self)
-            donate_dialog.exec_()
 
     def open_downloaded_video_in_transcription(self, file_path: str):
         try:
@@ -300,25 +330,6 @@ class MainWindow(FluentWindow):
         self.raise_()
         self.activateWindow()
 
-    def onNewVersion(self, version, force_update, update_info, download_url):
-        """新版本提示"""
-        title = "发现新版本" if not force_update else "当前版本已停用"
-        content = f"发现新版本 {version}\n\n{update_info}"
-        w = MessageBox(title, content, self)
-        w.yesButton.setText("立即更新")
-        w.cancelButton.setText("稍后再说" if not force_update else "退出程序")
-        if w.exec():
-            QDesktopServices.openUrl(QUrl(download_url))
-        if force_update:
-            QApplication.quit()
-
-    def onAnnouncement(self, content):
-        """显示公告"""
-        w = MessageBox("公告", content, self)
-        w.yesButton.setText("我知道了")
-        w.cancelButton.hide()
-        w.exec()
-
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self._reserveMacTitleBarSpaceForNavigation()
@@ -338,8 +349,7 @@ class MainWindow(FluentWindow):
 
     def eventFilter(self, obj, event):
         if (
-            sys.platform == "darwin"
-            and event.type() == QEvent.MouseButtonPress
+            event.type() == QEvent.MouseButtonPress
             and event.button() == Qt.LeftButton
             and obj in getattr(self, "_mac_drag_widgets", ())
         ):
@@ -359,7 +369,6 @@ class MainWindow(FluentWindow):
     def closeEvent(self, event):
         # 关闭所有子界面
         # self.homeInterface.close()
-        # self.subtitleStyleInterface.close()
         # self.settingInterface.close()
         super().closeEvent(event)
 

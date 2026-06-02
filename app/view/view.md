@@ -14,7 +14,6 @@ view/  目录结构：用户界面 (UI) 模块
 │       │       ├── transcription_interface.py - 语音转录窗口
 │       │       ├── subtitle_interface.py -------- 字幕优化窗口
 │       │
-│       ├── subtitle_style_interface.py ------ 字幕样式窗口
 │       └── setting_interface.py -------------- 设置窗口
 │
 ├── log_window.py -------------------- 日志窗口 (独立窗口，集成在 home_interface)
