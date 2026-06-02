@@ -1,61 +1,82 @@
 from pathlib import Path
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
-from qfluentwidgets import SegmentedWidget, isDarkTheme
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QHBoxLayout, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
+from qfluentwidgets import FluentIcon as FIF
+from qfluentwidgets import SegmentedWidget, ToolButton, isDarkTheme
 
 from app.common.config import cfg
 from app.core.task_factory import TaskFactory
+from app.view.download_center_interface import DownloadCenterInterface
 from app.view.subtitle_interface import SubtitleInterface
-from app.view.task_creation_interface import TaskCreationInterface
 from app.view.transcription_interface import TranscriptionInterface
 
 
 class HomeInterface(QWidget):
+    settings_requested = pyqtSignal()
+    github_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
         self.setObjectName("HomeInterface")
 
-        # 创建分段控件和堆叠控件
+        # 创建分段控件、右侧工具按钮和堆叠控件
         self.pivot = SegmentedWidget(self)
         self.pivot.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.settings_button = ToolButton(FIF.SETTING, self)
+        self.settings_button.setToolTip(self.tr("设置"))
+        self.github_button = ToolButton(FIF.GITHUB, self)
+        self.github_button.setToolTip("GitHub")
+        for button in (self.settings_button, self.github_button):
+            button.setFixedSize(34, 34)
 
         self.stackedWidget = QStackedWidget(self)
         self.vBoxLayout = QVBoxLayout(self)
+        self.topLayout = QHBoxLayout()
 
         # 添加子界面
-        self.task_creation_interface = TaskCreationInterface(self)
+        self.download_center_interface = DownloadCenterInterface(self)
         self.transcription_interface = TranscriptionInterface(self)
         self.subtitle_optimization_interface = SubtitleInterface(self)
 
-        self.addSubInterface(
-            self.task_creation_interface, "TaskCreationInterface", self.tr("任务创建")
+        self._add_workspace_page(
+            self.download_center_interface,
+            "DownloadCenterInterface",
+            self.tr("下载中心"),
         )
-        self.addSubInterface(
+        self._add_workspace_page(
             self.transcription_interface, "TranscriptionInterface", self.tr("语音转录")
         )
-        self.addSubInterface(
+        self._add_workspace_page(
             self.subtitle_optimization_interface,
             "SubtitleInterface",
             self.tr("字幕优化与翻译"),
         )
-        self.vBoxLayout.addWidget(self.pivot)
+        self.topLayout.addWidget(self.pivot, 0, Qt.AlignVCenter)
+        self.topLayout.addStretch(1)
+        self.topLayout.addWidget(self.settings_button, 0, Qt.AlignVCenter)
+        self.topLayout.addWidget(self.github_button, 0, Qt.AlignVCenter)
+
+        self.vBoxLayout.addLayout(self.topLayout)
         self.vBoxLayout.addWidget(self.stackedWidget)
         self.vBoxLayout.setContentsMargins(30, 10, 30, 30)
 
         self.stackedWidget.currentChanged.connect(self.onCurrentIndexChanged)
-        self.stackedWidget.setCurrentWidget(self.task_creation_interface)
-        self.pivot.setCurrentItem("TaskCreationInterface")
+        self.stackedWidget.setCurrentWidget(self.download_center_interface)
+        self.pivot.setCurrentItem("DownloadCenterInterface")
 
-        self.task_creation_interface.finished.connect(self.switch_to_transcription)
+        self.download_center_interface.send_to_transcription.connect(
+            self.open_transcription
+        )
         self.transcription_interface.finished.connect(
             self.switch_to_subtitle_optimization
         )
         self.transcription_interface.send_to_translate.connect(
             self.open_subtitle_optimization
         )
+        self.settings_button.clicked.connect(self.settings_requested)
+        self.github_button.clicked.connect(self.github_requested)
         cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
         self._apply_theme_styles()
 
@@ -80,10 +101,12 @@ class HomeInterface(QWidget):
             """
         )
 
+    def show_download_center_page(self):
+        self.stackedWidget.setCurrentWidget(self.download_center_interface)
+        self.pivot.setCurrentItem("DownloadCenterInterface")
+
     def switch_to_transcription(self, file_path):
         # 切换到转录界面
-        if not file_path or not Path(file_path).exists():
-            raise FileNotFoundError(f"转录文件不存在: {file_path}")
         transcribe_task = TaskFactory.create_transcribe_task(
             file_path, need_next_task=True
         )
@@ -94,8 +117,6 @@ class HomeInterface(QWidget):
         self.pivot.setCurrentItem("TranscriptionInterface")
 
     def open_transcription(self, file_path: str, need_next_task: bool = False):
-        if not file_path or not Path(file_path).exists():
-            raise FileNotFoundError(f"转录文件不存在: {file_path}")
         transcribe_task = TaskFactory.create_transcribe_task(
             file_path, need_next_task=need_next_task
         )
@@ -129,7 +150,7 @@ class HomeInterface(QWidget):
         self.stackedWidget.setCurrentWidget(self.subtitle_optimization_interface)
         self.pivot.setCurrentItem("SubtitleInterface")
 
-    def addSubInterface(self, widget, objectName, text):
+    def _add_workspace_page(self, widget, objectName, text):
         # 添加子界面到堆叠控件和分段控件
         widget.setObjectName(objectName)
         self.stackedWidget.addWidget(widget)
@@ -147,7 +168,7 @@ class HomeInterface(QWidget):
 
     def closeEvent(self, event):
         # 关闭事件，关闭所有子界面
-        self.task_creation_interface.close()
+        self.download_center_interface.close()
         self.transcription_interface.close()
         self.subtitle_optimization_interface.close()
         super().closeEvent(event)

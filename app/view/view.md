@@ -4,17 +4,17 @@ view/  目录结构：用户界面 (UI) 模块
 
 
 ```
-├── main_window.py  ------------------  主窗口 (应用程序框架)
+├── main_window.py  ------------------  主窗口 (无侧边栏应用程序框架)
 │   │
 │   └── 
-│       ├── home_interface.py -------- 主页窗口 (程序主界面，包含核心功能)
+│       ├── home_interface.py -------- 单一工作台 (程序主界面，包含核心功能)
 │       │   │
 │       │   └── 包含以下子功能模块:
-│       │       ├── task_creation_interface.py - 任务创建窗口
+│       │       ├── download_center_interface.py - 下载中心窗口
 │       │       ├── transcription_interface.py - 语音转录窗口
 │       │       ├── subtitle_interface.py -------- 字幕优化窗口
 │       │
-│       └── setting_interface.py -------------- 设置窗口
+│       └── setting_interface.py -------------- 设置窗口 (顶部按钮打开)
 │
 ├── log_window.py -------------------- 日志窗口 (独立窗口，集成在 home_interface)
 
