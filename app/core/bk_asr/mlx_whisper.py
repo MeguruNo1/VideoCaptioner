@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from ..utils.logger import setup_logger
+from ..utils.mlx_model_utils import DEFAULT_MLX_MODEL, validate_mlx_model
 from .asr_data import ASRDataSeg
 from .base import BaseASR
 from .mlx_workflow import (
@@ -17,9 +18,6 @@ from .mlx_workflow import (
 )
 
 logger = setup_logger("mlx_whisper")
-
-DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-turbo"
-
 
 def _parse_prompt_terms(text: str) -> list[str]:
     terms = []
@@ -188,6 +186,10 @@ class MLXWhisperASR(BaseASR):
     def _run(self, callback=None) -> dict:
         if callback is None:
             callback = lambda x, y: None
+
+        is_valid_model, model_message = validate_mlx_model(self.model)
+        if not is_valid_model:
+            raise RuntimeError(model_message)
 
         try:
             import mlx_whisper

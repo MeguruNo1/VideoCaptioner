@@ -62,6 +62,17 @@ class MLXWhisperASRTests(unittest.TestCase):
             initial_prompt="请优先识别：VideoCaptioner, MLX Whisper",
         )
 
+    def test_run_rejects_missing_local_model_before_import(self):
+        asr = MLXWhisperASR(
+            b"audio",
+            model="/tmp/not-a-videocaptioner-mlx-model",
+            language="zh",
+            need_word_time_stamp=True,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "本地模型目录不存在"):
+            asr._run()
+
     def test_transcribe_once_passes_path_as_string(self):
         asr = MLXWhisperASR(
             b"audio",

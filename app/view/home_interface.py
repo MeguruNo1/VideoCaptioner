@@ -8,12 +8,13 @@ from qfluentwidgets import SegmentedWidget, ToolButton, isDarkTheme
 from app.common.config import cfg
 from app.core.task_factory import TaskFactory
 from app.view.download_center_interface import DownloadCenterInterface
+from app.view.log_window import LogWindow
+from app.view.setting_interface import SettingInterface
 from app.view.subtitle_interface import SubtitleInterface
 from app.view.transcription_interface import TranscriptionInterface
 
 
 class HomeInterface(QWidget):
-    settings_requested = pyqtSignal()
     github_requested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -24,11 +25,14 @@ class HomeInterface(QWidget):
         # 创建分段控件、右侧工具按钮和堆叠控件
         self.pivot = SegmentedWidget(self)
         self.pivot.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.log_window = None
+        self.log_button = ToolButton(FIF.DOCUMENT, self)
+        self.log_button.setToolTip(self.tr("查看日志"))
         self.settings_button = ToolButton(FIF.SETTING, self)
         self.settings_button.setToolTip(self.tr("设置"))
         self.github_button = ToolButton(FIF.GITHUB, self)
         self.github_button.setToolTip("GitHub")
-        for button in (self.settings_button, self.github_button):
+        for button in (self.log_button, self.settings_button, self.github_button):
             button.setFixedSize(34, 34)
 
         self.stackedWidget = QStackedWidget(self)
@@ -39,6 +43,7 @@ class HomeInterface(QWidget):
         self.download_center_interface = DownloadCenterInterface(self)
         self.transcription_interface = TranscriptionInterface(self)
         self.subtitle_optimization_interface = SubtitleInterface(self)
+        self.setting_interface = SettingInterface(self)
 
         self._add_workspace_page(
             self.download_center_interface,
@@ -53,8 +58,14 @@ class HomeInterface(QWidget):
             "SubtitleInterface",
             self.tr("字幕优化与翻译"),
         )
+        self._add_workspace_page(
+            self.setting_interface,
+            "SettingInterface",
+            self.tr("设置"),
+        )
         self.topLayout.addWidget(self.pivot, 0, Qt.AlignVCenter)
         self.topLayout.addStretch(1)
+        self.topLayout.addWidget(self.log_button, 0, Qt.AlignVCenter)
         self.topLayout.addWidget(self.settings_button, 0, Qt.AlignVCenter)
         self.topLayout.addWidget(self.github_button, 0, Qt.AlignVCenter)
 
@@ -75,7 +86,8 @@ class HomeInterface(QWidget):
         self.transcription_interface.send_to_translate.connect(
             self.open_subtitle_optimization
         )
-        self.settings_button.clicked.connect(self.settings_requested)
+        self.log_button.clicked.connect(self.show_log_window)
+        self.settings_button.clicked.connect(self.show_setting_page)
         self.github_button.clicked.connect(self.github_requested)
         cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
         self._apply_theme_styles()
@@ -150,6 +162,18 @@ class HomeInterface(QWidget):
         self.stackedWidget.setCurrentWidget(self.subtitle_optimization_interface)
         self.pivot.setCurrentItem("SubtitleInterface")
 
+    def show_setting_page(self):
+        self.stackedWidget.setCurrentWidget(self.setting_interface)
+        self.pivot.setCurrentItem("SettingInterface")
+
+    def show_log_window(self):
+        if self.log_window is None:
+            self.log_window = LogWindow(self.window())
+        if self.log_window.isHidden():
+            self.log_window.show()
+        else:
+            self.log_window.activateWindow()
+
     def _add_workspace_page(self, widget, objectName, text):
         # 添加子界面到堆叠控件和分段控件
         widget.setObjectName(objectName)
@@ -171,4 +195,5 @@ class HomeInterface(QWidget):
         self.download_center_interface.close()
         self.transcription_interface.close()
         self.subtitle_optimization_interface.close()
+        self.setting_interface.close()
         super().closeEvent(event)

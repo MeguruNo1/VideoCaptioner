@@ -27,6 +27,7 @@ from ..core.entities import (
     TranscribeLanguageEnum,
     TranslatorServiceEnum,
 )
+from ..core.utils.mlx_model_utils import DEFAULT_MLX_MODEL, preferred_mlx_model
 
 
 TRANSCRIBE_MODEL_OPTIONS = (
@@ -340,7 +341,7 @@ class Config(QConfig):
     mlx_model = ConfigItem(
         "MLXWhisper",
         "Model",
-        "mlx-community/whisper-large-v3-turbo",
+        DEFAULT_MLX_MODEL,
     )
     mlx_word_timestamps = ConfigItem(
         "MLXWhisper",
@@ -545,6 +546,8 @@ cfg = Config()
 cfg.themeMode.value = Theme.DARK
 cfg.themeColor.value = QColor("#ff28f08b")
 qconfig.load(SETTINGS_PATH, cfg)
+
+cfg.mlx_model.value = preferred_mlx_model(cfg.mlx_model.value)
 
 if WHISPERX_ONLY_MODE and cfg.transcribe_model.value == TranscribeModelEnum.WHISPER_X:
     cfg.set(cfg.whisperx_device, "cpu")

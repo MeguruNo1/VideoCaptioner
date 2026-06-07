@@ -12,6 +12,12 @@ from ..utils.logger import setup_logger
 logger = setup_logger("video_utils")
 
 
+def _ffmpeg_creationflags() -> int:
+    if os.name == "nt":
+        return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return 0
+
+
 def video2audio(input_file: str, output: str = "") -> bool:
     """使用ffmpeg将视频转换为音频"""
     # 创建output目录

@@ -16,7 +16,6 @@ from app.common.config import cfg
 from app.common.signal_bus import signalBus
 from app.config import ASSETS_PATH, GITHUB_REPO_URL
 from app.view.home_interface import HomeInterface
-from app.view.setting_interface import SettingInterface
 
 LOGO_PATH = ASSETS_PATH / "logo.png"
 MAC_TRAFFIC_LIGHT_ROW_HEIGHT = 32
@@ -39,8 +38,7 @@ class MainWindow(FluentWindow):
         # 创建子界面
         self.homeInterface = HomeInterface(self)
         self.downloadCenterInterface = self.homeInterface.download_center_interface
-        self.settingInterface = None
-        self.homeInterface.settings_requested.connect(self.showSettingInterface)
+        self.settingInterface = self.homeInterface.setting_interface
         self.homeInterface.github_requested.connect(self.onGithubDialog)
         signalBus.notification_clicked.connect(self.on_notification_clicked)
 
@@ -197,14 +195,6 @@ class MainWindow(FluentWindow):
         w.cancelButton.hide()
         if w.exec():
             QDesktopServices.openUrl(QUrl(GITHUB_REPO_URL))
-
-    def showSettingInterface(self):
-        if self.settingInterface is None:
-            self.settingInterface = SettingInterface()
-            self.settingInterface.setWindowIcon(self.windowIcon())
-        self.settingInterface.show()
-        self.settingInterface.raise_()
-        self.settingInterface.activateWindow()
 
     def on_notification_clicked(self, target: str):
         target = str(target or "").strip()

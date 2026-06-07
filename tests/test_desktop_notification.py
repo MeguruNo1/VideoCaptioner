@@ -93,6 +93,38 @@ class DesktopNotificationTests(unittest.TestCase):
 
         self.assertEqual(received, ["download_center"])
 
+    def test_request_authorization_returns_false_without_native_center(self):
+        with patch.object(
+            desktop_notification,
+            "_ensure_mac_notification_center",
+            return_value=None,
+        ):
+            self.assertFalse(
+                desktop_notification.request_desktop_notification_authorization()
+            )
+
+    def test_status_reports_disabled_when_config_is_off(self):
+        with patch.object(desktop_notification.cfg, "get", return_value=False):
+            status = desktop_notification.get_desktop_notification_status()
+
+        self.assertEqual(status["status"], "disabled")
+
+    def test_macos_native_sender_requires_authorization(self):
+        with patch.object(
+            desktop_notification,
+            "_ensure_mac_notification_center",
+            return_value=object(),
+        ), patch.object(
+            desktop_notification,
+            "_request_mac_notification_authorization",
+            return_value=False,
+        ):
+            result = desktop_notification._send_macos_native_notification(
+                "title", "message", target="download_center"
+            )
+
+        self.assertFalse(result)
+
 
 if __name__ == "__main__":
     unittest.main()

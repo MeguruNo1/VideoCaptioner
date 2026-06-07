@@ -15,6 +15,14 @@ from qfluentwidgets import FluentIcon as FIF
 from ..common.config import cfg
 from ..core.entities import TranscribeLanguageEnum
 from ..core.subtitle_processor.prompt import PROMPT_TERM_GLOSSARY, get_prompt_template
+from ..core.utils.mlx_model_utils import (
+    DEFAULT_LOCAL_MLX_MODEL_DIR,
+    DEFAULT_MLX_MODEL,
+    discover_local_mlx_models,
+    is_valid_local_mlx_model,
+    preferred_mlx_model,
+    validate_mlx_model,
+)
 from ..core.utils.transcript_file_locator import resolve_default_transcript_path
 from ..core.utils.transcript_terms import (
     apply_terms_to_document_prompt,
@@ -262,15 +270,21 @@ class MLXWhisperSettingWidget(QWidget):
             FIF.ROBOT,
             self.tr("模型"),
             self.tr("选择或输入 MLX Whisper 模型名称或本地模型目录"),
-            [
-                "mlx-community/whisper-large-v3-turbo",
-                "mlx-community/whisper-large-v3-mlx",
-                "mlx-community/distil-whisper-large-v3",
-                "mlx-community/whisper-medium",
-                "mlx-community/whisper-small",
-                "mlx-community/whisper-base",
-                "mlx-community/whisper-tiny",
-            ],
+            self._model_options(),
+            self.setting_group,
+        )
+        self.local_model_card = PushSettingCard(
+            self.tr("选择"),
+            FIF.FOLDER,
+            self.tr("本地模型目录"),
+            self.tr("选择包含 config.json 和 weights.safetensors 的 MLX Whisper 模型目录"),
+            self.setting_group,
+        )
+        self.model_status_card = PushSettingCard(
+            self.tr("刷新"),
+            FIF.INFO,
+            self.tr("模型接入状态"),
+            self.tr("未检测"),
             self.setting_group,
         )
 
@@ -353,6 +367,8 @@ class MLXWhisperSettingWidget(QWidget):
         self.initial_prompt_card.lineEdit.setMinimumWidth(200)
 
         self.setting_group.addSettingCard(self.model_card)
+        self.setting_group.addSettingCard(self.local_model_card)
+        self.setting_group.addSettingCard(self.model_status_card)
         self.setting_group.addSettingCard(self.language_card)
         self.setting_group.addSettingCard(self.word_timestamps_card)
         self.setting_group.addSettingCard(self.vad_enabled_card)
@@ -365,6 +381,85 @@ class MLXWhisperSettingWidget(QWidget):
         self.main_layout.addWidget(self.setting_group)
 
         self.hotwords_card.clicked.connect(self.__on_hotwords_clicked)
+        self.local_model_card.clicked.connect(self.__on_local_model_clicked)
+        self.model_status_card.clicked.connect(
+            lambda: self.refresh_model_status(show_warning=True)
+        )
+        self.model_card.currentTextChanged.connect(lambda _: self.refresh_model_status())
+        self.__use_preferred_local_model_if_available()
+        self.refresh_model_status()
+
+    def _model_options(self) -> list[str]:
+        remote_models = [
+            DEFAULT_MLX_MODEL,
+            "mlx-community/whisper-large-v3-mlx",
+            "mlx-community/distil-whisper-large-v3",
+            "mlx-community/whisper-medium",
+            "mlx-community/whisper-small",
+            "mlx-community/whisper-base",
+            "mlx-community/whisper-tiny",
+        ]
+        local_models = discover_local_mlx_models()
+        return local_models + [
+            model for model in remote_models if model not in local_models
+        ]
+
+    def __use_preferred_local_model_if_available(self):
+        model = preferred_mlx_model(cfg.mlx_model.value)
+        if model != cfg.mlx_model.value:
+            cfg.set(cfg.mlx_model, model)
+            self.model_card.setValue(model)
+        self.model_card.setItems(self._model_options())
+        self.model_card.setValue(cfg.mlx_model.value)
+
+    def __on_local_model_clicked(self):
+        current_model = str(cfg.mlx_model.value or "").strip()
+        default_dir = (
+            current_model
+            if is_valid_local_mlx_model(current_model)
+            else str(DEFAULT_LOCAL_MLX_MODEL_DIR.parent)
+        )
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            self.tr("选择 MLX Whisper 本地模型目录"),
+            default_dir,
+        )
+        if not folder:
+            return
+
+        if not is_valid_local_mlx_model(folder):
+            InfoBar.warning(
+                self.tr("模型目录不可用"),
+                self.tr("请选择包含 config.json 和 weights.safetensors 的目录。"),
+                duration=5000,
+                parent=self,
+            )
+            self.model_status_card.setContent(
+                self.tr("目录缺少 config.json 或 weights.safetensors")
+            )
+            return
+
+        cfg.set(cfg.mlx_model, folder)
+        self.model_card.setItems(self._model_options())
+        self.model_card.setValue(folder)
+        self.refresh_model_status()
+        InfoBar.success(
+            self.tr("已接入本地模型"),
+            folder,
+            duration=3500,
+            parent=self,
+        )
+
+    def refresh_model_status(self, show_warning: bool = False):
+        is_valid_model, message = validate_mlx_model(cfg.mlx_model.value)
+        self.model_status_card.setContent(self.tr(message))
+        if show_warning and not is_valid_model:
+            InfoBar.warning(
+                self.tr("MLX Whisper 模型未接入"),
+                self.tr(message),
+                duration=5000,
+                parent=self,
+            )
 
     def _hotwords_summary(self) -> str:
         hotwords = parse_hotwords_text(cfg.mlx_hotwords.value)

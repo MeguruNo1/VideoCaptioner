@@ -39,6 +39,11 @@ from app.core.subtitle_processor.prompt import (
     get_required_prompt_variables,
     validate_prompt_template,
 )
+from app.core.utils.desktop_notification import (
+    get_desktop_notification_status,
+    request_desktop_notification_authorization,
+    send_desktop_notification,
+)
 from app.core.utils.proxy_utils import (
     PROXY_MODE_MANUAL,
     PROXY_MODE_OFF,
@@ -232,6 +237,7 @@ class SettingInterface(ScrollArea):
         self.__refreshDownloadProxyStatus()
         self.__refreshDownloadCenterOutputDir()
         self.__refreshCookieStatus()
+        self.__refreshDesktopNotificationStatus()
 
     def __initGroups(self):
         """初始化所有设置组"""
@@ -441,6 +447,20 @@ class SettingInterface(ScrollArea):
             cfg.desktop_notifications_enabled,
             self.personalGroup,
         )
+        self.desktopNotificationStatusCard = PushSettingCard(
+            self.tr("刷新"),
+            FIF.INFO,
+            self.tr("通知权限状态"),
+            self.tr("未检测"),
+            self.personalGroup,
+        )
+        self.desktopNotificationTestCard = PrimaryPushSettingCard(
+            self.tr("发送"),
+            FIF.SEND,
+            self.tr("测试通知"),
+            self.tr("发送一条系统通知，用于确认权限和点击跳转是否正常"),
+            self.personalGroup,
+        )
 
         # 关于卡片
         self.helpCard = HyperlinkCard(
@@ -489,6 +509,8 @@ class SettingInterface(ScrollArea):
         self.personalGroup.addSettingCard(self.zoomCard)
         self.personalGroup.addSettingCard(self.languageCard)
         self.personalGroup.addSettingCard(self.desktopNotificationsCard)
+        self.personalGroup.addSettingCard(self.desktopNotificationStatusCard)
+        self.personalGroup.addSettingCard(self.desktopNotificationTestCard)
 
         self.aboutGroup.addSettingCard(self.helpCard)
         self.aboutGroup.addSettingCard(self.feedbackCard)
@@ -908,6 +930,15 @@ class SettingInterface(ScrollArea):
         # 个性化
         self.themeCard.optionChanged.connect(self.__onThemeCardChanged)
         self.themeColorCard.colorChanged.connect(setThemeColor)
+        self.desktopNotificationsCard.checkedChanged.connect(
+            self.__onDesktopNotificationsChanged
+        )
+        self.desktopNotificationStatusCard.clicked.connect(
+            self.__refreshDesktopNotificationStatus
+        )
+        self.desktopNotificationTestCard.clicked.connect(
+            self.__sendTestDesktopNotification
+        )
 
         # 反馈
         self.feedbackCard.clicked.connect(
@@ -995,6 +1026,49 @@ class SettingInterface(ScrollArea):
         if not output_dir:
             output_dir = self.tr("跟随工作目录")
         self.downloadCenterOutputDirCard.setContent(output_dir)
+
+    def __onDesktopNotificationsChanged(self, checked: bool):
+        if checked:
+            request_desktop_notification_authorization()
+        self.__refreshDesktopNotificationStatus()
+
+    def __refreshDesktopNotificationStatus(self):
+        status = get_desktop_notification_status()
+        self.desktopNotificationStatusCard.setContent(
+            status.get("message") or self.tr("未知")
+        )
+
+    def __sendTestDesktopNotification(self):
+        if not cfg.get(cfg.desktop_notifications_enabled):
+            InfoBar.warning(
+                self.tr("通知未开启"),
+                self.tr("请先打开桌面通知开关。"),
+                duration=3000,
+                parent=self,
+            )
+            return
+
+        request_desktop_notification_authorization()
+        sent = send_desktop_notification(
+            self.tr("测试通知"),
+            self.tr("点击后将回到下载中心。"),
+            target="download_center",
+        )
+        if sent:
+            InfoBar.success(
+                self.tr("测试通知已发送"),
+                self.tr("如果没有看到通知，请检查 macOS 系统通知权限。"),
+                duration=4000,
+                parent=self,
+            )
+        else:
+            InfoBar.warning(
+                self.tr("通知未发送"),
+                self.tr("请检查 macOS 系统设置中的通知权限。"),
+                duration=5000,
+                parent=self,
+            )
+        self.__refreshDesktopNotificationStatus()
 
     @staticmethod
     def __formatCookieStatusContent(result: dict) -> str:

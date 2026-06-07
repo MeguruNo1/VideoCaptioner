@@ -6,8 +6,9 @@ from pathlib import Path
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from app.core.bk_asr import transcribe
-from app.core.entities import TranscribeTask
+from app.core.entities import TranscribeModelEnum, TranscribeTask
 from app.core.utils.logger import setup_logger
+from app.core.utils.mlx_model_utils import validate_mlx_model
 from app.core.utils.video_utils import video2audio
 
 logger = setup_logger("transcript_thread")
@@ -33,6 +34,16 @@ class TranscriptThread(QThread):
             if not video_path.exists():
                 logger.error("视频文件不存在：%s", video_path)
                 raise ValueError(self.tr("视频文件不存在"))
+
+            if (
+                self.task.transcribe_config.transcribe_model
+                == TranscribeModelEnum.MLX_WHISPER
+            ):
+                is_valid_model, model_message = validate_mlx_model(
+                    self.task.transcribe_config.mlx_model
+                )
+                if not is_valid_model:
+                    raise RuntimeError(model_message)
 
             if self.task.need_next_task:
                 subtitle_dir = Path(self.task.file_path).parent / "subtitle"

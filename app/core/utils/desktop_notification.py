@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from threading import Event
 import uuid
 
 from PyQt5.QtGui import QIcon
@@ -18,6 +19,7 @@ _mac_notification_center = None
 _mac_notification_delegate = None
 _mac_authorization_requested = False
 _mac_authorized = None
+_mac_authorization_event = None
 
 
 def _notification_icon() -> QIcon:
@@ -88,10 +90,12 @@ def _ensure_mac_notification_center():
     return _mac_notification_center
 
 
-def _request_mac_notification_authorization(center) -> None:
-    global _mac_authorization_requested
+def _request_mac_notification_authorization(center, wait: bool = False) -> bool | None:
+    global _mac_authorization_requested, _mac_authorization_event
     if _mac_authorization_requested:
-        return
+        if wait and _mac_authorization_event is not None:
+            _mac_authorization_event.wait(4)
+        return _mac_authorized
 
     try:
         from UserNotifications import (
@@ -99,19 +103,76 @@ def _request_mac_notification_authorization(center) -> None:
             UNAuthorizationOptionSound,
         )
 
+        _mac_authorization_event = Event()
+
         def _completion(granted, error):
             global _mac_authorized
             _mac_authorized = bool(granted)
             if error:
                 logger.warning("macOS 通知授权失败: %s", error)
+            if _mac_authorization_event is not None:
+                _mac_authorization_event.set()
 
         _mac_authorization_requested = True
         center.requestAuthorizationWithOptions_completionHandler_(
             UNAuthorizationOptionAlert | UNAuthorizationOptionSound,
             _completion,
         )
+        if wait and _mac_authorization_event is not None:
+            _mac_authorization_event.wait(4)
+        return _mac_authorized
     except Exception as exc:
         logger.warning("请求 macOS 通知授权失败: %s", exc)
+        return None
+
+
+def request_desktop_notification_authorization() -> bool:
+    center = _ensure_mac_notification_center()
+    if center is None:
+        return False
+    return bool(_request_mac_notification_authorization(center, wait=True))
+
+
+def get_desktop_notification_status() -> dict:
+    if not bool(cfg.get(cfg.desktop_notifications_enabled)):
+        return {"status": "disabled", "message": "应用内通知开关已关闭"}
+
+    center = _ensure_mac_notification_center()
+    if center is None:
+        return {"status": "unavailable", "message": "macOS 原生通知不可用"}
+
+    try:
+        from UserNotifications import (
+            UNAuthorizationStatusAuthorized,
+            UNAuthorizationStatusDenied,
+            UNAuthorizationStatusNotDetermined,
+            UNAuthorizationStatusProvisional,
+        )
+
+        done = Event()
+        result = {"status": "unknown", "message": "无法读取通知权限状态"}
+
+        def _completion(settings):
+            authorization_status = settings.authorizationStatus()
+            if authorization_status == UNAuthorizationStatusAuthorized:
+                result.update({"status": "authorized", "message": "系统通知权限已开启"})
+            elif authorization_status == UNAuthorizationStatusDenied:
+                result.update({
+                    "status": "denied",
+                    "message": "系统通知权限已关闭，请在 macOS 系统设置中开启",
+                })
+            elif authorization_status == UNAuthorizationStatusNotDetermined:
+                result.update({"status": "not_determined", "message": "尚未请求系统通知权限"})
+            elif authorization_status == UNAuthorizationStatusProvisional:
+                result.update({"status": "provisional", "message": "系统通知为临时授权状态"})
+            done.set()
+
+        center.getNotificationSettingsWithCompletionHandler_(_completion)
+        done.wait(2)
+        return result
+    except Exception as exc:
+        logger.warning("读取 macOS 通知权限状态失败: %s", exc)
+        return {"status": "unknown", "message": "读取通知权限状态失败"}
 
 
 def _send_macos_native_notification(
@@ -134,7 +195,10 @@ def _send_macos_native_notification(
             UNNotificationRequest,
         )
 
-        _request_mac_notification_authorization(center)
+        authorization = _request_mac_notification_authorization(center, wait=True)
+        if authorization is not True:
+            return False
+
         content = UNMutableNotificationContent.alloc().init()
         content.setTitle_(str(title or APP_NAME))
         content.setBody_(str(message or ""))
@@ -226,10 +290,11 @@ def _emit_notification_click(target: str | None) -> None:
 def _reset_notification_state_for_tests() -> None:
     global _tray_icon, _last_notification_target
     global _mac_notification_center, _mac_notification_delegate
-    global _mac_authorization_requested, _mac_authorized
+    global _mac_authorization_requested, _mac_authorized, _mac_authorization_event
     _tray_icon = None
     _last_notification_target = None
     _mac_notification_center = None
     _mac_notification_delegate = None
     _mac_authorization_requested = False
     _mac_authorized = None
+    _mac_authorization_event = None
