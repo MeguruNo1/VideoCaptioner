@@ -18,7 +18,11 @@ from app.core.utils.proxy_utils import (
     apply_download_proxy_environment,
     get_effective_download_proxy_url,
 )
-from app.core.utils.video_utils import get_video_codec, transcode_video_to_hevc
+from app.core.utils.macos_video_transcoder import (
+    get_native_video_codec,
+    is_native_hevc_transcode_supported,
+    transcode_video_to_hevc_native,
+)
 
 logger = setup_logger("video_download_thread")
 
@@ -847,24 +851,48 @@ class VideoDownloadThread(QThread):
             sanitize_filename(info_dict.get("title", "video")),
         )
 
-    def _postprocess_pr_smart_hevc(self, video_path: str | None) -> tuple[str | None, str | None, str]:
+    def _postprocess_pr_smart_hevc(
+        self, video_path: str | None
+    ) -> tuple[str | None, str | None, str, bool, str | None, str | None]:
         if not self.pr_smart_transcode_hevc_on_av1:
-            return None, None, "未启用"
+            return None, None, "未启用", False, None, None
         if not video_path:
-            return None, None, "未找到可转码的视频"
+            return None, None, "未找到可转码的视频", False, None, None
 
         source_path = Path(video_path)
-        codec = get_video_codec(str(source_path))
-        if codec != "av1":
-            return None, None, f"未触发，当前编码为 {codec or '未知'}"
-
         target_path = source_path.with_name(f"{source_path.stem}-hevc.mp4")
-        encoder = transcode_video_to_hevc(
-            str(source_path),
-            str(target_path),
-            progress_callback=self.progress.emit,
-        )
-        return str(target_path), encoder, f"已转码为 H.265（{encoder}）"
+
+        if not is_native_hevc_transcode_supported():
+            return (
+                None,
+                None,
+                "macOS 原生 H.265 转码不可用，可手动使用 FFmpeg 重试",
+                True,
+                str(source_path),
+                str(target_path),
+            )
+
+        codec = get_native_video_codec(str(source_path))
+        if codec != "av1":
+            return None, None, f"未触发，当前编码为 {codec or '未知'}", False, None, None
+
+        try:
+            encoder = transcode_video_to_hevc_native(
+                str(source_path),
+                str(target_path),
+                progress_callback=self.progress.emit,
+            )
+        except Exception as exc:
+            logger.exception("macOS 原生 H.265 后处理失败: %s", exc)
+            return (
+                None,
+                None,
+                f"macOS 原生 H.265 后处理失败，可手动使用 FFmpeg 重试: {exc}",
+                True,
+                str(source_path),
+                str(target_path),
+            )
+        return str(target_path), encoder, f"已使用 macOS 原生 API 转码为 H.265", False, None, None
 
     def download(
         self,
@@ -1053,10 +1081,20 @@ class VideoDownloadThread(QThread):
         transcoded_video_path = None
         transcoded_video_codec = None
         postprocess_message = "未触发"
+        postprocess_failed = False
+        postprocess_fallback_source_path = None
+        postprocess_fallback_target_path = None
         preferred_media_path = media_path
         if need_video and not multi_media and self.download_mode != "audio" and pr_smart_transcode_hevc_on_av1:
             try:
-                transcoded_video_path, transcoded_video_codec, postprocess_message = self._postprocess_pr_smart_hevc(
+                (
+                    transcoded_video_path,
+                    transcoded_video_codec,
+                    postprocess_message,
+                    postprocess_failed,
+                    postprocess_fallback_source_path,
+                    postprocess_fallback_target_path,
+                ) = self._postprocess_pr_smart_hevc(
                     original_video_path
                 )
                 if transcoded_video_path:
@@ -1064,6 +1102,13 @@ class VideoDownloadThread(QThread):
             except Exception as exc:
                 logger.exception("PR智能预设后处理失败: %s", exc)
                 postprocess_message = f"H.265 后处理失败: {exc}"
+                postprocess_failed = True
+                if original_video_path:
+                    source_path = Path(original_video_path)
+                    postprocess_fallback_source_path = str(source_path)
+                    postprocess_fallback_target_path = str(
+                        source_path.with_name(f"{source_path.stem}-hevc.mp4")
+                    )
 
         result = {
             "video_path": transcoded_video_path or original_video_path,
@@ -1074,6 +1119,9 @@ class VideoDownloadThread(QThread):
             "transcoded_video_path": transcoded_video_path,
             "transcoded_video_codec": transcoded_video_codec,
             "postprocess_message": postprocess_message,
+            "postprocess_failed": postprocess_failed,
+            "postprocess_fallback_source_path": postprocess_fallback_source_path,
+            "postprocess_fallback_target_path": postprocess_fallback_target_path,
             "subtitle_path": subtitle_path,
             "thumbnail_path": thumbnail_path,
             "metadata_path": metadata_path,

@@ -8,6 +8,26 @@ class TestableDownloadCenterInterface(DownloadCenterInterface):
         return text
 
 
+class _CheckBox:
+    def __init__(self, checked=False):
+        self._checked = checked
+
+    def isChecked(self):
+        return self._checked
+
+
+class _Combo:
+    def __init__(self, data, text=""):
+        self._data = data
+        self._text = text
+
+    def currentData(self):
+        return self._data
+
+    def currentText(self):
+        return self._text
+
+
 class PrSmartFormatSelectionTests(unittest.TestCase):
     def _interface_with_preview(self, preview_data):
         interface = TestableDownloadCenterInterface.__new__(TestableDownloadCenterInterface)
@@ -183,6 +203,46 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
         )
 
         self.assertIsNone(interface._pick_pr_smart_audio_format())
+
+    def test_professional_video_mode_can_enable_hevc_postprocess(self):
+        interface = TestableDownloadCenterInterface.__new__(TestableDownloadCenterInterface)
+        interface.current_mode_key = "professional"
+        interface.professional_mode_combo = _Combo("video")
+        interface.selected_video_format = {"format_id": "401", "has_audio": False}
+        interface.selected_audio_format = None
+        interface.professional_postprocess_checkbox = _CheckBox(True)
+        interface.subtitle_checkbox = _CheckBox(False)
+        interface.thumbnail_checkbox = _CheckBox(False)
+        interface.metadata_checkbox = _CheckBox(False)
+        interface.description_txt_checkbox = _CheckBox(False)
+        interface.enable_time_ranges_checkbox = _CheckBox(False)
+
+        request = interface._build_download_request()
+
+        self.assertTrue(request["need_video"])
+        self.assertEqual(request["download_mode"], "video")
+        self.assertEqual(request["format_selector"], "401")
+        self.assertTrue(request["pr_smart_transcode_hevc_on_av1"])
+
+    def test_professional_audio_mode_does_not_enable_hevc_postprocess(self):
+        interface = TestableDownloadCenterInterface.__new__(TestableDownloadCenterInterface)
+        interface.current_mode_key = "professional"
+        interface.professional_mode_combo = _Combo("audio")
+        interface.selected_video_format = None
+        interface.selected_audio_format = {"format_id": "140"}
+        interface.professional_postprocess_checkbox = _CheckBox(True)
+        interface.subtitle_checkbox = _CheckBox(False)
+        interface.thumbnail_checkbox = _CheckBox(False)
+        interface.metadata_checkbox = _CheckBox(False)
+        interface.description_txt_checkbox = _CheckBox(False)
+        interface.enable_time_ranges_checkbox = _CheckBox(False)
+
+        request = interface._build_download_request()
+
+        self.assertTrue(request["need_video"])
+        self.assertEqual(request["download_mode"], "audio")
+        self.assertEqual(request["format_selector"], "140")
+        self.assertFalse(request["pr_smart_transcode_hevc_on_av1"])
 
 
 if __name__ == "__main__":
