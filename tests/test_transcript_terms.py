@@ -389,6 +389,44 @@ class TranscriptTermsTests(unittest.TestCase):
         self.assertNotIn("OpenAI -> 开放人工智能", filtered)
         self.assertEqual(filtered.count(GENERATED_TERMS_BEGIN), 1)
 
+    def test_filter_document_prompt_correction_keeps_unmatched_generated_terms(self):
+        prompt = merge_document_prompt(
+            "保留用户要求",
+            [
+                {"original": "Yixuan", "translation": "仪玄"},
+                {"original": "Mr. Pan Yinhu", "translation": "潘引壶"},
+            ],
+        )
+
+        filtered = filter_document_prompt_for_text(
+            prompt,
+            "Yee Xuan meets Mister Pan.",
+            mode="correction",
+        )
+
+        self.assertIn("保留用户要求", filtered)
+        self.assertIn("- Yixuan -> 仪玄", filtered)
+        self.assertIn("- Mr. Pan Yinhu -> 潘引壶", filtered)
+        self.assertEqual(filtered.count(GENERATED_TERMS_BEGIN), 1)
+
+    def test_filter_document_prompt_translation_still_filters_unmatched_terms(self):
+        prompt = merge_document_prompt(
+            "保留用户要求",
+            [
+                {"original": "Yixuan", "translation": "仪玄"},
+                {"original": "Yuzuha", "translation": "柚叶"},
+            ],
+        )
+
+        filtered = filter_document_prompt_for_text(
+            prompt,
+            "Yuzuha appears in this subtitle.",
+            mode="translation",
+        )
+
+        self.assertIn("- Yuzuha -> 柚叶", filtered)
+        self.assertNotIn("- Yixuan -> 仪玄", filtered)
+
     def test_filter_document_prompt_removes_generated_block_when_no_terms_match(self):
         prompt = "\n".join(
             [

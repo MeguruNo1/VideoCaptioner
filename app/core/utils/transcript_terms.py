@@ -4,7 +4,7 @@ import re
 import unicodedata
 from pathlib import Path
 from string import Template
-from typing import Any
+from typing import Any, Literal
 
 from app.core.utils import json_repair
 from app.core.utils.openai_compat import get_openai_compat_request_options
@@ -246,11 +246,20 @@ def _term_matches_text(term: str, text: str) -> bool:
     return term in text
 
 
-def filter_document_prompt_for_text(prompt: str, text: str) -> str:
+def filter_document_prompt_for_text(
+    prompt: str, text: str, mode: Literal["translation", "correction"] = "translation"
+) -> str:
     """
     Keep user-written prompt text, but reduce the generated AI term block to
-    terms that appear in the current subtitle batch.
+    terms relevant to the current subtitle batch.
+
+    In translation mode, keep only terms whose source name appears in the
+    current batch. In correction mode, keep source-name candidates even when
+    they do not appear exactly, because the ASR text may be misspelled.
     """
+    if mode not in {"translation", "correction"}:
+        raise ValueError(f"Unsupported document prompt filter mode: {mode}")
+
     user_prompt, generated_block = _split_generated_terms_block(prompt)
     terms = _parse_document_prompt_terms(generated_block)
     if not terms:
@@ -264,7 +273,7 @@ def filter_document_prompt_for_text(prompt: str, text: str) -> str:
         key = original.casefold()
         if not original or key in seen:
             continue
-        if _term_matches_text(original, source_text):
+        if mode == "correction" or _term_matches_text(original, source_text):
             seen.add(key)
             matched_terms.append(term)
         if len(matched_terms) >= MAX_FILTERED_PROMPT_TERMS:

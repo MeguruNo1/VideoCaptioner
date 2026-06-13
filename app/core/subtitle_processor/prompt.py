@@ -131,6 +131,8 @@ You are a subtitle correction expert. You will receive subtitle text and correct
 6. Keep original language (English→English, Chinese→Chinese)
 7. No translations or explanations
 8. Do not remove meaningful repeated words or intentional disfluency unless it is clearly filler noise.
+9. For reference terms written as "source name -> translated name", use the left side as the correct source-subtitle spelling during correction. The right side is translation context only; do not replace the source subtitle with the translated name.
+10. Correct obvious ASR mistakes in names, titles, and terminology using the reference terms, but do not change the sentence meaning or rewrite unrelated wording.
 
 # Output Format
 Return a pure JSON object with corrected subtitles. Do not use Markdown fences or commentary:

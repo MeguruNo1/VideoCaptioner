@@ -201,7 +201,7 @@ class SubtitleOptimizer:
         )
         chunk_text = "\n".join(str(text) for text in subtitle_chunk.values())
         filtered_custom_prompt = filter_document_prompt_for_text(
-            self.custom_prompt, chunk_text
+            self.custom_prompt, chunk_text, mode="correction"
         )
         user_prompt = f"Correct the following subtitles. Keep the original language, do not translate:\n<input_subtitle>{str(subtitle_chunk)}</input_subtitle>"
         if filtered_custom_prompt:
