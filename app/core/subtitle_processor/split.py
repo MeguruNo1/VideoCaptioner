@@ -36,6 +36,7 @@ MAX_WORD_COUNT_CJK = 25  # 中日韩文本最大字数
 MAX_WORD_COUNT_ENGLISH = 18  # 英文文本最大单词数
 SEGMENT_THRESHOLD = 300  # 每个分段的最大字数
 MAX_GAP = 1500  # 允许每个词语之间的最大时间间隔（毫秒）
+SHORT_DISPLAY_GAP_FILL_MS = 2000  # 断句后自动补齐的短显示空隙
 SPLIT_STRATEGY_VERSION = "strict-terminal-punctuation-v1"
 
 
@@ -372,6 +373,9 @@ class SubtitleSplitter:
 
             # 对短句进行合并优化
             self.merge_short_segment(final_segments)
+
+            # 补齐断句后相邻字幕之间的短显示空隙
+            self._fill_short_display_gaps(final_segments)
 
             return ASRData(final_segments)
 
@@ -1253,6 +1257,18 @@ class SubtitleSplitter:
                 # 不增加i，因为需要继续检查合并后的段落
             else:
                 i += 1
+
+    @staticmethod
+    def _fill_short_display_gaps(
+        segments: List[ASRDataSeg], max_gap_ms: int = SHORT_DISPLAY_GAP_FILL_MS
+    ) -> None:
+        """将断句后的短显示空隙补到下一句开始时间。"""
+        for index in range(len(segments) - 1):
+            current_seg = segments[index]
+            next_seg = segments[index + 1]
+            time_gap = next_seg.start_time - current_seg.end_time
+            if 0 < time_gap <= max_gap_ms:
+                current_seg.end_time = next_seg.start_time
 
     def _merge_segments_based_on_sentences(
         self, segments: List[ASRDataSeg], sentences: List[str], max_unmatched: int = 5
