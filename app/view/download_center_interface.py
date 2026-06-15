@@ -44,6 +44,7 @@ from qfluentwidgets import (
 
 from app.common.config import cfg
 from app.config import APP_DATA_PATH
+from app.core.entities import TranscribeModelEnum
 from app.core.utils.desktop_notification import send_desktop_notification
 from app.core.utils.platform_utils import open_path
 
@@ -155,6 +156,8 @@ class DownloadCenterInterface(QWidget):
         self.preview_thread = None
         self.download_thread = None
         self.ffmpeg_fallback_thread = None
+        self.auto_hotword_extraction_thread = None
+        self.auto_hotword_extraction_target = None
         self.preview_data = None
         self.parsed_url = ""
         self.last_result = {}
@@ -1121,6 +1124,165 @@ class DownloadCenterInterface(QWidget):
         self.ffmpeg_fallback_action.setVisible(False)
         self.ffmpeg_fallback_action.setEnabled(False)
 
+    def _set_terms_result_text(self, message: str):
+        if hasattr(self, "result_terms_txt"):
+            self.result_terms_txt.setText(self.tr("AI术语表：") + str(message))
+
+    @staticmethod
+    def _current_transcribe_model_value() -> str:
+        current_model = cfg.transcribe_model.value
+        return str(getattr(current_model, "value", current_model) or "")
+
+    def _auto_hotword_target(self) -> tuple[str, str]:
+        if self._current_transcribe_model_value() == TranscribeModelEnum.MLX_WHISPER.value:
+            return "mlx", "MLX Whisper"
+        return "whisperx", "WhisperX"
+
+    def _clear_auto_hotword_prompt(self, target_key: str):
+        from app.core.utils.transcript_terms import remove_generated_document_prompt_terms
+
+        if target_key == "mlx":
+            cfg.set(cfg.mlx_hotwords, "")
+        else:
+            cfg.set(cfg.whisperx_hotwords, "")
+        cfg.set(
+            cfg.custom_prompt_text,
+            remove_generated_document_prompt_terms(cfg.custom_prompt_text.value),
+        )
+
+    def _apply_auto_hotword_terms(self, terms: list):
+        from app.core.utils.transcript_terms import (
+            apply_terms_to_mlx_hotwords,
+            apply_terms_to_whisperx_hotwords,
+        )
+
+        if self.auto_hotword_extraction_target == "mlx":
+            return apply_terms_to_mlx_hotwords(terms)
+        return apply_terms_to_whisperx_hotwords(terms)
+
+    def _target_language(self) -> str:
+        value = cfg.target_language.value
+        return str(getattr(value, "value", value) or "")
+
+    def _maybe_start_auto_hotword_extraction(self, result: dict):
+        transcript_path = str(result.get("transcript_txt_path") or "").strip()
+        if not transcript_path or not Path(transcript_path).is_file():
+            return
+        self._start_auto_hotword_extraction(transcript_path)
+
+    def _start_auto_hotword_extraction(self, transcript_path: str):
+        if self.auto_hotword_extraction_thread is not None:
+            message = self.tr("已有热词提取任务正在进行，已跳过本次自动提取")
+            self.last_result["terms_message"] = message
+            self._set_terms_result_text(message)
+            return
+
+        from app.components.WhisperXSettingWidget import HotwordExtractionThread
+        from app.core.subtitle_processor.prompt import (
+            PROMPT_TERM_GLOSSARY,
+            get_prompt_template,
+        )
+
+        target_key, _ = self._auto_hotword_target()
+        self.auto_hotword_extraction_target = target_key
+        self._clear_auto_hotword_prompt(target_key)
+
+        message = self.tr("正在从下载生成的视频文稿提取热词...")
+        self.last_result["terms_txt_path"] = None
+        self.last_result["terms_message"] = message
+        self._set_terms_result_text(message)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(message)
+
+        self.auto_hotword_extraction_thread = HotwordExtractionThread(
+            transcript_path,
+            get_prompt_template(PROMPT_TERM_GLOSSARY),
+            self._target_language(),
+            self,
+        )
+        self.auto_hotword_extraction_thread.status_changed.connect(
+            self._update_auto_hotword_extraction_status
+        )
+        self.auto_hotword_extraction_thread.succeeded.connect(
+            self._on_auto_hotwords_extracted
+        )
+        self.auto_hotword_extraction_thread.failed.connect(
+            self._on_auto_hotword_extraction_failed
+        )
+        self.auto_hotword_extraction_thread.finished.connect(
+            self._on_auto_hotword_extraction_finished
+        )
+        self.auto_hotword_extraction_thread.start()
+
+    def _update_auto_hotword_extraction_status(self, status: str):
+        message = self.tr("正在从下载生成的视频文稿提取热词：") + self.tr(status)
+        self.last_result["terms_message"] = message
+        self._set_terms_result_text(message)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(message)
+
+    def _on_auto_hotwords_extracted(self, terms: list):
+        try:
+            if not terms:
+                message = self.tr("未提取到可用热词")
+                self.last_result["terms_message"] = message
+                self._set_terms_result_text(message)
+                if hasattr(self, "status_label"):
+                    self.status_label.setText(self.tr("下载完成，未提取到可用热词"))
+                InfoBar.warning(
+                    self.tr("未提取到热词"),
+                    self.tr("AI 未返回可用名称或术语，当前热词已保持为空。"),
+                    duration=3500,
+                    parent=self,
+                    position=InfoBarPosition.BOTTOM_RIGHT,
+                )
+                return
+
+            self._apply_auto_hotword_terms(terms)
+            from app.core.utils.transcript_terms import write_terms_txt_file
+
+            transcript_path = Path(str(self.last_result.get("transcript_txt_path") or ""))
+            filename_stem = transcript_path.stem.replace("【视频文稿】", "") or "视频文稿"
+            work_dir = Path(self.last_result.get("work_dir") or transcript_path.parent)
+            terms_txt_path = write_terms_txt_file(terms, work_dir, filename_stem)
+            message = self.tr("已自动提取并覆盖写入 {0} 条热词").format(len(terms))
+            self.last_result["terms_txt_path"] = terms_txt_path
+            self.last_result["terms_message"] = message
+            self._set_terms_result_text(terms_txt_path)
+            if hasattr(self, "status_label"):
+                self.status_label.setText(self.tr("下载完成，热词提取完成"))
+            InfoBar.success(
+                self.tr("热词提取完成"),
+                message,
+                duration=3500,
+                parent=self,
+                position=InfoBarPosition.BOTTOM_RIGHT,
+            )
+        except Exception as exc:
+            self._on_auto_hotword_extraction_failed(str(exc))
+
+    def _on_auto_hotword_extraction_failed(self, error: str):
+        message = self.tr("自动提取失败：") + str(error)
+        self.last_result["terms_txt_path"] = None
+        self.last_result["terms_message"] = message
+        self._set_terms_result_text(message)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(self.tr("下载完成，热词自动提取失败"))
+        InfoBar.error(
+            self.tr("热词提取失败"),
+            message,
+            duration=5000,
+            parent=self,
+            position=InfoBarPosition.BOTTOM_RIGHT,
+        )
+
+    def _on_auto_hotword_extraction_finished(self):
+        if self.auto_hotword_extraction_thread is not None:
+            if hasattr(self.auto_hotword_extraction_thread, "deleteLater"):
+                self.auto_hotword_extraction_thread.deleteLater()
+            self.auto_hotword_extraction_thread = None
+        self.auto_hotword_extraction_target = None
+
     def _reset_preview_labels(self):
         self.preview_title_label.setText(self.tr("标题：暂无"))
         self.preview_uploader_label.setText(self.tr("作者：暂无"))
@@ -2040,6 +2202,7 @@ class DownloadCenterInterface(QWidget):
         self.result_card.setVisible(True)
         self._adjust_responsive_layout()
         self._set_result_actions_enabled(True, has_video=bool(result.get("video_path")))
+        self._maybe_start_auto_hotword_extraction(result)
         InfoBar.success(self.tr("下载完成"), self.tr("资源已下载完成。"), duration=2500, parent=self)
         send_desktop_notification(
             self.tr("下载完成"),
