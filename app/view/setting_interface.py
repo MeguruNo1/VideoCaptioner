@@ -32,7 +32,7 @@ from app.components.EditComboBoxSettingCard import EditComboBoxSettingCard
 from app.components.LineEditSettingCard import LineEditSettingCard
 from app.components.SpinBoxSettingCard import SpinBoxSettingCard
 from app.config import AUTHOR, FEEDBACK_URL, HELP_URL, YEAR
-from app.core.entities import LLMServiceEnum, TranscribeModelEnum, TranslatorServiceEnum
+from app.core.entities import LLMServiceEnum, TranscribeModelEnum
 from app.core.subtitle_processor.prompt import (
     PROMPT_CENTER_ITEMS,
     PROMPT_TERM_GLOSSARY,
@@ -786,35 +786,13 @@ class SettingInterface(ScrollArea):
         self.__onLLMServiceChanged(self.llmServiceCard.comboBox.currentText())
 
     def __createTranslateServiceCards(self):
-        """创建翻译服务相关的配置卡片"""
-        # 翻译服务选择卡片
-        self.translatorServiceCard = ComboBoxSettingCard(
-            cfg.translator_service,
-            FIF.ROBOT,
-            self.tr("翻译服务"),
-            self.tr("选择翻译服务"),
-            texts=[
-                service.value for service in cfg.translator_service.validator.options
-            ],
-            parent=self.translate_serviceGroup,
-        )
-
+        """创建 LLM 翻译配置卡片"""
         # 反思翻译开关
         self.needReflectTranslateCard = SwitchSettingCard(
             FIF.EDIT,
             self.tr("需要反思翻译"),
             self.tr("启用反思翻译可以提高翻译质量，但耗费更多时间和token"),
             cfg.need_reflect_translate,
-            self.translate_serviceGroup,
-        )
-
-        # DeepLx端点配置
-        self.deeplxEndpointCard = LineEditSettingCard(
-            cfg.deeplx_endpoint,
-            FIF.LINK,
-            self.tr("DeepLx 后端"),
-            self.tr("输入 DeepLx 的后端地址(开启deeplx翻译时必填)"),
-            "https://api.deeplx.org/translate",
             self.translate_serviceGroup,
         )
 
@@ -861,18 +839,12 @@ class SettingInterface(ScrollArea):
         )
 
         # 添加卡片到翻译服务组
-        self.translate_serviceGroup.addSettingCard(self.translatorServiceCard)
         self.translate_serviceGroup.addSettingCard(self.needReflectTranslateCard)
-        self.translate_serviceGroup.addSettingCard(self.deeplxEndpointCard)
         self.translate_serviceGroup.addSettingCard(self.batchSizeCard)
         self.translate_serviceGroup.addSettingCard(self.translationMaxLengthCard)
         self.translate_serviceGroup.addSettingCard(self.finalTranslationReworkMaxCharsCard)
         self.translate_serviceGroup.addSettingCard(self.threadNumCard)
 
-        # 初始化显示状态
-        self.__onTranslatorServiceChanged(
-            self.translatorServiceCard.comboBox.currentText()
-        )
 
     def __initWidget(self):
         self.resize(1000, 800)
@@ -886,10 +858,6 @@ class SettingInterface(ScrollArea):
         self.scrollWidget.setObjectName("scrollWidget")
         self.settingLabel.setObjectName("settingLabel")
 
-        # 初始化翻译服务配置卡片的显示状态
-        self.__onTranslatorServiceChanged(
-            self.translatorServiceCard.comboBox.currentText()
-        )
         self.__onLLMBatchContextChanged(cfg.llm_batch_context_enabled.value)
         self.__applyPageStyles()
         self.__refreshDownloadCenterOutputDir()
@@ -942,11 +910,6 @@ class SettingInterface(ScrollArea):
         # LLM服务切换
         self.llmServiceCard.comboBox.currentTextChanged.connect(
             self.__onLLMServiceChanged
-        )
-
-        # 翻译服务切换
-        self.translatorServiceCard.comboBox.currentTextChanged.connect(
-            self.__onTranslatorServiceChanged
         )
 
         # 检查 LLM 连接
@@ -1353,31 +1316,6 @@ class SettingInterface(ScrollArea):
         # 更新布局
         self.llmGroup.adjustSize()
         self.expandLayout.update()
-
-    def __onTranslatorServiceChanged(self, service):
-        openai_cards = [
-            self.needReflectTranslateCard,
-            self.batchSizeCard,
-            self.translationMaxLengthCard,
-        ]
-        deeplx_cards = [self.deeplxEndpointCard]
-
-        all_cards = openai_cards + deeplx_cards
-        for card in all_cards:
-            card.setVisible(False)
-
-        # 根据选择的服务显示相应的配置卡片
-        if service in [TranslatorServiceEnum.DEEPLX.value]:
-            for card in deeplx_cards:
-                card.setVisible(True)
-        elif service in [TranslatorServiceEnum.OPENAI.value]:
-            for card in openai_cards:
-                card.setVisible(True)
-
-        # 更新布局
-        self.translate_serviceGroup.adjustSize()
-        self.expandLayout.update()
-
 
 class LLMConnectionThread(QThread):
     finished = pyqtSignal(bool, str, list)

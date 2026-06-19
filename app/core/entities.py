@@ -92,15 +92,6 @@ class TranscribeModelEnum(Enum):
     MLX_WHISPER = "MLX Whisper"
 
 
-class TranslatorServiceEnum(Enum):
-    """翻译器服务"""
-
-    OPENAI = "LLM 大模型翻译"
-    DEEPLX = "DeepLx 翻译"
-    BING = "微软翻译"
-    GOOGLE = "谷歌翻译"
-
-
 class VadMethodEnum(Enum):
     """VAD方法"""
 
@@ -609,9 +600,6 @@ class SubtitleConfig:
     llm_cache_enabled: bool = True
     llm_batch_context_enabled: bool = True
     llm_batch_context_max_chars: int = 300
-    deeplx_endpoint: Optional[str] = None
-    # 翻译服务
-    translator_service: Optional[TranslatorServiceEnum] = None
     need_translate: bool = False
     need_optimize: bool = False
     need_reflect: bool = False

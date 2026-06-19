@@ -2,7 +2,7 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Index, Date
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, date
-from .constants import TranslatorType, OperationType
+from .constants import OperationType
 
 Base = declarative_base()
 

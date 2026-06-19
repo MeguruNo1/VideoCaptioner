@@ -2,6 +2,7 @@ import datetime
 import os
 from pathlib import Path
 from typing import Dict
+from uuid import uuid4
 
 from PyQt5.QtCore import QSettings, QThread, pyqtSignal
 
@@ -11,7 +12,6 @@ from app.core.entities import (
     SubtitleConfig,
     SubtitleTask,
     TargetLanguageEnum,
-    TranslatorServiceEnum,
 )
 from app.core.utils.logger import setup_logger
 from app.core.storage.cache_manager import ServiceUsageManager
@@ -138,17 +138,7 @@ class SubtitleThread(QThread):
             if (
                 subtitle_config.need_optimize
                 or asr_data.is_word_timestamp()
-                or (
-                    (
-                        subtitle_config.need_translate
-                        and subtitle_config.translator_service
-                        not in [
-                            TranslatorServiceEnum.DEEPLX,
-                            TranslatorServiceEnum.BING,
-                            TranslatorServiceEnum.GOOGLE,
-                        ]
-                    )
-                )
+                or subtitle_config.need_translate
             ):
                 self._emit_progress(2, self.tr("开始验证API配置..."))
                 subtitle_config = self._setup_api_config()
@@ -212,23 +202,13 @@ class SubtitleThread(QThread):
                 self.update_all.emit(asr_data.to_json())
 
             # 4. 翻译字幕
-            from app.core.subtitle_processor.translate import TranslatorType
-
-            translator_map = {
-                TranslatorServiceEnum.OPENAI: TranslatorType.OPENAI,
-                TranslatorServiceEnum.DEEPLX: TranslatorType.DEEPLX,
-                TranslatorServiceEnum.BING: TranslatorType.BING,
-                TranslatorServiceEnum.GOOGLE: TranslatorType.GOOGLE,
-            }
             if subtitle_config.need_translate:
-                from app.core.subtitle_processor.translate import TranslatorFactory
+                from app.core.subtitle_processor.translate import OpenAITranslator
 
                 self._emit_progress(0, self.tr("翻译字幕..."))
                 logger.info("正在翻译字幕...")
                 self.finished_subtitle_length = 0  # 重置计数器
-                os.environ["DEEPLX_ENDPOINT"] = subtitle_config.deeplx_endpoint
-                translator = TranslatorFactory.create_translator(
-                    translator_type=translator_map[subtitle_config.translator_service],
+                translator = OpenAITranslator(
                     thread_num=subtitle_config.thread_num,
                     batch_num=subtitle_config.batch_size,
                     target_language=subtitle_config.target_language,
@@ -264,10 +244,7 @@ class SubtitleThread(QThread):
                 self.update_all.emit(asr_data.to_json())
 
             # 6. 保存字幕
-            asr_data.save(
-                save_path=self.task.output_path,
-                layout=subtitle_config.subtitle_layout,
-            )
+            self._atomic_save_subtitles(asr_data, subtitle_config.subtitle_layout)
             logger.info(f"字幕保存到 {self.task.output_path}")
 
             # 6. 清理中间断句文件
@@ -285,6 +262,38 @@ class SubtitleThread(QThread):
             logger.exception(f"优化失败: {str(e)}")
             self.error.emit(str(e))
             self._emit_progress(100, self.tr("优化失败"))
+
+    def _atomic_save_subtitles(self, asr_data: ASRData, layout: str) -> None:
+        output_path = Path(self.task.output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        token = uuid4().hex
+        temp_path = output_path.with_name(
+            f".{output_path.stem}.{token}.partial{output_path.suffix}"
+        )
+        replacements = [(temp_path, output_path)]
+        if layout == "单独输出原文和译文":
+            for suffix in ("-仅原文", "-仅译文"):
+                replacements.append(
+                    (
+                        temp_path.with_name(
+                            f"{temp_path.stem}{suffix}{temp_path.suffix}"
+                        ),
+                        output_path.with_name(
+                            f"{output_path.stem}{suffix}{output_path.suffix}"
+                        ),
+                    )
+                )
+
+        try:
+            asr_data.save(save_path=str(temp_path), layout=layout)
+            missing = [str(path) for path, _ in replacements if not path.exists()]
+            if missing:
+                raise RuntimeError("字幕临时文件生成不完整: " + ", ".join(missing))
+            for temporary, target in replacements:
+                os.replace(temporary, target)
+        finally:
+            for temporary, _ in replacements:
+                temporary.unlink(missing_ok=True)
 
     def callback(self, result: Dict):
         self.finished_subtitle_length += len(result)

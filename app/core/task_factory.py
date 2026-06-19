@@ -107,10 +107,7 @@ class TaskFactory:
             .stem.replace("【原始字幕】", "")
             .replace(f"【下载字幕】", "")
         )
-        # 只在需要翻译时添加翻译服务后缀
-        suffix = (
-            f"-{cfg.translator_service.value.value}" if cfg.need_translate.value else ""
-        )
+        suffix = "-LLM 大模型翻译" if cfg.need_translate.value else ""
 
         output_path = str(Path(file_path).parent / f"【字幕】{output_name}{suffix}.srt")
 
@@ -173,9 +170,6 @@ class TaskFactory:
             llm_cache_enabled=cfg.llm_cache_enabled.value,
             llm_batch_context_enabled=cfg.llm_batch_context_enabled.value,
             llm_batch_context_max_chars=cfg.llm_batch_context_max_chars.value,
-            deeplx_endpoint=cfg.deeplx_endpoint.value,
-            # 翻译服务
-            translator_service=cfg.translator_service.value,
             # 字幕处理
             split_type=split_type,
             need_reflect=cfg.need_reflect_translate.value,

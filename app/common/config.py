@@ -25,7 +25,6 @@ from ..core.entities import (
     TargetLanguageEnum,
     TranscribeModelEnum,
     TranscribeLanguageEnum,
-    TranslatorServiceEnum,
 )
 from ..core.utils.mlx_model_utils import DEFAULT_MLX_MODEL, preferred_mlx_model
 
@@ -260,17 +259,9 @@ class Config(QConfig):
     )
 
     # ------------------- 翻译配置 -------------------
-    translator_service = OptionsConfigItem(
-        "Translate",
-        "TranslatorServiceEnum",
-        TranslatorServiceEnum.BING,
-        OptionsValidator(TranslatorServiceEnum),
-        EnumSerializer(TranslatorServiceEnum),
-    )
     need_reflect_translate = ConfigItem(
         "Translate", "NeedReflectTranslate", False, BoolValidator()
     )
-    deeplx_endpoint = ConfigItem("Translate", "DeeplxEndpoint", "")
     batch_size = RangeConfigItem("Translate", "BatchSize", 10, RangeValidator(5, 30))
     thread_num = RangeConfigItem("Translate", "ThreadNum", 10, RangeValidator(1, 100))
     translation_max_length = RangeConfigItem(
