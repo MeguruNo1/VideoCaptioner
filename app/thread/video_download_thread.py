@@ -6,6 +6,7 @@ import threading
 import time
 from pathlib import Path
 
+import psutil
 import requests
 import yt_dlp
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -659,6 +660,72 @@ class VideoDownloadThread(QThread):
 
     def request_terminate(self):
         self._terminate_event.set()
+        self._pause_event.clear()
+        self._terminate_download_subprocesses()
+
+    def _terminate_download_subprocesses(self):
+        """Stop FFmpeg processes that yt-dlp started for this download.
+
+        Time-range downloads are handed off to FFmpeg. While FFmpeg is blocked in
+        network I/O, yt-dlp does not invoke progress hooks, so setting the cancel
+        event alone cannot interrupt the download thread.
+        """
+        target = self._download_dir
+        if not target:
+            return
+
+        try:
+            target_path = str(Path(target).resolve(strict=False))
+            target_prefix = target_path.rstrip(os.sep) + os.sep
+            children = psutil.Process(os.getpid()).children(recursive=True)
+        except (OSError, psutil.Error) as exc:
+            logger.warning("无法枚举下载子进程: %s", exc)
+            return
+
+        processes = []
+        for process in children:
+            try:
+                process_name = process.name().lower()
+                command = [str(arg) for arg in process.cmdline()]
+                executable_name = Path(command[0]).name.lower() if command else ""
+                is_ffmpeg = process_name in {"ffmpeg", "ffmpeg.exe"} or executable_name in {
+                    "ffmpeg",
+                    "ffmpeg.exe",
+                }
+                targets_download = any(target_prefix in arg for arg in command[1:])
+                if not is_ffmpeg or not targets_download:
+                    continue
+
+                process.terminate()
+                processes.append(process)
+                logger.info("已请求终止下载 FFmpeg 子进程: pid=%s", process.pid)
+            except (OSError, psutil.Error):
+                continue
+
+        if not processes:
+            return
+
+        threading.Thread(
+            target=self._kill_download_subprocesses_after_timeout,
+            args=(processes,),
+            daemon=True,
+            name="video-download-process-cleanup",
+        ).start()
+
+    @staticmethod
+    def _kill_download_subprocesses_after_timeout(processes):
+        try:
+            _, alive = psutil.wait_procs(processes, timeout=1.5)
+        except psutil.Error as exc:
+            logger.warning("等待下载子进程退出失败: %s", exc)
+            alive = processes
+
+        for process in alive:
+            try:
+                process.kill()
+                logger.warning("强制结束未响应的下载 FFmpeg 子进程: pid=%s", process.pid)
+            except (OSError, psutil.Error):
+                continue
 
     def _raise_if_terminated(self):
         if self._terminate_event.is_set():

@@ -28,11 +28,9 @@ class HomeInterface(QWidget):
         self.log_window = None
         self.log_button = ToolButton(FIF.DOCUMENT, self)
         self.log_button.setToolTip(self.tr("查看日志"))
-        self.settings_button = ToolButton(FIF.SETTING, self)
-        self.settings_button.setToolTip(self.tr("设置"))
         self.github_button = ToolButton(FIF.GITHUB, self)
         self.github_button.setToolTip("GitHub")
-        for button in (self.log_button, self.settings_button, self.github_button):
+        for button in (self.log_button, self.github_button):
             button.setFixedSize(34, 34)
 
         self.stackedWidget = QStackedWidget(self)
@@ -66,7 +64,6 @@ class HomeInterface(QWidget):
         self.topLayout.addWidget(self.pivot, 0, Qt.AlignVCenter)
         self.topLayout.addStretch(1)
         self.topLayout.addWidget(self.log_button, 0, Qt.AlignVCenter)
-        self.topLayout.addWidget(self.settings_button, 0, Qt.AlignVCenter)
         self.topLayout.addWidget(self.github_button, 0, Qt.AlignVCenter)
 
         self.vBoxLayout.addLayout(self.topLayout)
@@ -87,7 +84,6 @@ class HomeInterface(QWidget):
             self.open_subtitle_optimization
         )
         self.log_button.clicked.connect(self.show_log_window)
-        self.settings_button.clicked.connect(self.show_setting_page)
         self.github_button.clicked.connect(self.github_requested)
         cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
         self._apply_theme_styles()
