@@ -201,6 +201,52 @@ class LLMAPITokenOptimizationTests(unittest.TestCase):
             suspicious["1"],
         )
 
+    def test_ten_as_chinese_word_is_not_reported_missing(self):
+        translator = build_translator(FakeCacheManager())
+
+        suspicious = translator._find_suspicious_compressions(
+            {"1": "You promised 10 hours."},
+            {"1": "你答应了十个小时。"},
+        )
+
+        reasons = suspicious.get("1", [])
+        self.assertFalse(any("numbers" in reason for reason in reasons), reasons)
+
+    def test_nine_out_of_ten_as_chinese_words_is_not_reported_missing(self):
+        translator = build_translator(FakeCacheManager())
+
+        suspicious = translator._find_suspicious_compressions(
+            {"1": "I give it a 9 out of 10."},
+            {"1": "我给它九分，满分十分。"},
+        )
+
+        reasons = suspicious.get("1", [])
+        self.assertFalse(any("numbers" in reason for reason in reasons), reasons)
+
+    def test_glossary_source_uses_word_boundaries(self):
+        translator = build_translator(FakeCacheManager())
+        translator.custom_prompt = "Wise -> 哲"
+
+        suspicious = translator._find_suspicious_compressions(
+            {"1": "Otherwise, this would change the meaning."},
+            {"1": "否则，这会改变原意。"},
+        )
+
+        reasons = suspicious.get("1", [])
+        self.assertFalse(any("custom prompt terms" in reason for reason in reasons))
+
+    def test_glossary_target_satisfies_custom_term_check(self):
+        translator = build_translator(FakeCacheManager())
+        translator.custom_prompt = "Belle -> 铃"
+
+        suspicious = translator._find_suspicious_compressions(
+            {"1": "Belle made the decision."},
+            {"1": "铃做出了决定。"},
+        )
+
+        reasons = suspicious.get("1", [])
+        self.assertFalse(any("custom prompt terms" in reason for reason in reasons))
+
     def test_overlong_final_translation_retries_from_source_without_old_translation(self):
         translator = build_translator(FakeCacheManager())
         translator.use_cache = False

@@ -34,7 +34,10 @@ from app.core.utils.openai_compat import (
     format_openai_compat_error,
     get_openai_compat_request_options,
 )
-from app.core.utils.transcript_terms import filter_document_prompt_for_text
+from app.core.utils.transcript_terms import (
+    extract_glossary_pairs,
+    filter_document_prompt_for_text,
+)
 
 
 logger = setup_logger("subtitle_translator")
@@ -568,6 +571,71 @@ class OpenAITranslator(BaseTranslator):
         return re.findall(r"\d+(?:[.,:%:/-]\d+)*%?", text or "")
 
     @staticmethod
+    def _integer_to_chinese(value: int) -> str:
+        if value == 0:
+            return "零"
+        if value < 0 or value > 9999:
+            return ""
+        digits = "零一二三四五六七八九"
+        units = ("", "十", "百", "千")
+        result = []
+        pending_zero = False
+        text = str(value)
+        for index, char in enumerate(text):
+            digit = int(char)
+            position = len(text) - index - 1
+            if digit == 0:
+                pending_zero = bool(result)
+                continue
+            if pending_zero:
+                result.append("零")
+                pending_zero = False
+            if not (digit == 1 and position == 1 and not result):
+                result.append(digits[digit])
+            result.append(units[position])
+        return "".join(result)
+
+    @classmethod
+    def _number_is_preserved(cls, number: str, translated_text: str) -> bool:
+        normalized_number = str(number or "").strip()
+        target = str(translated_text or "")
+        if normalized_number and normalized_number in target:
+            return True
+        integer_text = normalized_number.rstrip("%").replace(",", "")
+        if not integer_text.isdigit():
+            return False
+        value = int(integer_text)
+        chinese = cls._integer_to_chinese(value)
+        english_numbers = {
+            0: "zero",
+            1: "one",
+            2: "two",
+            3: "three",
+            4: "four",
+            5: "five",
+            6: "six",
+            7: "seven",
+            8: "eight",
+            9: "nine",
+            10: "ten",
+            11: "eleven",
+            12: "twelve",
+            13: "thirteen",
+            14: "fourteen",
+            15: "fifteen",
+            16: "sixteen",
+            17: "seventeen",
+            18: "eighteen",
+            19: "nineteen",
+            20: "twenty",
+        }
+        english = english_numbers.get(value, "")
+        return bool(
+            (chinese and chinese in target)
+            or (english and english in target.casefold())
+        )
+
+    @staticmethod
     def _extract_proper_terms(text: str) -> List[str]:
         terms = []
         common_words = {
@@ -629,11 +697,31 @@ class OpenAITranslator(BaseTranslator):
         )
         return sorted({term.strip() for term in terms if term.strip()})
 
+    @staticmethod
+    def _contains_term(text: str, term: str) -> bool:
+        source = str(text or "")
+        candidate = str(term or "").strip()
+        if not candidate:
+            return False
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._ +/#'-]*", candidate):
+            return bool(
+                re.search(
+                    rf"(?<![A-Za-z0-9]){re.escape(candidate)}(?![A-Za-z0-9])",
+                    source,
+                    flags=re.IGNORECASE,
+                )
+            )
+        return candidate.casefold() in source.casefold()
+
     def _find_suspicious_compressions(
         self, subtitle_chunk: Dict[str, str], translated_dict: Dict[str, str]
     ) -> Dict[str, List[str]]:
         suspicious = {}
         custom_terms = self._extract_custom_prompt_terms()
+        glossary_targets = {
+            source.casefold(): target.casefold()
+            for source, target in extract_glossary_pairs(self.custom_prompt or "")
+        }
 
         for key, source_text in subtitle_chunk.items():
             translated_text = str(translated_dict.get(key, "") or "")
@@ -648,7 +736,7 @@ class OpenAITranslator(BaseTranslator):
             missing_numbers = [
                 number
                 for number in self._extract_numbers(source_text)
-                if number and number not in translated_text
+                if number and not self._number_is_preserved(number, translated_text)
             ]
             if missing_numbers:
                 reasons.append("numbers may be missing: " + ", ".join(missing_numbers))
@@ -661,11 +749,15 @@ class OpenAITranslator(BaseTranslator):
             if missing_terms:
                 reasons.append("proper nouns may be missing: " + ", ".join(missing_terms))
 
-            custom_prompt_terms = [
-                term
-                for term in custom_terms
-                if term in source_text and term.lower() not in normalized_translation
-            ]
+            custom_prompt_terms = []
+            for term in custom_terms:
+                target = glossary_targets.get(term.casefold())
+                if (
+                    self._contains_term(source_text, term)
+                    and not self._contains_term(translated_text, term)
+                    and (not target or not self._contains_term(translated_text, target))
+                ):
+                    custom_prompt_terms.append(term)
             if custom_prompt_terms:
                 reasons.append(
                     "custom prompt terms may be missing: "
