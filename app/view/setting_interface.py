@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PyQt5.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import QApplication, QFileDialog, QLabel, QSizePolicy, QWidget
@@ -33,6 +35,7 @@ from app.config import AUTHOR, FEEDBACK_URL, HELP_URL, YEAR
 from app.core.entities import LLMServiceEnum, TranscribeModelEnum, TranslatorServiceEnum
 from app.core.subtitle_processor.prompt import (
     PROMPT_CENTER_ITEMS,
+    PROMPT_TERM_GLOSSARY,
     get_default_prompt_template,
     get_prompt_config_attr,
     get_prompt_template,
@@ -44,6 +47,7 @@ from app.core.utils.desktop_notification import (
     request_desktop_notification_authorization,
     send_desktop_notification,
 )
+from app.core.utils.transcript_terms import extract_glossary_pairs, format_glossary_pairs
 from app.core.utils.proxy_utils import (
     PROXY_MODE_MANUAL,
     PROXY_MODE_OFF,
@@ -119,6 +123,7 @@ class PromptCenterDialog(MessageBoxBase):
         self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.saveButton = PushButton(self.tr("保存当前提示词"), self.buttonGroup)
+        self.importButton = PushButton(self.tr("导入术语文件"), self.buttonGroup)
         self.restoreButton = PushButton(self.tr("恢复默认"), self.buttonGroup)
         self.defaultButton = PushButton(self.tr("查看默认"), self.buttonGroup)
 
@@ -132,12 +137,14 @@ class PromptCenterDialog(MessageBoxBase):
         self.yesButton.setText(self.tr("关闭"))
         self.cancelButton.hide()
         self.buttonLayout.insertWidget(0, self.saveButton, 0, Qt.AlignVCenter)
-        self.buttonLayout.insertWidget(1, self.restoreButton, 0, Qt.AlignVCenter)
-        self.buttonLayout.insertWidget(2, self.defaultButton, 0, Qt.AlignVCenter)
-        self.buttonLayout.insertStretch(3, 1)
+        self.buttonLayout.insertWidget(1, self.importButton, 0, Qt.AlignVCenter)
+        self.buttonLayout.insertWidget(2, self.restoreButton, 0, Qt.AlignVCenter)
+        self.buttonLayout.insertWidget(3, self.defaultButton, 0, Qt.AlignVCenter)
+        self.buttonLayout.insertStretch(4, 1)
 
         self.promptCombo.currentIndexChanged.connect(self.on_prompt_changed)
         self.saveButton.clicked.connect(self.save_current_prompt)
+        self.importButton.clicked.connect(self.import_glossary_file)
         self.restoreButton.clicked.connect(self.restore_current_prompt)
         self.defaultButton.clicked.connect(self.show_default_prompt)
 
@@ -162,6 +169,46 @@ class PromptCenterDialog(MessageBoxBase):
         else:
             self.variableLabel.setText(self.tr("必需变量：无"))
         self.textEdit.setPlainText(get_prompt_template(prompt_id))
+        self.importButton.setVisible(prompt_id == PROMPT_TERM_GLOSSARY)
+
+    def import_glossary_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("导入术语文件"),
+            "",
+            self.tr("Markdown / 文本文件 (*.md *.txt);;所有文件 (*)"),
+        )
+        if not file_path:
+            return
+
+        try:
+            content = Path(file_path).read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError) as exc:
+            InfoBar.error(
+                self.tr("导入失败"),
+                self.tr("无法读取文件：") + str(exc),
+                duration=5000,
+                parent=self,
+            )
+            return
+
+        pairs = extract_glossary_pairs(content)
+        if not pairs:
+            InfoBar.warning(
+                self.tr("未找到术语"),
+                self.tr("文件中没有可识别的“原文 -> 译文”对照项"),
+                duration=5000,
+                parent=self,
+            )
+            return
+
+        self.textEdit.setPlainText(format_glossary_pairs(pairs))
+        InfoBar.success(
+            self.tr("导入完成"),
+            self.tr("已提取 {0} 条术语，请检查后保存").format(len(pairs)),
+            duration=4000,
+            parent=self,
+        )
 
     def _config_item(self, prompt_id: str):
         return getattr(cfg, get_prompt_config_attr(prompt_id))

@@ -12,8 +12,10 @@ from app.core.utils.transcript_terms import (
     GENERATED_TERMS_BEGIN,
     GENERATED_TERMS_END,
     extract_translation_terms_from_hotwords,
+    extract_glossary_pairs,
     filter_document_prompt_for_text,
     format_hotwords_from_terms,
+    format_glossary_pairs,
     format_terms_for_document_prompt,
     merge_document_prompt,
     merge_hotwords,
@@ -98,6 +100,30 @@ class TranscriptTermsTests(unittest.TestCase):
         self.assertEqual(glossary["openai"], "开放人工智能")
         self.assertEqual(glossary["whisperx"], "WhisperX")
         self.assertEqual(glossary["videocaptioner"], "视频字幕助手")
+
+    def test_extract_glossary_pairs_from_markdown_note(self):
+        pairs = extract_glossary_pairs(
+            "\n".join(
+                [
+                    "上级：[[Resources/00 资源总览|资源总览]]",
+                    "[Fandom Wiki](https://example.com/wiki)",
+                    "## 主角",
+                    "Wise → 哲  ",
+                    "Belle -> 铃",
+                    "- Fairy = Fairy",
+                    "暂未收录角色条目。",
+                ]
+            )
+        )
+
+        self.assertEqual(pairs, [("Wise", "哲"), ("Belle", "铃"), ("Fairy", "Fairy")])
+        self.assertEqual(
+            format_glossary_pairs(pairs),
+            "Wise -> 哲\nBelle -> 铃\nFairy -> Fairy",
+        )
+
+    def test_parse_glossary_accepts_unicode_arrow(self):
+        self.assertEqual(parse_glossary_text("Wise → 哲"), {"wise": "哲"})
 
     def test_parse_ai_terms_response_prefers_glossary_translation(self):
         terms = parse_ai_terms_response(

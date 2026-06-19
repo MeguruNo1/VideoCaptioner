@@ -204,6 +204,97 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
 
         self.assertIsNone(interface._pick_pr_smart_audio_format())
 
+    def test_time_range_automatic_presets_prefer_same_height_mp4_avc(self):
+        interface = self._interface_with_preview(
+            {
+                "video_formats": [
+                    {
+                        "format_id": "vp9-1080",
+                        "quality": "1080p",
+                        "height": 1080,
+                        "fps": 60,
+                        "filesize": 200_000_000,
+                        "vcodec": "vp9",
+                        "acodec": "none",
+                        "ext": "webm",
+                        "has_audio": False,
+                    },
+                    {
+                        "format_id": "avc-1080",
+                        "quality": "1080p",
+                        "height": 1080,
+                        "fps": 60,
+                        "filesize": 180_000_000,
+                        "vcodec": "avc1.64002a",
+                        "acodec": "none",
+                        "ext": "mp4",
+                        "has_audio": False,
+                    },
+                ],
+                "audio_formats": [
+                    {
+                        "format_id": "140",
+                        "acodec": "mp4a.40.2",
+                        "ext": "m4a",
+                        "abr": 129,
+                    }
+                ],
+            }
+        )
+
+        for preset in ("best_quality", "mp4_compatible", "pr_smart"):
+            with self.subTest(preset=preset):
+                request = {"format_selector": "vp9-1080+140"}
+                interface._apply_automatic_time_range_format(request, preset)
+                self.assertEqual(request["selected_video_format_id"], "avc-1080")
+                self.assertEqual(request["selected_audio_format_id"], "140")
+                self.assertEqual(request["format_selector"], "avc-1080+140")
+                self.assertIn("同分辨率", request["time_range_format_notice"])
+
+    def test_time_range_format_does_not_drop_resolution_for_avc(self):
+        interface = self._interface_with_preview(
+            {
+                "video_formats": [
+                    {
+                        "format_id": "vp9-1080",
+                        "height": 1080,
+                        "fps": 60,
+                        "vcodec": "vp9",
+                        "acodec": "none",
+                        "ext": "webm",
+                        "has_audio": False,
+                    },
+                    {
+                        "format_id": "avc-720",
+                        "height": 720,
+                        "fps": 60,
+                        "vcodec": "avc1.64001f",
+                        "acodec": "none",
+                        "ext": "mp4",
+                        "has_audio": False,
+                    },
+                ],
+                "audio_formats": [
+                    {"format_id": "140", "acodec": "mp4a.40.2", "ext": "m4a"}
+                ],
+            }
+        )
+        request = {"format_selector": "vp9-1080+140"}
+
+        interface._apply_automatic_time_range_format(request, "pr_smart")
+
+        self.assertEqual(request["format_selector"], "vp9-1080+140")
+        self.assertNotIn("selected_video_format_id", request)
+        self.assertIn("保留原格式", request["time_range_format_notice"])
+
+    def test_time_range_format_does_not_override_custom_preset(self):
+        interface = self._interface_with_preview({"video_formats": [], "audio_formats": []})
+        request = {"format_selector": "custom-selector"}
+
+        interface._apply_automatic_time_range_format(request, "custom_preferences")
+
+        self.assertEqual(request, {"format_selector": "custom-selector"})
+
     def test_professional_video_mode_can_enable_hevc_postprocess(self):
         interface = TestableDownloadCenterInterface.__new__(TestableDownloadCenterInterface)
         interface.current_mode_key = "professional"

@@ -2,6 +2,9 @@
 import os
 import re
 import shutil
+import socket
+import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -62,6 +65,165 @@ NO_COOKIE_FILE_PATH = APP_DATA_PATH / "__no_cookie__.txt"
 
 class DownloadCancelledError(Exception):
     """Raised when the user explicitly terminates an in-flight download."""
+
+
+class FfmpegProgressMonitor:
+    """Receive FFmpeg ``-progress`` frames over a local UDP socket."""
+
+    def __init__(self, section_durations: list[float], callback):
+        self.section_durations = [max(0.0, float(value)) for value in section_durations]
+        self.callback = callback
+        self.socket = None
+        self.thread = None
+        self.stop_event = threading.Event()
+        self.started_at = time.monotonic()
+        self.section_index = 0
+        self.completed_duration = 0.0
+        self.processing_started = False
+
+    @property
+    def progress_url(self) -> str | None:
+        if self.socket is None:
+            return None
+        return f"udp://127.0.0.1:{self.socket.getsockname()[1]}"
+
+    def start(self) -> bool:
+        listening = True
+        try:
+            progress_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            progress_socket.bind(("127.0.0.1", 0))
+            progress_socket.settimeout(0.25)
+        except OSError as exc:
+            logger.warning("FFmpeg 进度监听不可用，将只显示阶段状态: %s", exc)
+            progress_socket = None
+            listening = False
+
+        self.socket = progress_socket
+        self.thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="ffmpeg-progress-monitor",
+        )
+        self.thread.start()
+        return listening
+
+    def stop(self):
+        self.stop_event.set()
+        progress_socket = self.socket
+        self.socket = None
+        if progress_socket is not None:
+            try:
+                progress_socket.close()
+            except OSError:
+                pass
+        if self.thread is not None and self.thread is not threading.current_thread():
+            self.thread.join(timeout=1.0)
+        self.thread = None
+
+    def _run(self):
+        last_heartbeat = 0.0
+        while not self.stop_event.is_set():
+            now = time.monotonic()
+            if not self.processing_started and now - last_heartbeat >= 1.0:
+                self._emit_locating()
+                last_heartbeat = now
+
+            progress_socket = self.socket
+            if progress_socket is None:
+                self.stop_event.wait(0.25)
+                continue
+            try:
+                payload, _address = progress_socket.recvfrom(65535)
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+
+            frame = {}
+            for line in payload.decode("utf-8", errors="replace").splitlines():
+                key, separator, value = line.partition("=")
+                if separator:
+                    frame[key.strip()] = value.strip()
+            if frame:
+                self._handle_frame(frame)
+
+    def _section_duration(self) -> float:
+        if not self.section_durations:
+            return 0.0
+        index = min(self.section_index, len(self.section_durations) - 1)
+        return self.section_durations[index]
+
+    def _emit_locating(self):
+        section_count = max(1, len(self.section_durations))
+        self.callback(
+            {
+                "phase": "locating",
+                "indeterminate": True,
+                "percent": "",
+                "speed": "",
+                "eta": "",
+                "downloaded": "",
+                "total": "",
+                "elapsed": _format_duration(time.monotonic() - self.started_at),
+                "filename": "",
+                "section_index": min(self.section_index + 1, section_count),
+                "section_count": section_count,
+                "status": "正在定位片段起点",
+            }
+        )
+
+    @staticmethod
+    def _parse_speed_factor(value: str) -> float:
+        try:
+            return float(str(value or "").strip().removesuffix("x"))
+        except ValueError:
+            return 0.0
+
+    def _handle_frame(self, frame: dict):
+        try:
+            out_time = max(0.0, float(frame.get("out_time_us") or 0) / 1_000_000)
+        except (TypeError, ValueError):
+            out_time = 0.0
+
+        if out_time <= 0 and not self.processing_started:
+            self._emit_locating()
+            return
+
+        self.processing_started = self.processing_started or out_time > 0
+        duration = self._section_duration()
+        total_duration = sum(self.section_durations)
+        processed_duration = self.completed_duration + min(out_time, duration or out_time)
+        percent = min(100.0, processed_duration * 100 / total_duration) if total_duration else 0.0
+        speed_text = str(frame.get("speed") or "").strip()
+        speed_factor = self._parse_speed_factor(speed_text)
+        remaining_media = max(0.0, total_duration - processed_duration)
+        eta = _format_duration(remaining_media / speed_factor) if speed_factor > 0 else ""
+        total_size = _safe_size(frame.get("total_size"))
+        section_count = max(1, len(self.section_durations))
+
+        self.callback(
+            {
+                "phase": "processing",
+                "indeterminate": False,
+                "percent": f"{percent:.1f}",
+                "speed": speed_text,
+                "eta": eta,
+                "downloaded": _format_bytes(total_size) if total_size else "",
+                "total": "",
+                "elapsed": _format_duration(time.monotonic() - self.started_at),
+                "filename": "",
+                "section_index": min(self.section_index + 1, section_count),
+                "section_count": section_count,
+                "status": "正在下载并生成片段",
+            }
+        )
+
+        if frame.get("progress") == "end":
+            self.completed_duration += duration
+            self.section_index += 1
+            self.processing_started = False
+            if self.section_index < len(self.section_durations):
+                self._emit_locating()
 
 
 def sanitize_filename(name: str, replacement: str = "_") -> str:
@@ -528,6 +690,137 @@ def _build_download_ranges_callback(download_sections: list[str]):
     return _callback
 
 
+def _probe_media_streams(media_path: str | Path) -> dict:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration:stream=index,codec_type,duration:stream_tags=DURATION",
+            "-of",
+            "json",
+            str(media_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return json.loads(completed.stdout or "{}")
+
+
+def _duration_text_to_seconds(value) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        if ":" not in text:
+            return float(text)
+        hours, minutes, seconds = text.split(":", 2)
+        return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    except (TypeError, ValueError):
+        return None
+
+
+def _media_has_valid_audio(media_path: str | Path) -> bool:
+    try:
+        probe = _probe_media_streams(media_path)
+    except Exception as exc:
+        logger.warning("无法验证下载结果音轨: %s", exc)
+        return False
+
+    for stream in probe.get("streams") or []:
+        if stream.get("codec_type") != "audio":
+            continue
+        tag_duration = _duration_text_to_seconds((stream.get("tags") or {}).get("DURATION"))
+        stream_duration = _duration_text_to_seconds(stream.get("duration"))
+        if tag_duration is not None:
+            return tag_duration > 0
+        if stream_duration is not None:
+            return stream_duration > 0
+        # Some valid containers omit both duration fields. An audio stream is
+        # still better evidence than rejecting a download we cannot disprove.
+        return True
+    return False
+
+
+def _audio_repair_window(
+    media_path: str | Path, download_sections: list[str]
+) -> tuple[float, float] | None:
+    if len(download_sections) != 1:
+        return None
+    section = _parse_download_section(download_sections[0])
+    if not section:
+        return None
+
+    probe = _probe_media_streams(media_path)
+    media_duration = _duration_text_to_seconds((probe.get("format") or {}).get("duration"))
+    requested_duration = float(section["end_time"] - section["start_time"])
+    if not media_duration or media_duration <= 0:
+        media_duration = requested_duration
+
+    # Stream-copy range downloads can begin at the preceding video keyframe.
+    # Extend the audio backwards by the same small pre-roll so A/V stays aligned.
+    extra_duration = max(0.0, media_duration - requested_duration)
+    pre_roll = min(float(section["start_time"]), extra_duration, 30.0)
+    return max(0.0, float(section["start_time"]) - pre_roll), media_duration
+
+
+def _remux_recovery_audio(
+    media_path: str | Path,
+    audio_path: str | Path,
+    download_sections: list[str],
+) -> None:
+    media = Path(media_path)
+    repaired = media.with_name(f".{media.stem}.audio-repaired{media.suffix}")
+    window = _audio_repair_window(media, download_sections)
+
+    command = ["ffmpeg", "-nostdin", "-y", "-i", str(media)]
+    if window:
+        start_seconds, duration_seconds = window
+        command.extend(
+            [
+                "-ss",
+                f"{start_seconds:.3f}",
+                "-t",
+                f"{duration_seconds:.3f}",
+            ]
+        )
+    command.extend(
+        [
+            "-i",
+            str(audio_path),
+            "-map",
+            "0",
+            "-map",
+            "-0:a?",
+            "-map",
+            "1:a:0",
+            "-c",
+            "copy",
+            "-shortest",
+            str(repaired),
+        ]
+    )
+
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if not _media_has_valid_audio(repaired):
+            raise RuntimeError("补下载的音频仍为空")
+        os.replace(repaired, media)
+    finally:
+        if repaired.exists():
+            repaired.unlink()
+
+
 def extract_preview(url: str, download_engine_strategy: str | None = None) -> dict:
     proxy_url = apply_download_proxy_environment()
     cookiefile_path = APP_DATA_PATH / "cookies.txt"
@@ -624,6 +917,11 @@ class VideoDownloadThread(QThread):
         self._download_dir = None
         self._download_dir_existed = False
         self._download_started_at = None
+        self._download_processes_done = threading.Event()
+        self._download_processes_done.set()
+        self._cleanup_lock = threading.Lock()
+        self._cleanup_completed = False
+        self._cleanup_message = ""
 
     def run(self):
         try:
@@ -642,13 +940,15 @@ class VideoDownloadThread(QThread):
             self.detailed_finished.emit(result)
             self.finished.emit(result.get("video_path") or "")
         except DownloadCancelledError as exc:
+            self._wait_for_download_subprocesses()
             message = self._cleanup_partial_download(str(exc))
             logger.info(message)
             self.cancelled.emit(message)
         except Exception as exc:
             if self._terminate_event.is_set():
+                self._wait_for_download_subprocesses()
                 message = self._cleanup_partial_download(self.tr("下载已终止，已清理当前下载数据。"))
-                logger.info("%s 原始异常: %s", message, exc)
+                logger.info("%s", message)
                 self.cancelled.emit(message)
                 return
             logger.exception("下载资源失败: %s", exc)
@@ -672,6 +972,7 @@ class VideoDownloadThread(QThread):
         """
         target = self._download_dir
         if not target:
+            self._download_processes_done.set()
             return
 
         try:
@@ -680,6 +981,7 @@ class VideoDownloadThread(QThread):
             children = psutil.Process(os.getpid()).children(recursive=True)
         except (OSError, psutil.Error) as exc:
             logger.warning("无法枚举下载子进程: %s", exc)
+            self._download_processes_done.set()
             return
 
         processes = []
@@ -696,21 +998,42 @@ class VideoDownloadThread(QThread):
                 if not is_ffmpeg or not targets_download:
                     continue
 
-                process.terminate()
                 processes.append(process)
-                logger.info("已请求终止下载 FFmpeg 子进程: pid=%s", process.pid)
             except (OSError, psutil.Error):
                 continue
 
         if not processes:
+            self._download_processes_done.set()
             return
 
-        threading.Thread(
-            target=self._kill_download_subprocesses_after_timeout,
-            args=(processes,),
-            daemon=True,
-            name="video-download-process-cleanup",
-        ).start()
+        self._download_processes_done.clear()
+        for process in processes:
+            try:
+                process.terminate()
+                logger.info("已请求终止下载 FFmpeg 子进程: pid=%s", process.pid)
+            except (OSError, psutil.Error):
+                continue
+        try:
+            threading.Thread(
+                target=self._finish_download_subprocess_termination,
+                args=(processes,),
+                daemon=True,
+                name="video-download-process-cleanup",
+            ).start()
+        except Exception as exc:
+            logger.warning("无法启动下载子进程清理线程，将同步等待: %s", exc)
+            self._finish_download_subprocess_termination(processes)
+
+    def _finish_download_subprocess_termination(self, processes):
+        try:
+            self._kill_download_subprocesses_after_timeout(processes)
+        finally:
+            self._download_processes_done.set()
+
+    def _wait_for_download_subprocesses(self):
+        event = getattr(self, "_download_processes_done", None)
+        if event is not None:
+            event.wait(timeout=4.0)
 
     @staticmethod
     def _kill_download_subprocesses_after_timeout(processes):
@@ -732,6 +1055,19 @@ class VideoDownloadThread(QThread):
             raise DownloadCancelledError("下载已终止，正在清理当前下载数据。")
 
     def _cleanup_partial_download(self, default_message: str) -> str:
+        cleanup_lock = getattr(self, "_cleanup_lock", None)
+        if cleanup_lock is None:
+            cleanup_lock = threading.Lock()
+            self._cleanup_lock = cleanup_lock
+        with cleanup_lock:
+            if getattr(self, "_cleanup_completed", False):
+                return getattr(self, "_cleanup_message", "") or default_message
+            message = self._cleanup_partial_download_once(default_message)
+            self._cleanup_completed = True
+            self._cleanup_message = message
+            return message
+
+    def _cleanup_partial_download_once(self, default_message: str) -> str:
         target = self._download_dir
         base_dir = self._download_root
         if not target:
@@ -842,6 +1178,34 @@ class VideoDownloadThread(QThread):
 
         self.progress.emit(progress_value, f"下载进度: {clean_percent}%  速度: {clean_speed}")
 
+    def _emit_range_progress_detail(self, detail: dict):
+        if not self._terminate_event.is_set():
+            self.progress_detail.emit(detail)
+
+    def _range_section_durations(self) -> list[float]:
+        durations = []
+        for section in self.download_sections:
+            parsed = _parse_download_section(section)
+            if parsed:
+                durations.append(float(parsed["end_time"] - parsed["start_time"]))
+        return durations
+
+    def _range_phase_detail(self, phase: str, status: str, *, indeterminate: bool) -> dict:
+        return {
+            "phase": phase,
+            "indeterminate": indeterminate,
+            "percent": "",
+            "speed": "",
+            "eta": "",
+            "downloaded": "",
+            "total": "",
+            "elapsed": "00:00",
+            "filename": "",
+            "section_index": 1,
+            "section_count": max(1, len(self.download_sections)),
+            "status": status,
+        }
+
     def _default_format_selector(self) -> str:
         return _robust_format_selector("", self.download_mode)
 
@@ -896,6 +1260,49 @@ class VideoDownloadThread(QThread):
     def _find_main_media_file(self, work_dir: Path) -> str | None:
         media_files = self._find_main_media_files(work_dir)
         return media_files[0] if media_files else None
+
+    def _recover_missing_audio(
+        self,
+        media_path: str,
+        proxy_url: str,
+        cookiefile_path: Path,
+        work_dir: Path,
+        download_sections: list[str],
+    ) -> None:
+        audio_selector = self.selected_audio_format_id or "bestaudio[ext=m4a]/bestaudio"
+        self.progress.emit(96, self.tr("检测到空音轨，正在仅补下载音频..."))
+        logger.warning(
+            "下载结果缺少有效音频，开始仅补下载音频: media=%s format=%s",
+            media_path,
+            audio_selector,
+        )
+
+        with tempfile.TemporaryDirectory(
+            prefix=".videocaptioner-audio-recovery-", dir=work_dir
+        ) as temp_dir:
+            recovery_options = _build_ydl_options(proxy_url, cookiefile_path)
+            recovery_options.update(_build_strategy_options("单线程"))
+            recovery_options.update(
+                {
+                    "format": audio_selector,
+                    "outtmpl": {"default": "audio.%(ext)s"},
+                    "paths": {"home": temp_dir},
+                    "noplaylist": True,
+                }
+            )
+            with yt_dlp.YoutubeDL(recovery_options) as ydl:
+                ydl.download([self.url])
+
+            audio_files = [
+                path
+                for path in Path(temp_dir).iterdir()
+                if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
+            ]
+            if not audio_files:
+                raise RuntimeError("音频补下载完成，但没有找到音频文件")
+            audio_files.sort(key=lambda path: path.stat().st_size, reverse=True)
+            _remux_recovery_audio(media_path, audio_files[0], download_sections)
+        logger.info("空音轨已自动修复: %s", media_path)
 
     def _write_metadata_file(self, info_dict: dict, work_dir: Path) -> str:
         metadata_path = work_dir / f"{sanitize_filename(info_dict.get('title', 'video'))}.info.json"
@@ -1073,31 +1480,72 @@ class VideoDownloadThread(QThread):
             "thumbnail": str(work_dir),
         }
 
+        ffmpeg_progress_monitor = None
+        if need_video and enable_time_ranges and download_sections:
+            self._emit_range_progress_detail(
+                self._range_phase_detail("preparing", "正在准备片段", indeterminate=True)
+            )
+            ffmpeg_progress_monitor = FfmpegProgressMonitor(
+                self._range_section_durations(),
+                self._emit_range_progress_detail,
+            )
+            if ffmpeg_progress_monitor.start() and ffmpeg_progress_monitor.progress_url:
+                options["external_downloader_args"] = {
+                    "ffmpeg_o": [
+                        "-progress",
+                        ffmpeg_progress_monitor.progress_url,
+                        "-nostats",
+                    ]
+                }
+            self._emit_range_progress_detail(
+                self._range_phase_detail("locating", "正在定位片段起点", indeterminate=True)
+            )
+
         try:
-            with yt_dlp.YoutubeDL(options) as ydl:
-                ydl.download([self.url])
-        except yt_dlp.utils.DownloadError as exc:
-            fallback_selector = self._default_format_selector()
-            current_selector = str(options.get("format") or "")
-            if (
-                need_video
-                and fallback_selector
-                and fallback_selector != current_selector
-                and "Requested format is not available" in str(exc)
-            ):
-                logger.warning(
-                    "指定格式不可用，改用默认格式选择器重试: %s -> %s",
-                    current_selector,
-                    fallback_selector,
-                )
-                options["format"] = fallback_selector
+            try:
                 with yt_dlp.YoutubeDL(options) as ydl:
                     ydl.download([self.url])
-            else:
-                raise
+            except yt_dlp.utils.DownloadError as exc:
+                fallback_selector = self._default_format_selector()
+                current_selector = str(options.get("format") or "")
+                if (
+                    need_video
+                    and fallback_selector
+                    and fallback_selector != current_selector
+                    and "Requested format is not available" in str(exc)
+                ):
+                    logger.warning(
+                        "指定格式不可用，改用默认格式选择器重试: %s -> %s",
+                        current_selector,
+                        fallback_selector,
+                    )
+                    options["format"] = fallback_selector
+                    with yt_dlp.YoutubeDL(options) as ydl:
+                        ydl.download([self.url])
+                else:
+                    raise
+        finally:
+            if ffmpeg_progress_monitor is not None:
+                ffmpeg_progress_monitor.stop()
         self._raise_if_terminated()
 
         media_files = self._find_main_media_files(work_dir) if need_video else []
+        if need_video and self.download_mode == "video_audio" and media_files:
+            invalid_audio_files = [
+                path for path in media_files if not _media_has_valid_audio(path)
+            ]
+            if len(media_files) == 1 and invalid_audio_files:
+                self._recover_missing_audio(
+                    media_files[0],
+                    proxy_url,
+                    active_cookiefile_path,
+                    work_dir,
+                    list(download_sections or []),
+                )
+            elif invalid_audio_files:
+                raise RuntimeError(
+                    "下载结果中有文件缺少有效音频轨，多个片段无法自动配对修复"
+                )
         media_path = media_files[0] if len(media_files) == 1 else (str(work_dir) if media_files else None)
         if not subtitle_path:
             for file in work_dir.glob("**/【下载字幕】.*"):
@@ -1153,6 +1601,10 @@ class VideoDownloadThread(QThread):
         postprocess_fallback_target_path = None
         preferred_media_path = media_path
         if need_video and not multi_media and self.download_mode != "audio" and pr_smart_transcode_hevc_on_av1:
+            if enable_time_ranges and download_sections:
+                self._emit_range_progress_detail(
+                    self._range_phase_detail("postprocessing", "正在后处理", indeterminate=True)
+                )
             try:
                 (
                     transcoded_video_path,

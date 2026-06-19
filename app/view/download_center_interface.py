@@ -34,6 +34,7 @@ from qfluentwidgets import (
     FluentIcon as FIF,
     InfoBar,
     InfoBarPosition,
+    IndeterminateProgressBar,
     LineEdit,
     PrimaryPushButton,
     ProgressBar,
@@ -107,6 +108,22 @@ class AspectRatioLabel(QLabel):
 
     def hasHeightForWidth(self):
         return True
+
+
+class CurrentPageStackedWidget(QStackedWidget):
+    """Size the stack from its visible page instead of its largest page."""
+
+    def sizeHint(self):
+        current_widget = self.currentWidget()
+        if current_widget is not None:
+            return current_widget.sizeHint()
+        return super().sizeHint()
+
+    def minimumSizeHint(self):
+        current_widget = self.currentWidget()
+        if current_widget is not None:
+            return current_widget.minimumSizeHint()
+        return super().minimumSizeHint()
 
 
 class DownloadCenterInterface(QWidget):
@@ -341,7 +358,7 @@ class DownloadCenterInterface(QWidget):
         selection_layout.setSpacing(12)
 
         self.mode_switch = SegmentedWidget(self.selection_section)
-        self.mode_stack = QStackedWidget(self.selection_section)
+        self.mode_stack = CurrentPageStackedWidget(self.selection_section)
         self.mode_switch.addItem(routeKey="simple", text=self.tr("简易模式"), onClick=lambda: self._switch_download_mode("simple"))
         self.mode_switch.addItem(routeKey="professional", text=self.tr("专业模式"), onClick=lambda: self._switch_download_mode("professional"))
 
@@ -686,8 +703,13 @@ class DownloadCenterInterface(QWidget):
     def _setup_bottom_bar(self):
         self.bottom_layout = QHBoxLayout()
         self.bottom_layout.setSpacing(12)
+        self.progress_stack = QStackedWidget(self)
         self.progress_bar = ProgressBar(self)
         self.progress_bar.setValue(0)
+        self.indeterminate_progress_bar = IndeterminateProgressBar(self, start=False)
+        self.progress_stack.addWidget(self.progress_bar)
+        self.progress_stack.addWidget(self.indeterminate_progress_bar)
+        self.progress_stack.setCurrentWidget(self.progress_bar)
         self.status_label = BodyLabel(self.tr("等待解析链接"), self)
         self.status_label.setObjectName("downloadHintLabel")
         self.status_label.setMinimumWidth(120)
@@ -700,7 +722,7 @@ class DownloadCenterInterface(QWidget):
         self.download_detail_panel.setWordWrap(True)
         self.download_detail_panel.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.download_detail_panel.setVisible(False)
-        self.bottom_layout.addWidget(self.progress_bar, 1)
+        self.bottom_layout.addWidget(self.progress_stack, 1)
         self.bottom_layout.addWidget(self.status_label)
         self.bottom_layout.addWidget(self.download_detail_button)
         self.main_layout.addLayout(self.bottom_layout)
@@ -859,6 +881,9 @@ class DownloadCenterInterface(QWidget):
         self.current_mode_key = mode_key
         self.mode_switch.setCurrentItem(mode_key)
         self.mode_stack.setCurrentWidget(self.simple_panel if mode_key == "simple" else self.professional_panel)
+        self._adjust_responsive_layout()
+        self.mode_stack.updateGeometry()
+        self.selection_section.updateGeometry()
         self._update_custom_preferences_visibility()
         self._refresh_selection_summary()
         self._save_download_preferences()
@@ -1073,6 +1098,18 @@ class DownloadCenterInterface(QWidget):
         self.download_detail_panel.setText(self.tr("暂无实时下载数据"))
         self.download_detail_panel.setVisible(False)
         self.download_detail_button.setText(self.tr("详情"))
+        self._set_progress_indeterminate(False)
+
+    def _set_progress_indeterminate(self, enabled: bool):
+        if not hasattr(self, "progress_stack"):
+            return
+        if enabled:
+            self.progress_stack.setCurrentWidget(self.indeterminate_progress_bar)
+            if not self.indeterminate_progress_bar.isStarted():
+                self.indeterminate_progress_bar.start()
+            return
+        self.indeterminate_progress_bar.stop()
+        self.progress_stack.setCurrentWidget(self.progress_bar)
 
     def _render_download_detail_panel(self, detail: dict):
         self.latest_download_detail = detail or {}
@@ -1081,6 +1118,19 @@ class DownloadCenterInterface(QWidget):
             return
 
         parts = []
+        phase = str(self.latest_download_detail.get("phase") or "").strip()
+        status = str(self.latest_download_detail.get("status") or "").strip()
+        section_index = self.latest_download_detail.get("section_index")
+        section_count = self.latest_download_detail.get("section_count")
+        indeterminate = bool(self.latest_download_detail.get("indeterminate"))
+        self._set_progress_indeterminate(indeterminate)
+        if status:
+            self.status_label.setText(status)
+            phase_text = status
+            if section_index and section_count:
+                phase_text += self.tr("（片段 {0}/{1}）").format(section_index, section_count)
+            parts.append(self.tr("阶段：") + phase_text)
+
         filename = str(self.latest_download_detail.get("filename") or "").strip()
         if filename:
             parts.append(self.tr("文件：") + filename)
@@ -1091,7 +1141,8 @@ class DownloadCenterInterface(QWidget):
             progress_text = amount
             if total:
                 progress_text = f"{amount or '?'} / {total}"
-            parts.append(self.tr("已下载：") + progress_text)
+            amount_label = self.tr("已生成：") if phase == "processing" else self.tr("已下载：")
+            parts.append(amount_label + progress_text)
 
         percent = str(self.latest_download_detail.get("percent") or "").strip()
         speed = str(self.latest_download_detail.get("speed") or "").strip()
@@ -1099,6 +1150,11 @@ class DownloadCenterInterface(QWidget):
         elapsed = str(self.latest_download_detail.get("elapsed") or "").strip()
         if percent:
             parts.append(self.tr("进度：") + percent + "%")
+            if phase:
+                try:
+                    self.progress_bar.setValue(max(0, min(100, int(float(percent)))))
+                except ValueError:
+                    pass
         if speed:
             parts.append(self.tr("速度：") + speed)
         if eta:
@@ -1847,6 +1903,110 @@ class DownloadCenterInterface(QWidget):
         )
         return same_tier[0]
 
+    @staticmethod
+    def _is_seek_friendly_avc_format(item: dict | None) -> bool:
+        if not item:
+            return False
+        codec = str(item.get("vcodec") or "").lower()
+        extension = str(item.get("ext") or "").lower()
+        return extension == "mp4" and any(name in codec for name in ("avc1", "h264", "avc"))
+
+    def _pick_automatic_time_range_baseline(
+        self,
+        preset: str,
+        can_pair_supported_audio: bool,
+    ) -> dict | None:
+        if preset in {"pr_smart", "pr_editing"}:
+            return self._pick_pr_smart_video_format(can_pair_supported_audio)
+
+        formats = list((self.preview_data or {}).get("video_formats") or [])
+        compatible = [
+            item
+            for item in formats
+            if (not item.get("has_audio") and can_pair_supported_audio)
+            or (item.get("has_audio") and self._is_pr_supported_audio_format(item))
+        ]
+        if preset == "mp4_compatible":
+            compatible = [
+                item for item in compatible if str(item.get("ext") or "").lower() == "mp4"
+            ]
+        if not compatible:
+            return None
+
+        max_height = max(int(item.get("height") or 0) for item in compatible)
+        same_height = [item for item in compatible if int(item.get("height") or 0) == max_height]
+        same_height.sort(
+            key=lambda item: (
+                int(item.get("fps") or 0),
+                int(item.get("tbr") or item.get("filesize") or 0),
+            ),
+            reverse=True,
+        )
+        return same_height[0]
+
+    def _pick_same_height_avc_format(
+        self,
+        baseline: dict | None,
+        can_pair_supported_audio: bool,
+    ) -> dict | None:
+        if not baseline:
+            return None
+        height = int(baseline.get("height") or 0)
+        candidates = []
+        for item in (self.preview_data or {}).get("video_formats") or []:
+            if int(item.get("height") or 0) != height:
+                continue
+            if not self._is_seek_friendly_avc_format(item):
+                continue
+            if item.get("has_audio"):
+                if not self._is_pr_supported_audio_format(item):
+                    continue
+            elif not can_pair_supported_audio:
+                continue
+            candidates.append(item)
+
+        candidates.sort(
+            key=lambda item: (
+                int(item.get("fps") or 0),
+                int(item.get("tbr") or item.get("filesize") or 0),
+            ),
+            reverse=True,
+        )
+        return candidates[0] if candidates else None
+
+    def _apply_automatic_time_range_format(self, request: dict, preset: str):
+        if preset not in {"best_quality", "mp4_compatible", "pr_smart", "pr_editing"}:
+            return
+
+        audio_format = self._pick_pr_smart_audio_format()
+        baseline = self._pick_automatic_time_range_baseline(preset, bool(audio_format))
+        avc_format = self._pick_same_height_avc_format(baseline, bool(audio_format))
+        if not baseline or not avc_format:
+            request["time_range_format_notice"] = self.tr(
+                "片段优化：当前分辨率没有可快速定位的 MP4/AVC 流，将保留原格式，定位可能较慢"
+            )
+            return
+
+        video_id = str(avc_format.get("format_id") or "")
+        request.update(
+            selected_video_format_id=video_id,
+            selected_audio_format_id="",
+            format_selector=video_id,
+        )
+        if not avc_format.get("has_audio") and audio_format:
+            audio_id = str(audio_format.get("format_id") or "")
+            request.update(
+                selected_audio_format_id=audio_id,
+                format_selector=f"{video_id}+{audio_id}",
+            )
+
+        quality = str(avc_format.get("quality") or f"{int(avc_format.get('height') or 0)}p")
+        request["time_range_format_notice"] = self.tr(
+            "片段优化：已切换为同分辨率 MP4/AVC 快速定位流"
+        )
+        if preset in {"pr_smart", "pr_editing"}:
+            request["pr_smart_video_summary"] = f"{quality} / AVC1"
+
     def _pick_pr_smart_audio_format(self) -> dict | None:
         formats = list((self.preview_data or {}).get("audio_formats") or [])
         if not formats:
@@ -2030,8 +2190,10 @@ class DownloadCenterInterface(QWidget):
             "pr_smart_transcode_hevc_on_av1": False,
         }
 
+        simple_preset = None
         if self.current_mode_key == "simple":
             preset = self.simple_preset_combo.currentData() or "best_quality"
+            simple_preset = preset
             if preset == "best_quality":
                 request.update(need_video=True, download_mode="video_audio", format_selector="bv*+ba/bestvideo+bestaudio/best")
             elif preset == "mp4_compatible":
@@ -2100,6 +2262,8 @@ class DownloadCenterInterface(QWidget):
                 multi_time_ranges=len(download_sections) > 1,
                 download_sections=download_sections,
             )
+            if simple_preset:
+                self._apply_automatic_time_range_format(request, simple_preset)
         return request
 
     def start_download(self):
@@ -2110,6 +2274,11 @@ class DownloadCenterInterface(QWidget):
         request = self._build_download_request()
         if not request:
             return
+        self._refresh_selection_summary()
+        time_range_notice = str(request.get("time_range_format_notice") or "").strip()
+        if time_range_notice:
+            self.last_selection_summary = self.last_selection_summary + self.tr("；") + time_range_notice
+            self.selection_summary_label.setText(self.tr("已选方案：") + self.last_selection_summary)
         self._refresh_edge_cookie_if_needed()
         self.last_result = {}
         self.ffmpeg_fallback_thread = None
@@ -2149,6 +2318,7 @@ class DownloadCenterInterface(QWidget):
         self.download_thread.start()
 
     def on_download_progress(self, value: int, status: str):
+        self._set_progress_indeterminate(False)
         self.progress_bar.setValue(value)
         self.status_label.setText(status)
 
@@ -2160,6 +2330,7 @@ class DownloadCenterInterface(QWidget):
         self._set_controls_enabled(True)
         self._set_download_action_state("idle")
         self.download_thread = None
+        self._set_progress_indeterminate(False)
         self.progress_bar.setValue(100)
         self.status_label.setText(self.tr("下载完成"))
         self.result_summary.setText(self.tr("方案摘要：") + self.last_selection_summary)

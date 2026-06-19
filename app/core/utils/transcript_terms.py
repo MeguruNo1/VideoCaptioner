@@ -14,6 +14,7 @@ GENERATED_TERMS_BEGIN = "<!-- AI_VIDEO_TRANSCRIPT_TERMS_BEGIN -->"
 GENERATED_TERMS_END = "<!-- AI_VIDEO_TRANSCRIPT_TERMS_END -->"
 MAX_FILTERED_PROMPT_TERMS = 80
 MAX_FILTERED_PROMPT_CHARS = 4000
+GLOSSARY_SEPARATORS = ("->", "=>", "→", "=", "：", ":")
 
 
 def _clean_term_text(value: Any) -> str:
@@ -22,20 +23,50 @@ def _clean_term_text(value: Any) -> str:
     return text.strip(" \t\r\n`'\"“”‘’")
 
 
-def parse_glossary_text(glossary_text: str) -> dict[str, str]:
-    glossary = {}
+def extract_glossary_pairs(glossary_text: str) -> list[tuple[str, str]]:
+    """Extract glossary pairs from plain text or a Markdown note."""
+    pairs = []
+    seen = set()
     for raw_line in str(glossary_text or "").splitlines():
         line = raw_line.strip()
-        if not line or line.startswith("#"):
+        if not line or line.startswith(("#", "```")):
             continue
-        for separator in ("->", "=>", "=", "：", ":"):
+
+        line = re.sub(r"^[-*+]\s+", "", line)
+        for separator in GLOSSARY_SEPARATORS:
             if separator in line:
                 original, translation = line.split(separator, 1)
                 original = _clean_term_text(original)
                 translation = _clean_term_text(translation)
-                if original and translation:
-                    glossary[original.casefold()] = translation
+                if not original or not translation:
+                    break
+
+                # Markdown navigation and URLs often contain a colon but are
+                # not glossary entries.
+                if separator in ("：", ":") and (
+                    "http://" in line
+                    or "https://" in line
+                    or "[[" in line
+                    or "](" in line
+                ):
+                    break
+
+                key = original.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    pairs.append((original, translation))
                 break
+    return pairs
+
+
+def format_glossary_pairs(pairs: list[tuple[str, str]]) -> str:
+    return "\n".join(f"{original} -> {translation}" for original, translation in pairs)
+
+
+def parse_glossary_text(glossary_text: str) -> dict[str, str]:
+    glossary = {}
+    for original, translation in extract_glossary_pairs(glossary_text):
+        glossary[original.casefold()] = translation
     return glossary
 
 

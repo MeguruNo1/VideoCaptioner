@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Iterable
 
 from ..utils.logger import setup_logger
+from app.config import MODEL_PATH
 
 logger = setup_logger("mlx_workflow")
+LOCAL_SILERO_REPO = MODEL_PATH / "silero-vad"
 
 MLX_SAMPLE_RATE = 16000
 
@@ -249,12 +251,23 @@ def detect_speech_ranges(
                 waveform, sample_rate, MLX_SAMPLE_RATE
             )
         waveform = waveform.float()
-        model, utils = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            onnx=True,
-            trust_repo=True,
-        )
+        if LOCAL_SILERO_REPO.is_dir() and (LOCAL_SILERO_REPO / "hubconf.py").is_file():
+            logger.info("使用本地 Silero VAD: %s", LOCAL_SILERO_REPO)
+            model, utils = torch.hub.load(
+                repo_or_dir=str(LOCAL_SILERO_REPO),
+                model="silero_vad",
+                source="local",
+                force_reload=False,
+                onnx=True,
+                trust_repo=True,
+            )
+        else:
+            model, utils = torch.hub.load(
+                repo_or_dir="snakers4/silero-vad",
+                model="silero_vad",
+                onnx=True,
+                trust_repo=True,
+            )
         get_speech_timestamps = utils[0]
         timestamps = get_speech_timestamps(
             waveform,
