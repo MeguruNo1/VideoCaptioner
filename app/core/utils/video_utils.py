@@ -167,28 +167,20 @@ def _build_hevc_transcode_command(
     encoder: str,
     *,
     use_videotoolbox_decode: bool = False,
+    transcode_audio_to_aac: bool = False,
 ) -> list[str]:
     cmd = ["ffmpeg"]
     if use_videotoolbox_decode:
         cmd.extend(["-hwaccel", "videotoolbox"])
-    cmd.extend(
-        [
-            "-i",
-            str(input_path),
-            "-map",
-            "0",
-            "-c:a",
-            "copy",
-            "-c:s",
-            "copy",
-            "-c:v",
-            encoder,
-            "-tag:v",
-            "hvc1",
-            "-y",
-            str(output_path),
-        ]
-    )
+    cmd.extend(["-i", str(input_path)])
+    if transcode_audio_to_aac:
+        cmd.extend(["-map", "0:v:0", "-map", "0:a?", "-c:a", "aac"])
+    else:
+        cmd.extend(["-map", "0", "-c:a", "copy", "-c:s", "copy"])
+    cmd.extend(["-c:v", encoder, "-tag:v", "hvc1"])
+    if transcode_audio_to_aac:
+        cmd.extend(["-movflags", "+faststart"])
+    cmd.extend(["-y", str(output_path)])
     return cmd
 
 
@@ -255,6 +247,8 @@ def transcode_video_to_hevc(
     input_file: str,
     output_file: str,
     progress_callback: callable = None,
+    *,
+    transcode_audio_to_aac: bool = False,
 ) -> str:
     input_path = Path(input_file)
     output_path = Path(output_file)
@@ -280,6 +274,7 @@ def transcode_video_to_hevc(
                     output_path,
                     hardware_encoder,
                     use_videotoolbox_decode=True,
+                    transcode_audio_to_aac=transcode_audio_to_aac,
                 ),
                 "正在使用 VideoToolbox 硬解转码为 H.265",
             )
@@ -289,7 +284,12 @@ def transcode_video_to_hevc(
             (
                 hardware_encoder,
                 "普通解码 + HEVC 硬编",
-                _build_hevc_transcode_command(input_path, output_path, hardware_encoder),
+                _build_hevc_transcode_command(
+                    input_path,
+                    output_path,
+                    hardware_encoder,
+                    transcode_audio_to_aac=transcode_audio_to_aac,
+                ),
                 "正在转码为 H.265",
             )
         )
@@ -298,7 +298,12 @@ def transcode_video_to_hevc(
             (
                 software_encoder,
                 "普通解码 + libx265 软件编码",
-                _build_hevc_transcode_command(input_path, output_path, software_encoder),
+                _build_hevc_transcode_command(
+                    input_path,
+                    output_path,
+                    software_encoder,
+                    transcode_audio_to_aac=transcode_audio_to_aac,
+                ),
                 "正在使用 libx265 转码为 H.265",
             )
         )
@@ -343,6 +348,73 @@ def transcode_video_to_hevc(
             raise
 
     raise RuntimeError(f"FFmpeg HEVC 转码失败: {last_error}")
+
+
+def normalize_video_to_mp4(
+    input_file: str,
+    output_file: str,
+    progress_callback: callable = None,
+) -> str:
+    """Normalize a fallback download to an MP4 with Premiere-compatible audio.
+
+    First keep the video stream untouched and encode only audio to AAC. If the
+    source video cannot be muxed into MP4, fall back to an HEVC + AAC transcode.
+    """
+    input_path = Path(input_file)
+    output_path = Path(output_file)
+    if not input_path.is_file():
+        raise FileNotFoundError(f"输入视频不存在: {input_file}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_output = output_path.with_name(f".{output_path.stem}.normalizing.mp4")
+    if temp_output.exists():
+        temp_output.unlink()
+
+    copy_command = [
+        "ffmpeg",
+        "-i",
+        str(input_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        "-y",
+        str(temp_output),
+    ]
+    logger.info("开始将回退格式规范化为 MP4: %s -> %s", input_path, output_path)
+    result = subprocess.run(
+        copy_command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=_ffmpeg_creationflags(),
+    )
+    if result.returncode == 0 and temp_output.is_file():
+        os.replace(temp_output, output_path)
+        if progress_callback:
+            progress_callback(100, "MP4 规范化完成")
+        logger.info("MP4 规范化完成（视频流复制 + AAC）: %s", output_path)
+        return "stream_copy+aac"
+
+    if temp_output.exists():
+        temp_output.unlink()
+    logger.warning("视频流无法直接封装为 MP4，改为 H.265 + AAC: %s", result.stderr.strip())
+    encoder = transcode_video_to_hevc(
+        str(input_path),
+        str(temp_output),
+        progress_callback=progress_callback,
+        transcode_audio_to_aac=True,
+    )
+    os.replace(temp_output, output_path)
+    logger.info("MP4 规范化完成（H.265 + AAC）: %s", output_path)
+    return f"{encoder}+aac"
 
 
 def add_subtitles(

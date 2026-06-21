@@ -7,6 +7,50 @@ from app.core.utils import video_utils
 
 
 class HevcTranscodeTests(unittest.TestCase):
+    def test_mp4_normalization_copies_video_and_encodes_audio_to_aac(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.webm"
+            output_path = Path(temp_dir) / "output.mp4"
+            input_path.write_bytes(b"fake")
+
+            def complete(command, **_kwargs):
+                Path(command[-1]).write_bytes(b"mp4")
+                return type("Result", (), {"returncode": 0, "stderr": ""})()
+
+            with patch.object(video_utils.subprocess, "run", side_effect=complete) as run:
+                result = video_utils.normalize_video_to_mp4(
+                    str(input_path), str(output_path)
+                )
+
+            self.assertEqual(result, "stream_copy+aac")
+            self.assertEqual(output_path.read_bytes(), b"mp4")
+            command = run.call_args.args[0]
+            self.assertIn("copy", command)
+            self.assertIn("aac", command)
+
+    def test_mp4_normalization_transcodes_when_stream_copy_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.webm"
+            output_path = Path(temp_dir) / "output.mp4"
+            input_path.write_bytes(b"fake")
+
+            failed = type("Result", (), {"returncode": 1, "stderr": "unsupported"})()
+
+            def transcode(_input, temp_output, **kwargs):
+                Path(temp_output).write_bytes(b"hevc")
+                self.assertTrue(kwargs["transcode_audio_to_aac"])
+                return "hevc_videotoolbox"
+
+            with patch.object(video_utils.subprocess, "run", return_value=failed), patch.object(
+                video_utils, "transcode_video_to_hevc", side_effect=transcode
+            ):
+                result = video_utils.normalize_video_to_mp4(
+                    str(input_path), str(output_path)
+                )
+
+            self.assertEqual(result, "hevc_videotoolbox+aac")
+            self.assertEqual(output_path.read_bytes(), b"hevc")
+
     def test_videotoolbox_decode_is_preferred_when_available(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "input.mp4"

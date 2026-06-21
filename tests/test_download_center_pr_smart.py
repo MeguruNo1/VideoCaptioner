@@ -153,6 +153,7 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
         self.assertEqual(request["selected_video_format_id"], "av1-video")
         self.assertEqual(request["selected_audio_format_id"], "140")
         self.assertEqual(request["format_selector"], "av1-video+140")
+        self.assertTrue(request["ensure_mp4_output"])
 
     def test_pr_smart_audio_falls_back_to_supported_audio_when_no_aac_or_m4a(self):
         interface = self._interface_with_preview(

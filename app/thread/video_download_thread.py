@@ -27,6 +27,7 @@ from app.core.utils.macos_video_transcoder import (
     is_native_hevc_transcode_supported,
     transcode_video_to_hevc_native,
 )
+from app.core.utils.video_utils import normalize_video_to_mp4
 
 logger = setup_logger("video_download_thread")
 
@@ -890,6 +891,7 @@ class VideoDownloadThread(QThread):
         enable_time_ranges: bool = False,
         download_sections: list[str] | None = None,
         pr_smart_transcode_hevc_on_av1: bool = False,
+        ensure_mp4_output: bool = False,
     ):
         super().__init__()
         self.url = url
@@ -909,6 +911,7 @@ class VideoDownloadThread(QThread):
         self.enable_time_ranges = enable_time_ranges
         self.download_sections = list(download_sections or [])
         self.pr_smart_transcode_hevc_on_av1 = pr_smart_transcode_hevc_on_av1
+        self.ensure_mp4_output = ensure_mp4_output
         self._pause_event = threading.Event()
         self._terminate_event = threading.Event()
         self._pause_notice_emitted = False
@@ -936,6 +939,7 @@ class VideoDownloadThread(QThread):
                 enable_time_ranges=self.enable_time_ranges,
                 download_sections=self.download_sections,
                 pr_smart_transcode_hevc_on_av1=self.pr_smart_transcode_hevc_on_av1,
+                ensure_mp4_output=self.ensure_mp4_output,
             )
             self.detailed_finished.emit(result)
             self.finished.emit(result.get("video_path") or "")
@@ -1209,6 +1213,16 @@ class VideoDownloadThread(QThread):
     def _default_format_selector(self) -> str:
         return _robust_format_selector("", self.download_mode)
 
+    def _fallback_format_selector(self) -> str:
+        if self.ensure_mp4_output and self.download_mode == "video_audio":
+            return (
+                "bv*[ext=mp4]+ba[ext=m4a]/"
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+                "best[ext=mp4]/"
+                "bv*+ba/bestvideo+bestaudio/best"
+            )
+        return self._default_format_selector()
+
     def _effective_format_selector(self) -> str:
         if self.format_selector:
             return _robust_format_selector(self.format_selector, self.download_mode)
@@ -1380,6 +1394,7 @@ class VideoDownloadThread(QThread):
         enable_time_ranges: bool = False,
         download_sections: list[str] | None = None,
         pr_smart_transcode_hevc_on_av1: bool = False,
+        ensure_mp4_output: bool = False,
     ) -> dict:
         logger.info("开始下载资源: %s", self.url)
         self._download_started_at = time.time()
@@ -1506,7 +1521,7 @@ class VideoDownloadThread(QThread):
                 with yt_dlp.YoutubeDL(options) as ydl:
                     ydl.download([self.url])
             except yt_dlp.utils.DownloadError as exc:
-                fallback_selector = self._default_format_selector()
+                fallback_selector = self._fallback_format_selector()
                 current_selector = str(options.get("format") or "")
                 if (
                     need_video
@@ -1546,6 +1561,24 @@ class VideoDownloadThread(QThread):
                 raise RuntimeError(
                     "下载结果中有文件缺少有效音频轨，多个片段无法自动配对修复"
                 )
+        mp4_normalization_message = None
+        if (
+            ensure_mp4_output
+            and self.download_mode != "audio"
+            and len(media_files) == 1
+            and Path(media_files[0]).suffix.lower() != ".mp4"
+        ):
+            source_path = Path(media_files[0])
+            target_path = source_path.with_suffix(".mp4")
+            self.progress.emit(97, self.tr("正在将回退格式转换为 MP4..."))
+            encoder = normalize_video_to_mp4(
+                str(source_path),
+                str(target_path),
+                progress_callback=self.progress.emit,
+            )
+            source_path.unlink()
+            media_files = [str(target_path)]
+            mp4_normalization_message = f"已将回退格式转换为 MP4（{encoder}）"
         media_path = media_files[0] if len(media_files) == 1 else (str(work_dir) if media_files else None)
         if not subtitle_path:
             for file in work_dir.glob("**/【下载字幕】.*"):
@@ -1618,6 +1651,8 @@ class VideoDownloadThread(QThread):
                 )
                 if transcoded_video_path:
                     preferred_media_path = transcoded_video_path
+                elif mp4_normalization_message:
+                    postprocess_message = mp4_normalization_message
             except Exception as exc:
                 logger.exception("PR智能预设后处理失败: %s", exc)
                 postprocess_message = f"H.265 后处理失败: {exc}"
@@ -1628,6 +1663,8 @@ class VideoDownloadThread(QThread):
                     postprocess_fallback_target_path = str(
                         source_path.with_name(f"{source_path.stem}-hevc.mp4")
                     )
+        elif mp4_normalization_message:
+            postprocess_message = mp4_normalization_message
 
         result = {
             "video_path": transcoded_video_path or original_video_path,

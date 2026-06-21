@@ -48,6 +48,16 @@ class NativeHevcPostprocessTests(unittest.TestCase):
             self.assertIsNone(fallback_target)
             transcode.assert_called_once()
 
+    def test_pr_smart_fallback_prefers_mp4_before_generic_formats(self):
+        thread = self._thread()
+        thread.ensure_mp4_output = True
+        thread.download_mode = "video_audio"
+
+        selector = thread._fallback_format_selector()
+
+        self.assertIn("bestvideo[ext=mp4]+bestaudio[ext=m4a]", selector)
+        self.assertLess(selector.index("best[ext=mp4]"), selector.index("bv*+ba"))
+
     def test_non_av1_does_not_trigger_native_transcode(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "video.mp4"

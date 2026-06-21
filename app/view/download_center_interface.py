@@ -2037,6 +2037,7 @@ class DownloadCenterInterface(QWidget):
                 ),
                 "pr_smart_video_summary": self.tr("回退到通用最高画质"),
                 "pr_smart_audio_summary": self.tr("回退到 PR 支持音频优先"),
+                "ensure_mp4_output": True,
             }
 
         video_id = str(video_format.get("format_id") or "")
@@ -2050,6 +2051,7 @@ class DownloadCenterInterface(QWidget):
             "format_selector": video_id,
             "pr_smart_video_summary": f"{video_quality} / {video_codec}",
             "pr_smart_audio_summary": self.tr("使用视频内嵌音频"),
+            "ensure_mp4_output": True,
         }
 
         if video_format.get("has_audio"):
@@ -2188,6 +2190,7 @@ class DownloadCenterInterface(QWidget):
             "multi_time_ranges": False,
             "download_sections": [],
             "pr_smart_transcode_hevc_on_av1": False,
+            "ensure_mp4_output": False,
         }
 
         simple_preset = None
@@ -2309,6 +2312,7 @@ class DownloadCenterInterface(QWidget):
             enable_time_ranges=request["enable_time_ranges"],
             download_sections=request["download_sections"],
             pr_smart_transcode_hevc_on_av1=request["pr_smart_transcode_hevc_on_av1"],
+            ensure_mp4_output=request["ensure_mp4_output"],
         )
         self.download_thread.progress.connect(self.on_download_progress)
         self.download_thread.progress_detail.connect(self.on_download_progress_detail)
