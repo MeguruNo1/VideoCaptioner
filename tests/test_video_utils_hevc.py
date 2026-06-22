@@ -107,7 +107,7 @@ class HevcTranscodeTests(unittest.TestCase):
             self.assertIn(
                 (
                     0,
-                    "VideoToolbox AV1 硬解 + HEVC 硬编失败，回退普通解码 + HEVC 硬编",
+                    "VideoToolbox 硬解 + HEVC 硬编失败，回退普通解码 + HEVC 硬编",
                 ),
                 progress_events,
             )

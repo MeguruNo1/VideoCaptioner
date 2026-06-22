@@ -79,6 +79,20 @@ class MacOSVideoTranscoderTests(unittest.TestCase):
         ):
             self.assertEqual(macos_video_transcoder.get_native_video_codec("input.mp4"), "av1")
 
+    def test_get_native_video_codec_maps_vp9_fourcc(self):
+        av = SimpleNamespace(AVMediaTypeVideo="video")
+        cm = SimpleNamespace(CMFormatDescriptionGetMediaSubType=lambda _description: int.from_bytes(b"vp09", "big"))
+        foundation = SimpleNamespace()
+
+        with patch.object(macos_video_transcoder.sys, "platform", "darwin"), patch.object(
+            macos_video_transcoder, "_load_frameworks", return_value=(av, cm, foundation)
+        ), patch.object(
+            macos_video_transcoder,
+            "_asset_for_path",
+            return_value=_FakeAsset([_FakeTrack(["description"])]),
+        ):
+            self.assertEqual(macos_video_transcoder.get_native_video_codec("input.mp4"), "vp9")
+
     def test_transcode_video_to_hevc_native_exports_with_avfoundation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "input.mp4"

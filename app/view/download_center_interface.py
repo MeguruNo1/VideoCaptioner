@@ -440,7 +440,7 @@ class DownloadCenterInterface(QWidget):
         self.custom_preferences_section.setVisible(False)
 
         self.pr_smart_postprocess_checkbox = QCheckBox(
-            self.tr("若下载结果为 AV1，则额外转为 H.265"),
+            self.tr("若下载结果为 AV1/VP9，则额外转为 H.265"),
             self.simple_panel,
         )
         self.pr_smart_postprocess_checkbox.setVisible(False)
@@ -475,7 +475,7 @@ class DownloadCenterInterface(QWidget):
         self.audio_table = self._create_format_table(self.professional_panel)
         professional_layout.addLayout(mode_row)
         self.professional_postprocess_checkbox = QCheckBox(
-            self.tr("若下载结果为 AV1，则额外转为 H.265"),
+            self.tr("若下载结果为 AV1/VP9，则额外转为 H.265"),
             self.professional_panel,
         )
         professional_layout.addWidget(self.professional_postprocess_checkbox)
@@ -2139,7 +2139,7 @@ class DownloadCenterInterface(QWidget):
                 if audio_summary:
                     parts.append(self.tr("音频策略：") + str(audio_summary))
                 if self.pr_smart_postprocess_checkbox.isChecked():
-                    parts.append(self.tr("AV1->H.265 后处理：开启"))
+                    parts.append(self.tr("AV1/VP9->H.265 后处理：开启"))
                 if self.pr_smart_transcript_checkbox.isChecked():
                     parts.append(self.tr("视频文稿：开启"))
         else:
@@ -2151,7 +2151,7 @@ class DownloadCenterInterface(QWidget):
             if current_mode in {"audio", "video_audio"}:
                 parts.append(self.tr("音频流：") + self._describe_stream(self.selected_audio_format))
             if current_mode in {"video", "video_audio"} and self.professional_postprocess_checkbox.isChecked():
-                parts.append(self.tr("AV1->H.265 后处理：开启"))
+                parts.append(self.tr("AV1/VP9->H.265 后处理：开启"))
 
         extras = []
         if self.subtitle_checkbox.isChecked():

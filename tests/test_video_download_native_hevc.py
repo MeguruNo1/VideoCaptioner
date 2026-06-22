@@ -48,6 +48,27 @@ class NativeHevcPostprocessTests(unittest.TestCase):
             self.assertIsNone(fallback_target)
             transcode.assert_called_once()
 
+    def test_native_hevc_success_is_used_for_vp9(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "video.mp4"
+            input_path.write_bytes(b"fake")
+
+            with patch.object(
+                video_download_thread, "is_native_hevc_transcode_supported", return_value=True
+            ), patch.object(
+                video_download_thread, "get_native_video_codec", return_value="vp9"
+            ), patch.object(
+                video_download_thread,
+                "transcode_video_to_hevc_native",
+                return_value="macos_avfoundation_hevc",
+            ) as transcode:
+                result = self._thread()._postprocess_pr_smart_hevc(str(input_path))
+
+            self.assertEqual(result[0], str(input_path.with_name("video-hevc.mp4")))
+            self.assertEqual(result[1], "macos_avfoundation_hevc")
+            self.assertFalse(result[3])
+            transcode.assert_called_once()
+
     def test_pr_smart_fallback_prefers_mp4_before_generic_formats(self):
         thread = self._thread()
         thread.ensure_mp4_output = True

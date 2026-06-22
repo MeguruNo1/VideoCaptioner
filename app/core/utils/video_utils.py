@@ -268,7 +268,7 @@ def transcode_video_to_hevc(
         attempts.append(
             (
                 hardware_encoder,
-                "VideoToolbox AV1 硬解 + HEVC 硬编",
+                "VideoToolbox 硬解 + HEVC 硬编",
                 _build_hevc_transcode_command(
                     input_path,
                     output_path,

@@ -62,6 +62,8 @@ def get_native_video_codec(path: str) -> str:
     codec = _fourcc_to_string(subtype)
     if codec in {"av01"}:
         return "av1"
+    if codec in {"vp09"}:
+        return "vp9"
     if codec in {"hvc1", "hev1"}:
         return "hevc"
     if codec in {"avc1"}:

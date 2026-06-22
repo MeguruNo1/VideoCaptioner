@@ -1361,7 +1361,7 @@ class VideoDownloadThread(QThread):
             )
 
         codec = get_native_video_codec(str(source_path))
-        if codec != "av1":
+        if codec not in {"av1", "vp9"}:
             return None, None, f"未触发，当前编码为 {codec or '未知'}", False, None, None
 
         try:
