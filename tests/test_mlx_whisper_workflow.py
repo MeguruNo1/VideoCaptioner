@@ -4,6 +4,7 @@ from app.core.bk_asr.mlx_workflow import (
     build_chunk_windows,
     merge_transcription_results,
     offset_transcription_result,
+    split_ranges_to_windows,
 )
 
 
@@ -111,3 +112,104 @@ class MLXWhisperWorkflowTests(unittest.TestCase):
 
         self.assertEqual([word["word"] for word in merged["segments"][0]["words"]], ["hello"])
         self.assertEqual([word["word"] for word in merged["segments"][1]["words"]], ["world"])
+
+    def test_merges_padded_vad_ranges_before_building_windows(self):
+        windows = split_ranges_to_windows(
+            ranges=[(10.0, 11.0), (11.5, 12.5)],
+            duration_seconds=30.0,
+            chunk_duration_seconds=600,
+            overlap_seconds=30,
+        )
+
+        self.assertEqual(windows, [(9.0, 13.5, 9.0, 13.5)])
+
+    def test_dedupes_words_across_overlapping_segments(self):
+        merged = merge_transcription_results(
+            [
+                {
+                    "segments": [
+                        {
+                            "start": 1.0,
+                            "end": 1.4,
+                            "text": "I do",
+                            "words": [
+                                {"word": "I", "start": 1.0, "end": 1.2},
+                                {"word": "do", "start": 1.2, "end": 1.4},
+                            ],
+                        }
+                    ]
+                },
+                {
+                    "segments": [
+                        {
+                            "start": 1.02,
+                            "end": 1.7,
+                            "text": "I do believe",
+                            "words": [
+                                {"word": "I", "start": 1.02, "end": 1.22},
+                                {"word": "do", "start": 1.22, "end": 1.42},
+                                {"word": "believe", "start": 1.45, "end": 1.7},
+                            ],
+                        }
+                    ]
+                },
+            ]
+        )
+
+        words = [
+            word["word"]
+            for segment in merged["segments"]
+            for word in segment.get("words", [])
+        ]
+        self.assertEqual(words, ["I", "do", "believe"])
+
+    def test_keeps_intentional_sequential_repeated_words(self):
+        merged = merge_transcription_results(
+            [
+                {
+                    "segments": [
+                        {
+                            "start": 1.0,
+                            "end": 1.4,
+                            "text": "very very",
+                            "words": [
+                                {"word": "very", "start": 1.0, "end": 1.2},
+                                {"word": "very", "start": 1.2, "end": 1.4},
+                            ],
+                        }
+                    ]
+                }
+            ]
+        )
+
+        self.assertEqual(
+            [word["word"] for word in merged["segments"][0]["words"]],
+            ["very", "very"],
+        )
+
+    def test_keeps_intentional_sequential_repeated_segments(self):
+        merged = merge_transcription_results(
+            [
+                {
+                    "segments": [
+                        {
+                            "start": 1.0,
+                            "end": 1.2,
+                            "text": "very",
+                            "words": [{"word": "very", "start": 1.0, "end": 1.2}],
+                        },
+                        {
+                            "start": 1.2,
+                            "end": 1.4,
+                            "text": "very",
+                            "words": [{"word": "very", "start": 1.2, "end": 1.4}],
+                        },
+                    ]
+                }
+            ]
+        )
+
+        self.assertEqual(
+            [segment["text"] for segment in merged["segments"]],
+            ["very", "very"],
+        )

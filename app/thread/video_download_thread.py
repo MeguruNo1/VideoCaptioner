@@ -27,7 +27,11 @@ from app.core.utils.macos_video_transcoder import (
     is_native_hevc_transcode_supported,
     transcode_video_to_hevc_native,
 )
-from app.core.utils.video_utils import normalize_video_to_mp4
+from app.core.utils.video_utils import (
+    get_video_codec,
+    normalize_video_to_mp4,
+    transcode_video_to_hevc,
+)
 
 logger = setup_logger("video_download_thread")
 
@@ -1350,37 +1354,68 @@ class VideoDownloadThread(QThread):
         source_path = Path(video_path)
         target_path = source_path.with_name(f"{source_path.stem}-hevc.mp4")
 
-        if not is_native_hevc_transcode_supported():
-            return (
-                None,
-                None,
-                "macOS 原生 H.265 转码不可用，可手动使用 FFmpeg 重试",
-                True,
-                str(source_path),
-                str(target_path),
-            )
-
-        codec = get_native_video_codec(str(source_path))
+        native_supported = is_native_hevc_transcode_supported()
+        codec = ""
+        if native_supported:
+            try:
+                codec = get_native_video_codec(str(source_path))
+            except Exception as exc:
+                logger.warning("macOS 原生编码检测失败，改用 FFmpeg 探测: %s", exc)
+        if not codec:
+            codec = get_video_codec(str(source_path))
         if codec not in {"av1", "vp9"}:
             return None, None, f"未触发，当前编码为 {codec or '未知'}", False, None, None
 
+        native_error: Exception | None = None
+        if native_supported:
+            try:
+                encoder = transcode_video_to_hevc_native(
+                    str(source_path),
+                    str(target_path),
+                    progress_callback=self.progress.emit,
+                )
+                return (
+                    str(target_path),
+                    encoder,
+                    f"已使用 macOS 原生 API 转码为 H.265",
+                    False,
+                    None,
+                    None,
+                )
+            except Exception as exc:
+                native_error = exc
+                logger.exception("macOS 原生 H.265 后处理失败，改用 FFmpeg 重试: %s", exc)
+                self.progress.emit(0, "macOS 原生 H.265 失败，正在使用 FFmpeg 重试...")
+
         try:
-            encoder = transcode_video_to_hevc_native(
+            encoder = transcode_video_to_hevc(
                 str(source_path),
                 str(target_path),
                 progress_callback=self.progress.emit,
+                transcode_audio_to_aac=True,
             )
         except Exception as exc:
-            logger.exception("macOS 原生 H.265 后处理失败: %s", exc)
+            logger.exception("FFmpeg H.265 后处理失败: %s", exc)
+            message = f"FFmpeg H.265 后处理失败，可手动重试: {exc}"
+            if native_error is not None:
+                message = (
+                    f"macOS 原生 H.265 后处理失败，FFmpeg 重试也失败: "
+                    f"{native_error}; {exc}"
+                )
             return (
                 None,
                 None,
-                f"macOS 原生 H.265 后处理失败，可手动使用 FFmpeg 重试: {exc}",
+                message,
                 True,
                 str(source_path),
                 str(target_path),
             )
-        return str(target_path), encoder, f"已使用 macOS 原生 API 转码为 H.265", False, None, None
+
+        if native_error is not None:
+            message = f"macOS 原生失败，已使用 FFmpeg 转码为 H.265（{encoder}）"
+        else:
+            message = f"已使用 FFmpeg 转码为 H.265（{encoder}）"
+        return str(target_path), encoder, message, False, None, None
 
     def download(
         self,

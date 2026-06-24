@@ -68,6 +68,7 @@ class FfmpegHevcFallbackThread(QThread):
                 self.source_path,
                 self.target_path,
                 progress_callback=self.progress.emit,
+                transcode_audio_to_aac=True,
             )
             self.completed.emit(self.target_path, encoder)
         except Exception as exc:
@@ -1886,7 +1887,18 @@ class DownloadCenterInterface(QWidget):
         ranked_formats = compatible_formats or formats
         max_height = max(int(item.get("height") or 0) for item in ranked_formats)
         same_tier = [item for item in formats if int(item.get("height") or 0) == max_height] or formats
-        preferred_codecs = ("hevc", "h265") if max_height <= 1080 else ("hevc", "h265", "av01", "av1", "avc1")
+        preferred_codecs = (
+            "hevc",
+            "h265",
+            "hvc1",
+            "hev1",
+            "avc1",
+            "h264",
+            "avc",
+            "av01",
+            "av1",
+            "vp9",
+        )
 
         def audio_rank(item: dict) -> int:
             if item.get("has_audio"):

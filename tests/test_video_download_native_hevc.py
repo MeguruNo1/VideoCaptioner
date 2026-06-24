@@ -27,6 +27,7 @@ class NativeHevcPostprocessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "video.mp4"
             input_path.write_bytes(b"fake")
+            thread = self._thread()
 
             with patch.object(
                 video_download_thread, "is_native_hevc_transcode_supported", return_value=True
@@ -37,7 +38,7 @@ class NativeHevcPostprocessTests(unittest.TestCase):
                 "transcode_video_to_hevc_native",
                 return_value="macos_avfoundation_hevc",
             ) as transcode:
-                result = self._thread()._postprocess_pr_smart_hevc(str(input_path))
+                result = thread._postprocess_pr_smart_hevc(str(input_path))
 
             target_path, encoder, message, failed, fallback_source, fallback_target = result
             self.assertEqual(target_path, str(input_path.with_name("video-hevc.mp4")))
@@ -52,6 +53,7 @@ class NativeHevcPostprocessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "video.mp4"
             input_path.write_bytes(b"fake")
+            thread = self._thread()
 
             with patch.object(
                 video_download_thread, "is_native_hevc_transcode_supported", return_value=True
@@ -62,7 +64,7 @@ class NativeHevcPostprocessTests(unittest.TestCase):
                 "transcode_video_to_hevc_native",
                 return_value="macos_avfoundation_hevc",
             ) as transcode:
-                result = self._thread()._postprocess_pr_smart_hevc(str(input_path))
+                result = thread._postprocess_pr_smart_hevc(str(input_path))
 
             self.assertEqual(result[0], str(input_path.with_name("video-hevc.mp4")))
             self.assertEqual(result[1], "macos_avfoundation_hevc")
@@ -83,6 +85,7 @@ class NativeHevcPostprocessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "video.mp4"
             input_path.write_bytes(b"fake")
+            thread = self._thread()
 
             with patch.object(
                 video_download_thread, "is_native_hevc_transcode_supported", return_value=True
@@ -91,16 +94,17 @@ class NativeHevcPostprocessTests(unittest.TestCase):
             ), patch.object(
                 video_download_thread, "transcode_video_to_hevc_native"
             ) as transcode:
-                result = self._thread()._postprocess_pr_smart_hevc(str(input_path))
+                result = thread._postprocess_pr_smart_hevc(str(input_path))
 
             self.assertEqual(result[2], "未触发，当前编码为 h264")
             self.assertFalse(result[3])
             transcode.assert_not_called()
 
-    def test_native_failure_marks_manual_ffmpeg_fallback_without_calling_ffmpeg(self):
+    def test_native_failure_automatically_retries_with_ffmpeg(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "video.mp4"
             input_path.write_bytes(b"fake")
+            thread = self._thread()
 
             with patch.object(
                 video_download_thread, "is_native_hevc_transcode_supported", return_value=True
@@ -110,17 +114,52 @@ class NativeHevcPostprocessTests(unittest.TestCase):
                 video_download_thread,
                 "transcode_video_to_hevc_native",
                 side_effect=RuntimeError("native failed"),
-            ), patch(
-                "app.core.utils.video_utils.transcode_video_to_hevc"
+            ), patch.object(
+                video_download_thread,
+                "transcode_video_to_hevc",
+                return_value="hevc_videotoolbox",
             ) as ffmpeg_transcode:
-                result = self._thread()._postprocess_pr_smart_hevc(str(input_path))
+                result = thread._postprocess_pr_smart_hevc(str(input_path))
+
+            self.assertEqual(result[0], str(input_path.with_name("video-hevc.mp4")))
+            self.assertEqual(result[1], "hevc_videotoolbox")
+            self.assertIn("已使用 FFmpeg 转码为 H.265", result[2])
+            self.assertFalse(result[3])
+            self.assertIsNone(result[4])
+            self.assertIsNone(result[5])
+            ffmpeg_transcode.assert_called_once_with(
+                str(input_path),
+                str(input_path.with_name("video-hevc.mp4")),
+                progress_callback=thread.progress.emit,
+                transcode_audio_to_aac=True,
+            )
+
+    def test_ffmpeg_failure_still_marks_manual_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "video.mp4"
+            input_path.write_bytes(b"fake")
+            thread = self._thread()
+
+            with patch.object(
+                video_download_thread, "is_native_hevc_transcode_supported", return_value=True
+            ), patch.object(
+                video_download_thread, "get_native_video_codec", return_value="vp9"
+            ), patch.object(
+                video_download_thread,
+                "transcode_video_to_hevc_native",
+                side_effect=RuntimeError("native failed"),
+            ), patch.object(
+                video_download_thread,
+                "transcode_video_to_hevc",
+                side_effect=RuntimeError("ffmpeg failed"),
+            ):
+                result = thread._postprocess_pr_smart_hevc(str(input_path))
 
             self.assertIsNone(result[0])
             self.assertTrue(result[3])
             self.assertEqual(result[4], str(input_path))
             self.assertEqual(result[5], str(input_path.with_name("video-hevc.mp4")))
-            self.assertIn("可手动使用 FFmpeg 重试", result[2])
-            ffmpeg_transcode.assert_not_called()
+            self.assertIn("FFmpeg 重试也失败", result[2])
 
 
 if __name__ == "__main__":

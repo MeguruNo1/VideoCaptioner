@@ -135,11 +135,10 @@ def _is_duplicate_segment(segment: dict, existing: Iterable[dict]) -> bool:
     text = _normalize_text(segment.get("text") or "")
     if not text:
         return False
-    start = float(segment.get("start") or 0)
     for item in existing:
         if _normalize_text(item.get("text") or "") != text:
             continue
-        if abs(float(item.get("start") or 0) - start) <= 0.25:
+        if _word_interval_overlap_ratio(item, segment) >= 0.5:
             return True
     return False
 
@@ -148,15 +147,80 @@ def _dedupe_words(words: list[dict]) -> list[dict]:
     deduped = []
     for word in sorted(words, key=lambda item: float(item.get("start") or 0)):
         text = _normalize_text(word.get("word") or word.get("text") or "")
-        start = float(word.get("start") or 0)
         if any(
             _normalize_text(item.get("word") or item.get("text") or "") == text
-            and abs(float(item.get("start") or 0) - start) <= 0.25
+            and _word_interval_overlap_ratio(item, word) >= 0.5
             for item in deduped
         ):
             continue
         deduped.append(word)
     return deduped
+
+
+def _word_interval_overlap_ratio(left: dict, right: dict) -> float:
+    left_start = float(left.get("start") or 0)
+    left_end = float(left.get("end") or left_start)
+    right_start = float(right.get("start") or 0)
+    right_end = float(right.get("end") or right_start)
+    overlap = max(0.0, min(left_end, right_end) - max(left_start, right_start))
+    shorter_duration = min(left_end - left_start, right_end - right_start)
+    if shorter_duration <= 0:
+        return 0.0
+    return overlap / shorter_duration
+
+
+def _dedupe_words_across_segments(segments: list[dict]) -> list[dict]:
+    """Remove duplicate words emitted by overlapping transcription windows.
+
+    A repeated word is removed only when its timestamp substantially overlaps an
+    already accepted occurrence. Sequential repetitions such as "very very"
+    remain intact.
+    """
+    accepted_words: list[dict] = []
+    cleaned_segments = []
+
+    for raw_segment in sorted(segments, key=lambda item: float(item.get("start") or 0)):
+        segment = copy.deepcopy(raw_segment)
+        raw_words = segment.get("words")
+        if not isinstance(raw_words, list):
+            cleaned_segments.append(segment)
+            continue
+
+        kept_words = []
+        for word in sorted(raw_words, key=lambda item: float(item.get("start") or 0)):
+            normalized = _normalize_text(word.get("word") or word.get("text") or "")
+            if not normalized:
+                continue
+            duplicate = any(
+                _normalize_text(existing.get("word") or existing.get("text") or "")
+                == normalized
+                and _word_interval_overlap_ratio(existing, word) >= 0.5
+                for existing in reversed(accepted_words)
+                if float(existing.get("end") or existing.get("start") or 0)
+                >= float(word.get("start") or 0) - 1.0
+            )
+            if duplicate:
+                continue
+            kept_words.append(word)
+            accepted_words.append(word)
+
+        if not kept_words:
+            continue
+        segment["words"] = kept_words
+        segment["start"] = round(
+            min(float(word.get("start") or 0) for word in kept_words), 3
+        )
+        segment["end"] = round(
+            max(float(word.get("end") or 0) for word in kept_words), 3
+        )
+        segment["text"] = " ".join(
+            str(word.get("word") or word.get("text") or "").strip()
+            for word in kept_words
+            if str(word.get("word") or word.get("text") or "").strip()
+        )
+        cleaned_segments.append(segment)
+
+    return cleaned_segments
 
 
 def merge_transcription_results(results: list[dict]) -> dict:
@@ -170,6 +234,7 @@ def merge_transcription_results(results: list[dict]) -> dict:
     for segment in segments:
         if isinstance(segment.get("words"), list):
             segment["words"] = _dedupe_words(segment["words"])
+    segments = _dedupe_words_across_segments(segments)
 
     return {
         "text": " ".join(
@@ -300,11 +365,24 @@ def split_ranges_to_windows(
             duration_seconds, chunk_duration_seconds, overlap_seconds
         )
 
-    windows = []
     duration = max(0.0, float(duration_seconds or 0))
-    for start, end in ranges:
-        padded_start = max(0.0, float(start) - pad_seconds)
-        padded_end = min(duration, float(end) + pad_seconds)
+    padded_ranges = sorted(
+        (
+            max(0.0, float(start) - pad_seconds),
+            min(duration, float(end) + pad_seconds),
+        )
+        for start, end in ranges
+        if float(end) > float(start)
+    )
+    merged_ranges: list[list[float]] = []
+    for start, end in padded_ranges:
+        if not merged_ranges or start > merged_ranges[-1][1]:
+            merged_ranges.append([start, end])
+        else:
+            merged_ranges[-1][1] = max(merged_ranges[-1][1], end)
+
+    windows = []
+    for padded_start, padded_end in merged_ranges:
         for local_start, local_end, keep_start, keep_end in build_chunk_windows(
             padded_end - padded_start,
             chunk_duration_seconds,

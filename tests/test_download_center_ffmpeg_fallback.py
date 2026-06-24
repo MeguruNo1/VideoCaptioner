@@ -22,6 +22,7 @@ class FfmpegHevcFallbackThreadTests(unittest.TestCase):
         args, kwargs = transcode.call_args
         self.assertEqual(args, ("source.mp4", "target.mp4"))
         self.assertTrue(callable(kwargs.get("progress_callback")))
+        self.assertTrue(kwargs.get("transcode_audio_to_aac"))
         self.assertEqual(completed, [("target.mp4", "hevc_videotoolbox")])
         self.assertEqual(errors, [])
 

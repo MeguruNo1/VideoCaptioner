@@ -155,6 +155,51 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
         self.assertEqual(request["format_selector"], "av1-video+140")
         self.assertTrue(request["ensure_mp4_output"])
 
+    def test_pr_smart_prefers_same_height_mp4_avc_over_vp9(self):
+        interface = self._interface_with_preview(
+            {
+                "video_formats": [
+                    {
+                        "format_id": "vp9-1080",
+                        "quality": "1080p",
+                        "height": 1080,
+                        "fps": 60,
+                        "filesize": 240_000_000,
+                        "vcodec": "vp9",
+                        "acodec": "none",
+                        "ext": "webm",
+                        "has_audio": False,
+                    },
+                    {
+                        "format_id": "avc-1080",
+                        "quality": "1080p",
+                        "height": 1080,
+                        "fps": 60,
+                        "filesize": 180_000_000,
+                        "vcodec": "avc1.64002a",
+                        "acodec": "none",
+                        "ext": "mp4",
+                        "has_audio": False,
+                    },
+                ],
+                "audio_formats": [
+                    {
+                        "format_id": "140",
+                        "quality": "129kbps",
+                        "acodec": "mp4a.40.2",
+                        "ext": "m4a",
+                        "abr": 129,
+                    }
+                ],
+            }
+        )
+
+        request = interface._build_pr_smart_request()
+
+        self.assertEqual(request["selected_video_format_id"], "avc-1080")
+        self.assertEqual(request["selected_audio_format_id"], "140")
+        self.assertEqual(request["format_selector"], "avc-1080+140")
+
     def test_pr_smart_audio_falls_back_to_supported_audio_when_no_aac_or_m4a(self):
         interface = self._interface_with_preview(
             {

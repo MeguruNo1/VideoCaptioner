@@ -37,7 +37,7 @@ MAX_WORD_COUNT_ENGLISH = 18  # 英文文本最大单词数
 SEGMENT_THRESHOLD = 300  # 每个分段的最大字数
 MAX_GAP = 1500  # 允许每个词语之间的最大时间间隔（毫秒）
 SHORT_DISPLAY_GAP_FILL_MS = 2000  # 断句后自动补齐的短显示空隙
-SPLIT_STRATEGY_VERSION = "strict-terminal-punctuation-v1"
+SPLIT_STRATEGY_VERSION = "lossless-sequential-alignment-v2"
 
 
 def is_pure_punctuation(text: str) -> bool:
@@ -526,7 +526,22 @@ class SubtitleSplitter:
             txt, restored_sentences
         )
 
-        return self._merge_segments_based_on_sentences(segments, split_sentences)
+        result = self._merge_segments_based_on_sentences(segments, split_sentences)
+        if not self._has_same_lexical_content(segments, result):
+            logger.warning("LLM断句未完整覆盖原始词，回退到无损规则分割")
+            return self._process_by_rules(segments)
+        return result
+
+    @staticmethod
+    def _lexical_tokens(segments: List[ASRDataSeg]) -> List[str]:
+        text = " ".join((segment.text or "").strip() for segment in segments)
+        return re.findall(r"[^\W_]+(?:['’][^\W_]+)*", text.lower(), flags=re.UNICODE)
+
+    @classmethod
+    def _has_same_lexical_content(
+        cls, source: List[ASRDataSeg], result: List[ASRDataSeg]
+    ) -> bool:
+        return cls._lexical_tokens(source) == cls._lexical_tokens(result)
 
     def _get_split_prompt_template(self) -> Template:
         if self.split_type == "semantic":
@@ -1354,7 +1369,9 @@ class SubtitleSplitter:
 
             # 处理匹配结果
             if best_ratio >= threshold and best_pos is not None:
-                start_seg_index = best_pos
+                # Never discard source words merely because a fuzzy match starts
+                # later. Include the unconsumed prefix in the current result.
+                start_seg_index = asr_index
                 end_seg_index = best_pos + best_window_size - 1
 
                 segs_to_merge = segments[start_seg_index : end_seg_index + 1]
@@ -1388,7 +1405,11 @@ class SubtitleSplitter:
                         f"未匹配句子数量超过阈值 {max_unmatched}，处理终止"
                     )
                 max_shift = 100
-                asr_index = min(asr_index + 1, asr_len - 1)
+                # An unmatched LLM sentence must not consume source words. A
+                # later sentence may still align with the current ASR position.
+
+        if asr_index < asr_len:
+            new_segments.extend(self._process_by_rules(segments[asr_index:]))
 
         return new_segments
 

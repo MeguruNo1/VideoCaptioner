@@ -107,6 +107,20 @@ class MLXWhisperASRTests(unittest.TestCase):
             ),
         )
 
+    def test_cache_key_changes_with_workflow_version(self):
+        asr = MLXWhisperASR(
+            b"audio",
+            model="mlx-community/whisper-large-v3-turbo",
+            language="en",
+            need_word_time_stamp=True,
+        )
+        original_key = asr._get_key()
+
+        with patch("app.core.bk_asr.mlx_whisper.MLX_WORKFLOW_VERSION", "next-version"):
+            updated_key = asr._get_key()
+
+        self.assertNotEqual(original_key, updated_key)
+
     def test_transcribe_dispatches_to_mlx_backend(self):
         config = TranscribeConfig(
             transcribe_model=TranscribeModelEnum.MLX_WHISPER,

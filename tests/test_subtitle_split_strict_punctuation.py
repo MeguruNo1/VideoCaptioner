@@ -165,6 +165,49 @@ class StrictPunctuationSplitTests(unittest.TestCase):
             SPLIT_STRATEGY_VERSION,
         )
 
+    def test_fuzzy_alignment_preserves_words_before_best_match(self):
+        splitter = make_splitter()
+        source = [
+            ASRDataSeg("What", 0, 100),
+            ASRDataSeg("we're", 100, 200),
+            ASRDataSeg("really", 200, 300),
+            ASRDataSeg("here", 300, 400),
+            ASRDataSeg("to", 400, 500),
+            ASRDataSeg("talk", 500, 600),
+        ]
+
+        result = splitter._merge_segments_based_on_sentences(
+            source, ["Here to talk."]
+        )
+
+        self.assertEqual(
+            splitter._lexical_tokens(result),
+            ["what", "we're", "really", "here", "to", "talk"],
+        )
+
+    def test_alignment_preserves_unmatched_trailing_words(self):
+        splitter = make_splitter()
+        source = [
+            ASRDataSeg("one", 0, 100),
+            ASRDataSeg("two", 100, 200),
+            ASRDataSeg("three", 200, 300),
+            ASRDataSeg("four", 300, 400),
+        ]
+
+        result = splitter._merge_segments_based_on_sentences(source, ["one two"])
+
+        self.assertEqual(
+            splitter._lexical_tokens(result),
+            ["one", "two", "three", "four"],
+        )
+
+    def test_lexical_coverage_detects_dropped_words(self):
+        splitter = make_splitter()
+        source = [ASRDataSeg("I", 0, 100), ASRDataSeg("do", 100, 200)]
+        incomplete = [ASRDataSeg("do", 100, 200)]
+
+        self.assertFalse(splitter._has_same_lexical_content(source, incomplete))
+
 
 if __name__ == "__main__":
     unittest.main()

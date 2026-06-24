@@ -18,6 +18,7 @@ from .mlx_workflow import (
 )
 
 logger = setup_logger("mlx_whisper")
+MLX_WORKFLOW_VERSION = "vad-union-global-dedupe-v2"
 
 def _parse_prompt_terms(text: str) -> list[str]:
     terms = []
@@ -219,6 +220,7 @@ class MLXWhisperASR(BaseASR):
                 str(self.vad_threshold),
                 str(self.chunk_duration),
                 str(self.chunk_overlap),
+                MLX_WORKFLOW_VERSION,
             ]
         )
         return hashlib.md5(payload.encode("utf-8")).hexdigest()
