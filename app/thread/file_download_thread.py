@@ -94,7 +94,7 @@ class FileDownloadThread(QThread):
                         status_msg = f"{self.tr('速度')}: {speed}/s, {self.tr('剩余时间')}: {eta}"
                         self.progress.emit(percent, status_msg)
                     except Exception as e:
-                        pass
+                        logger.debug("解析 aria2c 下载进度失败: %s; line=%r", e, line)
                         
             if self.process.returncode == 0:
                 # 下载完成后移动文件到目标位置

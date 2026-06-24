@@ -66,6 +66,8 @@ SUBTITLE_EXTENSIONS = {
     ".srv3",
 }
 NO_COOKIE_FILE_PATH = APP_DATA_PATH / "__no_cookie__.txt"
+SUBTITLE_DOWNLOAD_RETRY_STATUS = {408, 425, 429, 500, 502, 503, 504}
+SUBTITLE_DOWNLOAD_RETRY_DELAYS = (0.5, 1.5)
 
 
 class DownloadCancelledError(Exception):
@@ -454,15 +456,60 @@ def _download_subtitle_fallback(
 ) -> str | None:
     if not subtitle_download_link:
         return None
-    response = requests.get(
-        subtitle_download_link, timeout=30, **_requests_kwargs(proxy_url)
-    )
-    response.raise_for_status()
+
+    attempts = len(SUBTITLE_DOWNLOAD_RETRY_DELAYS) + 1
+    last_error: Exception | None = None
+    response = None
+    for attempt in range(attempts):
+        try:
+            response = requests.get(
+                subtitle_download_link, timeout=30, **_requests_kwargs(proxy_url)
+            )
+            if response.status_code not in SUBTITLE_DOWNLOAD_RETRY_STATUS:
+                response.raise_for_status()
+                break
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt >= attempts - 1:
+                raise
+            delay = SUBTITLE_DOWNLOAD_RETRY_DELAYS[attempt]
+            logger.warning(
+                "字幕直链下载失败，%.1f 秒后重试（%s/%s）: %s",
+                delay,
+                attempt + 1,
+                attempts,
+                exc,
+            )
+            time.sleep(delay)
+    if response is None:
+        raise RuntimeError(f"字幕直链下载失败: {last_error}")
+
     subtitle_path = subtitle_path.with_suffix(f".{subtitle_ext or 'vtt'}")
     subtitle_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(subtitle_path, "w", encoding="utf-8") as file:
+    temp_path = subtitle_path.with_name(f".{subtitle_path.name}.tmp")
+    with open(temp_path, "w", encoding="utf-8") as file:
         file.write(response.text)
+    os.replace(temp_path, subtitle_path)
     return str(subtitle_path)
+
+
+def _is_format_selection_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if not message:
+        return False
+    markers = (
+        "requested format is not available",
+        "requested format not available",
+        "requested format unavailable",
+        "format is not available",
+        "format not available",
+        "format unavailable",
+        "requested formats are incompatible",
+    )
+    if any(marker in message for marker in markers):
+        return True
+    return bool(re.search(r"\bformat(s)?\b.*\b(not available|unavailable)\b", message))
 
 
 def _download_thumbnail_fallback(
@@ -1562,7 +1609,7 @@ class VideoDownloadThread(QThread):
                     need_video
                     and fallback_selector
                     and fallback_selector != current_selector
-                    and "Requested format is not available" in str(exc)
+                    and _is_format_selection_error(exc)
                 ):
                     logger.warning(
                         "指定格式不可用，改用默认格式选择器重试: %s -> %s",
@@ -1610,6 +1657,7 @@ class VideoDownloadThread(QThread):
                 str(source_path),
                 str(target_path),
                 progress_callback=self.progress.emit,
+                force_hevc_for_codecs={"av1", "vp9"},
             )
             source_path.unlink()
             media_files = [str(target_path)]

@@ -1,3 +1,4 @@
+from collections.abc import Collection
 import os
 import re
 import shutil
@@ -354,11 +355,14 @@ def normalize_video_to_mp4(
     input_file: str,
     output_file: str,
     progress_callback: callable = None,
+    force_hevc_for_codecs: Collection[str] | None = None,
 ) -> str:
     """Normalize a fallback download to an MP4 with Premiere-compatible audio.
 
     First keep the video stream untouched and encode only audio to AAC. If the
     source video cannot be muxed into MP4, fall back to an HEVC + AAC transcode.
+    ``force_hevc_for_codecs`` can force the HEVC path for codecs that may be
+    valid in an MP4 container but are still unsuitable for the target workflow.
     """
     input_path = Path(input_file)
     output_path = Path(output_file)
@@ -370,42 +374,49 @@ def normalize_video_to_mp4(
     if temp_output.exists():
         temp_output.unlink()
 
-    copy_command = [
-        "ffmpeg",
-        "-i",
-        str(input_path),
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-movflags",
-        "+faststart",
-        "-y",
-        str(temp_output),
-    ]
-    logger.info("开始将回退格式规范化为 MP4: %s -> %s", input_path, output_path)
-    result = subprocess.run(
-        copy_command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=_ffmpeg_creationflags(),
-    )
-    if result.returncode == 0 and temp_output.is_file():
-        os.replace(temp_output, output_path)
-        if progress_callback:
-            progress_callback(100, "MP4 规范化完成")
-        logger.info("MP4 规范化完成（视频流复制 + AAC）: %s", output_path)
-        return "stream_copy+aac"
+    source_codec = get_video_codec(str(input_path))
+    force_codecs = {str(codec).lower() for codec in (force_hevc_for_codecs or [])}
+    force_hevc = bool(source_codec and source_codec in force_codecs)
+    if force_hevc:
+        logger.info("当前编码 %s 需要强制转为 H.265: %s", source_codec, input_path)
+    else:
+        copy_command = [
+            "ffmpeg",
+            "-i",
+            str(input_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "+faststart",
+            "-y",
+            str(temp_output),
+        ]
+        logger.info("开始将回退格式规范化为 MP4: %s -> %s", input_path, output_path)
+        result = subprocess.run(
+            copy_command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=_ffmpeg_creationflags(),
+        )
+        if result.returncode == 0 and temp_output.is_file():
+            os.replace(temp_output, output_path)
+            if progress_callback:
+                progress_callback(100, "MP4 规范化完成")
+            logger.info("MP4 规范化完成（视频流复制 + AAC）: %s", output_path)
+            return "stream_copy+aac"
 
-    if temp_output.exists():
-        temp_output.unlink()
-    logger.warning("视频流无法直接封装为 MP4，改为 H.265 + AAC: %s", result.stderr.strip())
+        if temp_output.exists():
+            temp_output.unlink()
+        logger.warning("视频流无法直接封装为 MP4，改为 H.265 + AAC: %s", result.stderr.strip())
+
     encoder = transcode_video_to_hevc(
         str(input_path),
         str(temp_output),

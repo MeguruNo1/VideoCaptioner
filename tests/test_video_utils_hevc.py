@@ -51,6 +51,32 @@ class HevcTranscodeTests(unittest.TestCase):
             self.assertEqual(result, "hevc_videotoolbox+aac")
             self.assertEqual(output_path.read_bytes(), b"hevc")
 
+    def test_mp4_normalization_forces_hevc_for_vp9_even_when_mp4_copy_might_work(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.mp4"
+            output_path = Path(temp_dir) / "output.mp4"
+            input_path.write_bytes(b"fake")
+
+            def transcode(_input, temp_output, **kwargs):
+                Path(temp_output).write_bytes(b"hevc")
+                self.assertTrue(kwargs["transcode_audio_to_aac"])
+                return "libx265"
+
+            with patch.object(video_utils, "get_video_codec", return_value="vp9"), patch.object(
+                video_utils.subprocess, "run"
+            ) as run, patch.object(
+                video_utils, "transcode_video_to_hevc", side_effect=transcode
+            ):
+                result = video_utils.normalize_video_to_mp4(
+                    str(input_path),
+                    str(output_path),
+                    force_hevc_for_codecs={"vp9", "av1"},
+                )
+
+            self.assertEqual(result, "libx265+aac")
+            self.assertEqual(output_path.read_bytes(), b"hevc")
+            run.assert_not_called()
+
     def test_videotoolbox_decode_is_preferred_when_available(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "input.mp4"

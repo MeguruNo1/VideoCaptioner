@@ -162,5 +162,56 @@ class NativeHevcPostprocessTests(unittest.TestCase):
             self.assertIn("FFmpeg 重试也失败", result[2])
 
 
+class DownloadFallbackHelperTests(unittest.TestCase):
+    def test_format_selection_error_accepts_common_yt_dlp_variants(self):
+        self.assertTrue(
+            video_download_thread._is_format_selection_error(
+                RuntimeError("ERROR: [youtube] Requested format not available")
+            )
+        )
+        self.assertTrue(
+            video_download_thread._is_format_selection_error(
+                RuntimeError("ERROR: formats are unavailable for this video")
+            )
+        )
+        self.assertFalse(
+            video_download_thread._is_format_selection_error(
+                RuntimeError("HTTP Error 403: Forbidden")
+            )
+        )
+
+    def test_subtitle_fallback_retries_429_and_writes_atomically(self):
+        class Response:
+            def __init__(self, status_code, text):
+                self.status_code = status_code
+                self.text = text
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise video_download_thread.requests.HTTPError(
+                        f"{self.status_code} error"
+                    )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            subtitle_base = Path(temp_dir) / "subtitle" / "downloaded"
+            with patch.object(
+                video_download_thread.requests,
+                "get",
+                side_effect=[Response(429, ""), Response(200, "WEBVTT\n")],
+            ) as get, patch.object(video_download_thread.time, "sleep") as sleep:
+                result = video_download_thread._download_subtitle_fallback(
+                    "https://example.invalid/subtitle.vtt",
+                    "vtt",
+                    subtitle_base,
+                    "",
+                )
+
+            result_path = Path(result)
+            self.assertEqual(result_path.read_text(encoding="utf-8"), "WEBVTT\n")
+            self.assertFalse((result_path.parent / f".{result_path.name}.tmp").exists())
+            self.assertEqual(get.call_count, 2)
+            sleep.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
