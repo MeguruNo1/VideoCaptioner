@@ -300,11 +300,62 @@ def _friendly_codec(codec: str | None) -> str:
     return str(codec).replace(".", " ").upper()
 
 
+_QUALITY_TIER_BY_LONG_EDGE = (
+    (3840, "2160p档"),
+    (2560, "1440p档"),
+    (1920, "1080p档"),
+    (1280, "720p档"),
+    (854, "480p档"),
+    (640, "360p档"),
+    (426, "240p档"),
+    (256, "144p档"),
+)
+
+
+def _int_or_zero(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _format_fps(fps) -> str:
+    try:
+        fps_value = float(fps)
+    except (TypeError, ValueError):
+        return ""
+    if fps_value <= 0:
+        return ""
+    if fps_value.is_integer():
+        return f"{int(fps_value)}FPS"
+    return f"{fps_value:.2f}".rstrip("0").rstrip(".") + "FPS"
+
+
+def _quality_tier_label(width: int, height: int) -> str:
+    long_edge = max(_int_or_zero(width), _int_or_zero(height))
+    for threshold, label in _QUALITY_TIER_BY_LONG_EDGE:
+        if long_edge >= threshold:
+            return label
+    return ""
+
+
+def _video_resolution_rank(item: dict) -> tuple[int, int]:
+    width = _int_or_zero(item.get("width"))
+    height = _int_or_zero(item.get("height"))
+    return max(width, height), min(width, height)
+
+
 def _format_resolution(item: dict) -> str:
-    if item.get("height"):
-        return f"{item['height']}p"
-    if item.get("width"):
-        return f"{item['width']}w"
+    width = _int_or_zero(item.get("width"))
+    height = _int_or_zero(item.get("height"))
+    if width and height:
+        label = f"{width}x{height}"
+        tier = _quality_tier_label(width, height)
+        return f"{label} · {tier}" if tier else label
+    if height:
+        return f"{height}p"
+    if width:
+        return f"{width}w"
     return item.get("resolution") or "未知"
 
 
@@ -333,8 +384,6 @@ def _build_format_entry(item: dict) -> dict | None:
     language = _extract_language(item)
     if language:
         detail_parts.append(language)
-    if fps:
-        detail_parts.append(f"{int(fps)}FPS")
     if dynamic_range and str(dynamic_range).upper() not in {"SDR", "UNKNOWN"}:
         detail_parts.append(str(dynamic_range).upper())
     if has_video and _friendly_codec(vcodec):
@@ -347,7 +396,14 @@ def _build_format_entry(item: dict) -> dict | None:
         detail_parts.append(ext)
     detail_parts.append(_format_bytes(filesize))
 
-    quality = _format_resolution(item) if has_video else f"{int(abr)}kbps" if abr else "音频"
+    if has_video:
+        quality_parts = [_format_resolution(item)]
+        fps_text = _format_fps(fps)
+        if fps_text:
+            quality_parts.append(fps_text)
+        quality = " · ".join(part for part in quality_parts if part)
+    else:
+        quality = f"{int(abr)}kbps" if abr else "音频"
 
     return {
         "format_id": str(item.get("format_id", "")),
@@ -383,9 +439,22 @@ def normalize_preview_data(url: str, info_dict: dict, thumbnail_bytes: bytes | N
             audio_formats.append(entry)
 
     video_formats.sort(
-        key=lambda item: (item.get("height", 0), item.get("fps", 0), item.get("filesize", 0) or 0),
+        key=lambda item: (
+            *_video_resolution_rank(item),
+            item.get("fps", 0),
+            item.get("filesize", 0) or 0,
+        ),
         reverse=True,
     )
+    if video_formats:
+        top_video = video_formats[0]
+        logger.info(
+            "解析到 %s 个视频格式，最高候选: %s / %s / %s",
+            len(video_formats),
+            top_video.get("format_id") or "unknown",
+            top_video.get("quality") or "unknown",
+            top_video.get("vcodec") or "unknown",
+        )
     audio_formats.sort(
         key=lambda item: (item.get("abr", 0), item.get("filesize", 0) or 0, item.get("channels", 0)),
         reverse=True,
