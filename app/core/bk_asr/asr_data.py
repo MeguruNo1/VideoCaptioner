@@ -101,6 +101,99 @@ class ASRData:
                 valid_segments += 1
         return (valid_segments / total_segments) >= 0.8
 
+    @staticmethod
+    def _duplicate_artifact_key(text: str) -> str:
+        return re.sub(r"^[\W_]+|[\W_]+$", "", (text or "").strip().casefold())
+
+    def remove_long_duplicate_runs(self, min_run_length: int = 10) -> "ASRData":
+        """Collapse long ASR hallucination runs like word word word ..."""
+        min_run_length = max(2, int(min_run_length or 2))
+        if not self.segments:
+            return self
+
+        cleaned: List[ASRDataSeg] = []
+        current_run: List[ASRDataSeg] = []
+        current_key = ""
+
+        def flush_run():
+            if not current_run:
+                return
+            if current_key and len(current_run) >= min_run_length:
+                cleaned.append(current_run[0])
+            else:
+                cleaned.extend(current_run)
+
+        for seg in self.segments:
+            key = self._duplicate_artifact_key(seg.text)
+            if key and key == current_key:
+                current_run.append(seg)
+                continue
+
+            flush_run()
+            current_run = [seg]
+            current_key = key
+
+        flush_run()
+        self.segments = cleaned
+        return self
+
+    def remove_repeated_phrase_runs(
+        self,
+        min_repetitions: int = 4,
+        max_phrase_words: int = 5,
+    ) -> "ASRData":
+        """Collapse repeated short phrase loops emitted by word-level ASR."""
+        min_repetitions = max(2, int(min_repetitions or 2))
+        max_phrase_words = max(2, int(max_phrase_words or 2))
+        if len(self.segments) < min_repetitions * 2:
+            return self
+
+        keys = [self._duplicate_artifact_key(seg.text) for seg in self.segments]
+        keep = [True] * len(self.segments)
+        index = 0
+        while index < len(keys):
+            found_loop = False
+            for phrase_len in range(max_phrase_words, 1, -1):
+                end = index + phrase_len * min_repetitions
+                if end > len(keys):
+                    continue
+                phrase = keys[index : index + phrase_len]
+                if not all(phrase):
+                    continue
+                repeats = 1
+                while (
+                    index + (repeats + 1) * phrase_len <= len(keys)
+                    and keys[index : index + phrase_len]
+                    == keys[
+                        index + repeats * phrase_len : index
+                        + (repeats + 1) * phrase_len
+                    ]
+                ):
+                    repeats += 1
+                if repeats < min_repetitions:
+                    continue
+
+                for remove_index in range(
+                    index + phrase_len,
+                    index + repeats * phrase_len,
+                ):
+                    keep[remove_index] = False
+                index += repeats * phrase_len
+                found_loop = True
+                break
+            if not found_loop:
+                index += 1
+
+        self.segments = [
+            seg for seg, should_keep in zip(self.segments, keep) if should_keep
+        ]
+        return self
+
+    def remove_repeated_asr_artifacts(self) -> "ASRData":
+        self.remove_long_duplicate_runs()
+        self.remove_repeated_phrase_runs()
+        return self
+
     def split_to_word_segments(self) -> "ASRData":
         """
         将当前ASRData中的每个segment按字词分割，并按音素计算时间戳

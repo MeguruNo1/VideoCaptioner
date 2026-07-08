@@ -14,6 +14,7 @@ def make_splitter() -> SubtitleSplitter:
     splitter.max_word_count_english = 20
     splitter.temperature = 0.3
     splitter.model = "test-model"
+    splitter.timeout = 30
     splitter.use_cache = False
     splitter.usage_callback = None
     return splitter
@@ -164,6 +165,37 @@ class StrictPunctuationSplitTests(unittest.TestCase):
             splitter.cache_manager.params["split_strategy_version"],
             SPLIT_STRATEGY_VERSION,
         )
+
+    def test_rejects_exploded_split_result(self):
+        class FakeMessage:
+            content = "<br>".join(["library"] * 250)
+
+        class FakeChoice:
+            message = FakeMessage()
+
+        class FakeCompletions:
+            @staticmethod
+            def create(**_):
+                return type("Response", (), {"choices": [FakeChoice()]})()
+
+        class FakeClient:
+            chat = type(
+                "Chat",
+                (),
+                {"completions": FakeCompletions()},
+            )()
+
+        splitter = make_splitter()
+        splitter.client = FakeClient()
+
+        with self.assertRaisesRegex(ValueError, "结果异常过多"):
+            splitter._call_split_llm(
+                stage="split",
+                cache_key="source",
+                source_text=" ".join(["library"] * 20),
+                system_prompt="system",
+                user_prompt="user",
+            )
 
     def test_fuzzy_alignment_preserves_words_before_best_match(self):
         splitter = make_splitter()

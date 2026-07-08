@@ -2,6 +2,12 @@ from app.core.bk_asr.asr_data import ASRData
 from app.core.entities import TranscribeConfig, TranscribeModelEnum
 
 
+def _remove_repeated_artifacts_if_word_timestamp(asr_data):
+    if isinstance(asr_data, ASRData) and asr_data.is_word_timestamp():
+        asr_data.remove_repeated_asr_artifacts()
+    return asr_data
+
+
 def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRData:
     """
     使用指定的转录配置对音频文件进行转录
@@ -39,6 +45,7 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
             chunk_overlap=config.mlx_chunk_overlap,
         )
         asr_data = asr.run(callback=callback)
+        _remove_repeated_artifacts_if_word_timestamp(asr_data)
         if not config.mlx_word_timestamps:
             asr_data.optimize_timing()
         return asr_data
@@ -81,6 +88,7 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
     asr = WhisperXASR(audio_path, **asr_args)
 
     asr_data = asr.run(callback=callback)
+    _remove_repeated_artifacts_if_word_timestamp(asr_data)
 
     # 优化字幕显示时间 #161
     if not config.need_word_time_stamp:

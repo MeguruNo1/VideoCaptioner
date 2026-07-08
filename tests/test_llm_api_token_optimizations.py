@@ -2,6 +2,7 @@ import unittest
 
 from app.core.subtitle_processor.translate import (
     OpenAITranslator,
+    TRANSLATION_CHUNK_MAX_JSON_CHARS,
     TRANSLATION_READABILITY_POLICY_VERSION,
 )
 from app.core.subtitle_processor.optimize import SubtitleOptimizer
@@ -55,6 +56,8 @@ def build_translator(cache_manager):
     translator.target_language = "简体中文"
     translator.is_reflect = False
     translator.temperature = 0.7
+    translator.batch_num = 10
+    translator.batch_chunk_max_chars = TRANSLATION_CHUNK_MAX_JSON_CHARS
     translator.translation_max_length = 14
     translator.final_translation_rework_max_chars = 0
     translator.custom_prompt = ""
@@ -131,6 +134,27 @@ class LLMAPITokenOptimizationTests(unittest.TestCase):
         self.assertEqual(result, {"10": "你好", "11": "世界"})
         self.assertEqual(len(translator.cache_manager.llm_set_calls), 1)
 
+    def test_split_chunks_limits_json_payload_size(self):
+        translator = build_translator(FakeCacheManager())
+        translator.batch_num = 30
+        translator.batch_chunk_max_chars = 140
+        subtitle_dict = {
+            "1": "short",
+            "2": "x" * 80,
+            "3": "y" * 80,
+            "4": "tail",
+        }
+
+        chunks = translator._split_chunks(subtitle_dict)
+
+        self.assertEqual(
+            chunks,
+            [
+                {"1": "short", "2": "x" * 80},
+                {"3": "y" * 80, "4": "tail"},
+            ],
+        )
+
     def test_zero_context_max_chars_disables_context_text(self):
         chunks = [{"1": "hello"}, {"2": "world"}]
 
@@ -201,6 +225,17 @@ class LLMAPITokenOptimizationTests(unittest.TestCase):
             suspicious["1"],
         )
 
+    def test_empty_translation_is_suspicious(self):
+        translator = build_translator(FakeCacheManager())
+
+        suspicious = translator._find_suspicious_compressions(
+            {"1": "hello"},
+            {"1": ""},
+        )
+
+        self.assertIn("1", suspicious)
+        self.assertIn("translated text is empty", suspicious["1"])
+
     def test_ten_as_chinese_word_is_not_reported_missing(self):
         translator = build_translator(FakeCacheManager())
 
@@ -268,6 +303,16 @@ class LLMAPITokenOptimizationTests(unittest.TestCase):
         self.assertIn("hello world", calls[1][1])
         self.assertNotIn("这是一个超过阈值的很长译文", calls[1][1])
         self.assertIn("4", calls[1][1])
+
+    def test_empty_single_translation_uses_source_without_caching(self):
+        cache = FakeCacheManager()
+        translator = build_translator(cache)
+        translator._call_api = lambda *_: FakeResponse("<think>reasoning</think>")
+
+        result = translator._translate_chunk_single({"1": "hello world"})
+
+        self.assertEqual(result, {"1": "hello world"})
+        self.assertEqual(cache.translation_set_calls, [])
 
 
 if __name__ == "__main__":

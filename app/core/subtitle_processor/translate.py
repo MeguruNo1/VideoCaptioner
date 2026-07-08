@@ -40,6 +40,7 @@ logger = setup_logger("subtitle_translator")
 
 TRANSLATION_READABILITY_POLICY_VERSION = 1
 REFLECT_POSTPROCESS_POLICY_VERSION = 1
+TRANSLATION_CHUNK_MAX_JSON_CHARS = 6000
 CJK_READING_CHARS_PER_SECOND = 12
 NON_CJK_READING_WORDS_PER_SECOND = 3
 MIN_CJK_READING_BUDGET = 18
@@ -141,6 +142,7 @@ class BaseTranslator(ABC):
         self.use_cache = use_cache
         self.batch_context_enabled = batch_context_enabled
         self.batch_context_max_chars = max(0, int(batch_context_max_chars or 0))
+        self.batch_chunk_max_chars = TRANSLATION_CHUNK_MAX_JSON_CHARS
         self.is_running = True
         self.update_callback = update_callback
         self.custom_prompt = custom_prompt
@@ -203,12 +205,42 @@ class BaseTranslator(ABC):
         return asr_data
 
     def _split_chunks(self, subtitle_dict: Dict[str, str]) -> List[Dict[str, str]]:
-        """将字幕分割成块"""
+        """将字幕分割成块，同时限制每批 JSON 输入规模。"""
         items = list(subtitle_dict.items())
-        return [
-            dict(items[i : i + self.batch_num])
-            for i in range(0, len(items), self.batch_num)
-        ]
+        if not items:
+            return []
+
+        max_items = max(1, int(self.batch_num or 1))
+        max_chars = max(
+            0,
+            int(
+                getattr(
+                    self,
+                    "batch_chunk_max_chars",
+                    TRANSLATION_CHUNK_MAX_JSON_CHARS,
+                )
+                or 0
+            ),
+        )
+        chunks: List[Dict[str, str]] = []
+        current: List[tuple[str, str]] = []
+
+        for key, value in items:
+            candidate = current + [(key, value)]
+            candidate_too_large = (
+                max_chars > 0
+                and current
+                and len(json.dumps(dict(candidate), ensure_ascii=False)) > max_chars
+            )
+            if len(candidate) > max_items or candidate_too_large:
+                chunks.append(dict(current))
+                current = [(key, value)]
+            else:
+                current = candidate
+
+        if current:
+            chunks.append(dict(current))
+        return chunks
 
     @staticmethod
     def _build_chunk_context(
@@ -716,7 +748,11 @@ class OpenAITranslator(BaseTranslator):
             source_units = self._count_text_units(source_text)
             translated_units = self._count_text_units(translated_text)
 
-            if source_units >= 8 and translated_units <= max(4, int(source_units * 0.35)):
+            if source_text.strip() and not translated_text.strip():
+                reasons.append("translated text is empty")
+            elif source_units >= 8 and translated_units <= max(
+                4, int(source_units * 0.35)
+            ):
                 reasons.append("translated text is much shorter than the source")
 
             normalized_translation = translated_text.lower()
@@ -1292,16 +1328,27 @@ class OpenAITranslator(BaseTranslator):
                 response = self._call_api(single_prompt, user_content)
                 if self.usage_callback:
                     self.usage_callback("translate", extract_openai_usage(response))
-                translated_text = response.choices[0].message.content.strip()
+                translated_text = (
+                    response.choices[0].message.content or ""
+                ).strip()
 
                 # 删除 DeepSeek-R1 等推理模型的思考过程 #300
                 translated_text = re.sub(
                     r"<think>.*?</think>", "", translated_text, flags=re.DOTALL
                 )
                 translated_text = translated_text.strip()
+                used_source_fallback = False
+                if not translated_text:
+                    logger.warning("单条翻译返回空译文 %s，使用原文兜底", idx)
+                    translated_text = str(text).strip() or "ERROR"
+                    used_source_fallback = True
 
                 # 保存到缓存
-                if self.use_cache:
+                if (
+                    self.use_cache
+                    and translated_text != "ERROR"
+                    and not used_source_fallback
+                ):
                     self.cache_manager.set_translation(
                         text,
                         translated_text,

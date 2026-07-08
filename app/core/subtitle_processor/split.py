@@ -352,6 +352,8 @@ class SubtitleSplitter:
 
             if not asr_data.is_word_timestamp():
                 asr_data = asr_data.split_to_word_segments()
+            else:
+                asr_data.remove_repeated_asr_artifacts()
 
             # 预处理ASR数据
             asr_data.segments = preprocess_segments(asr_data.segments, need_lower=False)
@@ -616,6 +618,12 @@ class SubtitleSplitter:
 
         if not result_segments:
             raise ValueError(f"API返回的{stage}结果为空")
+        source_units = count_words(source_text)
+        if stage == "split" and len(result_segments) > max(200, source_units * 2):
+            raise ValueError(
+                f"API返回的{stage}结果异常过多: {len(result_segments)}，"
+                f"源文本长度: {source_units}"
+            )
 
         logger.info(f"API返回{stage}结果，句子数量: {len(result_segments)}")
 
