@@ -811,6 +811,38 @@ def _build_download_ranges_callback(download_sections: list[str]):
     return _callback
 
 
+def _seconds_to_time_text(seconds: float | int) -> str:
+    total = int(seconds)
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    if h > 0:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def _cut_video_segment(
+    source_path: str, start_seconds: float, end_seconds: float, output_path: str
+) -> None:
+    command = [
+        "ffmpeg",
+        "-nostdin",
+        "-y",
+        "-ss",
+        str(start_seconds),
+        "-to",
+        str(end_seconds),
+        "-i",
+        str(source_path),
+        "-c",
+        "copy",
+        "-avoid_negative_ts",
+        "make_zero",
+        str(output_path),
+    ]
+    subprocess.run(command, check=True, capture_output=True, encoding="utf-8", errors="replace")
+
+
 def _probe_media_streams(media_path: str | Path) -> dict:
     completed = subprocess.run(
         [
@@ -1177,6 +1209,41 @@ class VideoDownloadThread(QThread):
     def _raise_if_terminated(self):
         if self._terminate_event.is_set():
             raise DownloadCancelledError("下载已终止，正在清理当前下载数据。")
+
+    def _cut_downloaded_segments(
+        self, media_path: str, download_sections: list[str], work_dir: Path
+    ) -> None:
+        parsed_sections = []
+        for section in download_sections:
+            parsed = _parse_download_section(section)
+            if not parsed:
+                raise RuntimeError(f"无效的时间段配置: {section}")
+            parsed_sections.append(parsed)
+
+        source = Path(media_path)
+        if len(parsed_sections) == 1:
+            section = parsed_sections[0]
+            temp = source.with_name(f".cut_temp{source.suffix}")
+            label = f"{_seconds_to_time_text(section['start_time'])} - {_seconds_to_time_text(section['end_time'])}"
+            self.progress.emit(92, self.tr(f"正在裁剪片段 {label}..."))
+            _cut_video_segment(
+                str(source), section["start_time"], section["end_time"], str(temp)
+            )
+            os.replace(temp, source)
+        else:
+            for idx, section in enumerate(parsed_sections, start=1):
+                self._raise_if_terminated()
+                segment_name = f"{source.stem}.section_{idx:02d}{source.suffix}"
+                output = work_dir / segment_name
+                label = f"{_seconds_to_time_text(section['start_time'])} - {_seconds_to_time_text(section['end_time'])}"
+                self.progress.emit(
+                    90 + idx * 5 // len(parsed_sections),
+                    self.tr(f"正在裁剪片段 {idx}/{len(parsed_sections)}: {label}..."),
+                )
+                _cut_video_segment(
+                    str(source), section["start_time"], section["end_time"], str(output)
+                )
+            source.unlink(missing_ok=True)
 
     def _cleanup_partial_download(self, default_message: str) -> str:
         cleanup_lock = getattr(self, "_cleanup_lock", None)
@@ -1637,8 +1704,7 @@ class VideoDownloadThread(QThread):
             options["format"] = self._effective_format_selector()
             logger.info("使用 format 选择器: %s", options["format"])
             if enable_time_ranges and download_sections:
-                options["download_ranges"] = _build_download_ranges_callback(download_sections)
-                logger.info("使用时间段下载: %s", " | ".join(download_sections))
+                logger.info("使用时间段下载（先完整下载再本地裁剪）: %s", " | ".join(download_sections))
 
         options["paths"] = {
             "home": str(work_dir),
@@ -1647,25 +1713,6 @@ class VideoDownloadThread(QThread):
         }
 
         ffmpeg_progress_monitor = None
-        if need_video and enable_time_ranges and download_sections:
-            self._emit_range_progress_detail(
-                self._range_phase_detail("preparing", "正在准备片段", indeterminate=True)
-            )
-            ffmpeg_progress_monitor = FfmpegProgressMonitor(
-                self._range_section_durations(),
-                self._emit_range_progress_detail,
-            )
-            if ffmpeg_progress_monitor.start() and ffmpeg_progress_monitor.progress_url:
-                options["external_downloader_args"] = {
-                    "ffmpeg_o": [
-                        "-progress",
-                        ffmpeg_progress_monitor.progress_url,
-                        "-nostats",
-                    ]
-                }
-            self._emit_range_progress_detail(
-                self._range_phase_detail("locating", "正在定位片段起点", indeterminate=True)
-            )
 
         try:
             try:
@@ -1694,6 +1741,13 @@ class VideoDownloadThread(QThread):
             if ffmpeg_progress_monitor is not None:
                 ffmpeg_progress_monitor.stop()
         self._raise_if_terminated()
+
+        if need_video and enable_time_ranges and download_sections:
+            raw_files = self._find_main_media_files(work_dir)
+            if len(raw_files) == 1:
+                self._cut_downloaded_segments(raw_files[0], download_sections, work_dir)
+            elif raw_files:
+                logger.warning("多文件下载暂不支持本地时间段裁剪，已保留完整文件")
 
         media_files = self._find_main_media_files(work_dir) if need_video else []
         if need_video and self.download_mode == "video_audio" and media_files:
