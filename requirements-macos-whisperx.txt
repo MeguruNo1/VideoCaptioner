@@ -22,3 +22,4 @@ torchaudio
 soundfile>=0.13,<1
 whisperx
 mlx-whisper
+pyinstaller>=6.20,<7

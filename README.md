@@ -2,7 +2,7 @@
 
 # VideoCaptioner macOS Fork
 
-**语言 / Language:** 简体中文 | [English](README.en.md)
+**语言 / Language:** 简体中文 | [English](./README.en.md)
 
 </div>
 
@@ -38,15 +38,41 @@
 - 不维护上游完整文档站、Release 工作流和多平台打包链路。
 - 不追求覆盖上游所有 ASR、TTS、CLI 和跨平台功能。
 
+## 下载发布版
+
+本 fork 的发布版面向 Apple Silicon Mac，提供 `.dmg` 安装包：
+
+```text
+https://github.com/MeguruNo1/video-captioner-macos-enhanced/releases
+```
+
+安装方式：
+
+1. 下载最新的 `VideoCaptioner-macos-enhanced-*.dmg`。
+2. 打开 DMG，把 `VideoCaptioner.app` 拖到 `Applications`。
+3. 如果 macOS 首次启动拦截，右键点击 `VideoCaptioner.app`，选择“打开”。
+
+发布版会打包 Python 应用运行时和 Python 依赖，但不会内置 FFmpeg、WhisperX/MLX Whisper 模型或用户配置。处理媒体前仍建议安装 FFmpeg：
+
+```bash
+brew install ffmpeg
+```
+
+WhisperX 和 MLX Whisper 模型会在首次使用时下载，或读取已有的本地模型目录：
+
+```text
+~/Library/Application Support/VideoCaptioner/models
+```
+
 ## 从源码运行
 
 ```bash
-brew install python@3.11 ffmpeg git
+brew install python@3.12 ffmpeg git
 
-git clone https://github.com/MeguruNo1/VideoCaptioner.git
-cd VideoCaptioner
+git clone https://github.com/MeguruNo1/video-captioner-macos-enhanced.git
+cd video-captioner-macos-enhanced
 
-python3.11 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements-macos-whisperx.txt
@@ -70,6 +96,16 @@ MLX Whisper 默认使用 `mlx-community/whisper-large-v3-turbo`。也可以使�
 ```bash
 scripts/build_macos_app.sh --install
 ```
+
+## 构建发布安装包
+
+发布用 DMG 通过 PyInstaller 构建独立 `.app`，输出到 `dist/release/`：
+
+```bash
+VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.0 scripts/build_macos_release.sh
+```
+
+构建产物会包含 Python 运行时和 Python 依赖，但仍依赖系统可用的 FFmpeg，并会在首次使用 ASR 时下载模型。
 
 ## 支持格式
 

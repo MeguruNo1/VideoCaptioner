@@ -2,7 +2,7 @@
 
 # VideoCaptioner macOS Fork
 
-**Language:** [简体中文](README.md) | English
+**Language:** [简体中文](./README.md) | English
 
 </div>
 
@@ -38,15 +38,41 @@ This README focuses on the differences from upstream. For the full project overv
 - The full upstream documentation site, release workflows, and multi-platform packaging pipeline are not maintained here.
 - This fork does not try to cover every upstream ASR, TTS, CLI, or cross-platform feature.
 
+## Download a Release
+
+This fork publishes Apple Silicon macOS builds as `.dmg` installers:
+
+```text
+https://github.com/MeguruNo1/video-captioner-macos-enhanced/releases
+```
+
+Install steps:
+
+1. Download the latest `VideoCaptioner-macos-enhanced-*.dmg`.
+2. Open the DMG and drag `VideoCaptioner.app` into `Applications`.
+3. If macOS blocks the first launch, right-click `VideoCaptioner.app` and choose `Open`.
+
+The release app bundles the Python application runtime and Python dependencies, but it does not bundle FFmpeg, WhisperX/MLX Whisper models, or user settings. Install FFmpeg before processing media:
+
+```bash
+brew install ffmpeg
+```
+
+WhisperX and MLX Whisper models download on first use, or are loaded from the existing local model directory:
+
+```text
+~/Library/Application Support/VideoCaptioner/models
+```
+
 ## Run From Source
 
 ```bash
-brew install python@3.11 ffmpeg git
+brew install python@3.12 ffmpeg git
 
-git clone https://github.com/MeguruNo1/VideoCaptioner.git
-cd VideoCaptioner
+git clone https://github.com/MeguruNo1/video-captioner-macos-enhanced.git
+cd video-captioner-macos-enhanced
 
-python3.11 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements-macos-whisperx.txt
@@ -70,6 +96,16 @@ The local app bundle is only a launcher for this source checkout and virtual env
 ```bash
 scripts/build_macos_app.sh --install
 ```
+
+## Build a Release Installer
+
+Release DMGs are built with PyInstaller and written to `dist/release/`:
+
+```bash
+VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.0 scripts/build_macos_release.sh
+```
+
+The output app includes the Python runtime and Python dependencies, but still expects system FFmpeg and downloads ASR models on first use.
 
 ## Supported Formats
 
