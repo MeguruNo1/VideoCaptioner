@@ -1,0 +1,84 @@
+<div align="center">
+
+# VideoCaptioner macOS Fork
+
+**Language:** [简体中文](README.md) | English
+
+</div>
+
+This is a macOS/Apple Silicon local-workflow fork of [WEIFENG2333/VideoCaptioner](https://github.com/WEIFENG2333/VideoCaptioner). It is not a full replacement for the upstream project. It keeps the desktop subtitle-processing experience and makes larger scoped changes around local macOS transcription, downloads, subtitle splitting, and translation reliability.
+
+This README focuses on the differences from upstream. For the full project overview, online documentation, CLI usage, and official releases, refer to the [upstream repository](https://github.com/WEIFENG2333/VideoCaptioner).
+
+## Main Differences From Upstream
+
+| Area | Upstream | This fork |
+| --- | --- | --- |
+| Project shape | Cross-platform CLI + GUI + PyPI package + documentation site | macOS source-checkout GUI branch |
+| Supported platforms | Windows, macOS, and Linux | macOS only; startup rejects non-macOS platforms |
+| Local ASR | Multiple backends: `faster-whisper`, `whisper-api`, Bijian, Jianying, `whisper-cpp`, and others | Focused on WhisperX CPU, with MLX Whisper added as an Apple Silicon GPU backend |
+| Timestamp strategy | Depends on each ASR backend's capabilities | Built around word-level timestamps, VAD, and WhisperX alignment |
+| Download flow | General upstream download command and desktop entry points | Dedicated download center with stronger yt-dlp handling, browser cookies, final MP4 normalization, and HEVC fallback |
+| Subtitle processing | General upstream subtitle splitting, optimization, translation, and synthesis | Stricter splitting, short-gap handling, repeated ASR cleanup, terminology/hotword handoff, and more defensive LLM translation |
+| Runtime model | `pip install videocaptioner`, `uv run videocaptioner`, and both CLI/GUI entry points | Source checkout, `.venv`, and a local `.app` launcher |
+| Packaging and docs | Upstream PyPI, CI, VitePress documentation, and multi-platform build scripts | Upstream release pipeline is removed or de-emphasized in favor of smaller macOS local-run docs |
+
+## What This Fork Focuses On
+
+- Local subtitle workflows on Apple Silicon Macs.
+- WhisperX CPU transcription, using `int8` by default, with WhisperX alignment.
+- Optional MLX Whisper backend through `mlx-whisper` for Apple Silicon GPU use.
+- App data stored under `~/Library/Application Support/VideoCaptioner`.
+- Work files stored under `~/Movies/VideoCaptioner` by default.
+- A local `.app` launcher that runs `.venv/bin/python main.py` from this checkout.
+
+## Out of Scope Here
+
+- The PyPI package and `videocaptioner` CLI are no longer the main entry points.
+- The full upstream documentation site, release workflows, and multi-platform packaging pipeline are not maintained here.
+- This fork does not try to cover every upstream ASR, TTS, CLI, or cross-platform feature.
+
+## Run From Source
+
+```bash
+brew install python@3.11 ffmpeg git
+
+git clone https://github.com/MeguruNo1/VideoCaptioner.git
+cd VideoCaptioner
+
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements-macos-whisperx.txt
+python main.py
+```
+
+WhisperX downloads transcription, VAD, and alignment models on first use unless compatible local models already exist under:
+
+```text
+~/Library/Application Support/VideoCaptioner/models
+```
+
+`large-v3-turbo` is the default local model for this branch. It should be kept under the app model directory as `faster-whisper-large-v3-turbo`.
+
+MLX Whisper uses `mlx-community/whisper-large-v3-turbo` by default. You can also use other Hugging Face MLX Whisper repos or a local MLX Whisper model directory converted with `mlx-examples/whisper`.
+
+## Install Local App Launcher
+
+The local app bundle is only a launcher for this source checkout and virtual environment. It does not bundle Python, dependencies, or models; edit the source tree and restart the app to run updated code.
+
+```bash
+scripts/build_macos_app.sh --install
+```
+
+## Supported Formats
+
+| Type | Formats |
+| --- | --- |
+| Video | MP4, MKV, MOV, AVI, WebM, WMV, FLV, TS, and more |
+| Audio | MP3, WAV, AAC, FLAC, OGG, OPUS, M4A, WMA, and more |
+| Subtitle | SRT, VTT, JSON, TXT |
+
+## Upstream and License
+
+The original project was created by [@WEIFENG2333](https://github.com/WEIFENG2333). This fork is based on that project and follows the original GPL-3.0 license terms. If you publish this fork, keep the original copyright and license information.

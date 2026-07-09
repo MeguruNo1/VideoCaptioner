@@ -22,9 +22,7 @@ from app.config import CACHE_PATH
 logger = setup_logger("subtitle_optimization_thread")
 
 CHINESE_TARGET_LANGUAGES = {
-    TargetLanguageEnum.CHINESE_SIMPLIFIED.value,
-    TargetLanguageEnum.CHINESE_TRADITIONAL.value,
-    TargetLanguageEnum.YUE.value,
+    TargetLanguageEnum.CHINESE.value,
 }
 
 

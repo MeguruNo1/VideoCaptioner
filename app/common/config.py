@@ -75,6 +75,18 @@ class LanguageSerializer(ConfigSerializer):
 
 
 LEGACY_LANGUAGE_DISPLAY_NAMES = {
+    "English": "英语",
+    "Chinese": "中文",
+    "French": "法语",
+    "Russian": "俄语",
+    "Arabic": "阿拉伯语",
+    "Spanish": "西班牙语",
+    "Japanese": "日本語",
+    "German": "德语",
+    "Korean": "韩语",
+    "简体中文": "中文",
+    "繁体中文": "中文",
+    "粤语": "中文",
     "Polish": "波兰语",
     "Catalan": "加泰罗尼亚语",
     "Dutch": "荷兰语",
@@ -169,15 +181,19 @@ LEGACY_LANGUAGE_DISPLAY_NAMES = {
 
 
 class LegacyEnumSerializer(ConfigSerializer):
-    def __init__(self, enum_class, legacy_values=None):
+    def __init__(self, enum_class, legacy_values=None, fallback=None):
         self.enum_class = enum_class
         self.legacy_values = legacy_values or {}
+        self.fallback = fallback or next(iter(enum_class))
 
     def serialize(self, value):
         return value.value
 
     def deserialize(self, value):
-        return self.enum_class(self.legacy_values.get(value, value))
+        try:
+            return self.enum_class(self.legacy_values.get(value, value))
+        except ValueError:
+            return self.fallback
 
 
 class Config(QConfig):
@@ -286,7 +302,9 @@ class Config(QConfig):
         TranscribeLanguageEnum.ENGLISH,
         OptionsValidator(TranscribeLanguageEnum),
         LegacyEnumSerializer(
-            TranscribeLanguageEnum, LEGACY_LANGUAGE_DISPLAY_NAMES
+            TranscribeLanguageEnum,
+            LEGACY_LANGUAGE_DISPLAY_NAMES,
+            TranscribeLanguageEnum.ENGLISH,
         ),
     )
 
@@ -364,9 +382,13 @@ class Config(QConfig):
     target_language = OptionsConfigItem(
         "Subtitle",
         "TargetLanguage",
-        TargetLanguageEnum.CHINESE_SIMPLIFIED,
+        TargetLanguageEnum.CHINESE,
         OptionsValidator(TargetLanguageEnum),
-        LegacyEnumSerializer(TargetLanguageEnum, LEGACY_LANGUAGE_DISPLAY_NAMES),
+        LegacyEnumSerializer(
+            TargetLanguageEnum,
+            LEGACY_LANGUAGE_DISPLAY_NAMES,
+            TargetLanguageEnum.CHINESE,
+        ),
     )
     max_word_count_cjk = ConfigItem(
         "Subtitle", "MaxWordCountCJK", 25, RangeValidator(8, 100)
