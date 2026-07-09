@@ -1,3 +1,5 @@
+import os
+import stat
 import unittest
 import tempfile
 from http.cookiejar import Cookie
@@ -69,6 +71,28 @@ YOUTUBE_COOKIE = {
 }
 
 
+UNRELATED_COOKIE = {
+    "domain": ".example.com",
+    "path": "/",
+    "secure": True,
+    "expires": 1800000000,
+    "name": "UNRELATED_SESSION",
+    "value": "fake-unrelated",
+    "http_only": True,
+}
+
+
+EVIL_GOOGLE_SUFFIX_COOKIE = {
+    "domain": ".evilgoogle.com",
+    "path": "/",
+    "secure": True,
+    "expires": 1800000000,
+    "name": "EVIL_GOOGLE_SESSION",
+    "value": "fake-evil",
+    "http_only": True,
+}
+
+
 class EdgeCookieUtilsTests(unittest.TestCase):
     @staticmethod
     def _cookie_from_dict(data: dict) -> Cookie:
@@ -92,6 +116,20 @@ class EdgeCookieUtilsTests(unittest.TestCase):
             rfc2109=False,
         )
 
+    @staticmethod
+    def _cookie_file_line(data: dict) -> str:
+        return "\t".join(
+            [
+                data["domain"],
+                "TRUE" if data["domain"].startswith(".") else "FALSE",
+                data["path"],
+                "TRUE" if data["secure"] else "FALSE",
+                str(data["expires"]),
+                data["name"],
+                data["value"],
+            ]
+        )
+
     @classmethod
     def _cookie_jar(cls, target: Path, cookie_dicts: list[dict]):
         jar = cookies.YoutubeDLCookieJar(str(target))
@@ -113,6 +151,12 @@ class EdgeCookieUtilsTests(unittest.TestCase):
         self.assertTrue(summary["has_bilibili_login"])
         self.assertIn("SESSDATA", summary["bilibili_cookie_names"])
         self.assertIn("bili_jct", summary["bilibili_cookie_names"])
+
+    def test_cookie_summary_does_not_match_lookalike_suffix_domain(self):
+        summary = cookies._cookie_summary([EVIL_GOOGLE_SUFFIX_COOKIE])
+
+        self.assertFalse(summary["has_youtube"])
+        self.assertFalse(summary["has_bilibili"])
 
     def test_export_reports_rookiepy_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -182,6 +226,68 @@ class EdgeCookieUtilsTests(unittest.TestCase):
             self.assertEqual(result["status_code"], "export_ok")
             self.assertTrue(target.exists())
             self.assertTrue(verified["has_bilibili_login"])
+            if os.name == "posix":
+                self.assertEqual(
+                    stat.S_IMODE(target.stat().st_mode), cookies.PRIVATE_FILE_MODE
+                )
+
+    def test_export_writes_only_supported_download_cookie_domains(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "cookies.txt"
+            with patch.object(
+                cookies,
+                "_extract_browser_cookies_with_ytdlp",
+                return_value=self._cookie_jar(
+                    target,
+                    [YOUTUBE_COOKIE, UNRELATED_COOKIE, EVIL_GOOGLE_SUFFIX_COOKIE],
+                ),
+            ):
+                result = cookies.export_browser_cookies(target)
+
+            file_text = target.read_text(encoding="utf-8")
+            verified = cookies.verify_cookie_file(target)
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["cookie_count"], 1)
+            self.assertEqual(verified["cookie_count"], 1)
+            self.assertIn("VISITOR_INFO1_LIVE", file_text)
+            self.assertNotIn("UNRELATED_SESSION", file_text)
+            self.assertNotIn("EVIL_GOOGLE_SESSION", file_text)
+
+    def test_verify_hardens_existing_cookie_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "cookies.txt"
+            target.write_text(
+                "\n".join(
+                    [
+                        "# Netscape HTTP Cookie File",
+                        "# Source browser: Safari",
+                        self._cookie_file_line(YOUTUBE_COOKIE),
+                        self._cookie_file_line(UNRELATED_COOKIE),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            if os.name == "posix":
+                Path(temp_dir).chmod(0o755)
+                target.chmod(0o644)
+
+            result = cookies.verify_cookie_file(target)
+            file_text = target.read_text(encoding="utf-8")
+
+            self.assertTrue(result["success"])
+            self.assertEqual(result["cookie_count"], 1)
+            self.assertIn("VISITOR_INFO1_LIVE", file_text)
+            self.assertNotIn("UNRELATED_SESSION", file_text)
+            if os.name == "posix":
+                self.assertEqual(
+                    stat.S_IMODE(Path(temp_dir).stat().st_mode),
+                    cookies.PRIVATE_DIR_MODE,
+                )
+                self.assertEqual(
+                    stat.S_IMODE(target.stat().st_mode), cookies.PRIVATE_FILE_MODE
+                )
 
     def test_export_defaults_to_safari_source(self):
         with tempfile.TemporaryDirectory() as temp_dir:

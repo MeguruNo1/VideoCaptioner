@@ -15,6 +15,7 @@ import yt_dlp
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from app.config import APP_DATA_PATH
+from app.core.utils.edge_cookie_utils import harden_cookie_file
 from app.core.utils.logger import setup_logger
 from app.core.utils.download_description import write_description_txt_file
 from app.core.utils.subtitle_transcript import write_transcript_txt_file
@@ -702,6 +703,12 @@ def _build_ydl_options(proxy_url: str, cookiefile_path: Path, progress_hooks=Non
         options["progress_hooks"] = progress_hooks
     if proxy_url:
         options["proxy"] = proxy_url
+    if cookiefile_path.exists():
+        try:
+            harden_cookie_file(cookiefile_path)
+        except Exception as exc:
+            logger.warning("Cookie 文件安全处理失败，将跳过 cookiefile: %s", exc)
+            cookiefile_path = NO_COOKIE_FILE_PATH
     if cookiefile_path.exists():
         logger.info("使用 cookiefile: %s", cookiefile_path)
         options["cookiefile"] = str(cookiefile_path)
