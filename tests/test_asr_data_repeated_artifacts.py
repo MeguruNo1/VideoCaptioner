@@ -58,3 +58,20 @@ def test_collapses_repeated_phrase_loops_but_keeps_short_repetitions():
         "library",
         "next",
     ]
+
+
+def test_removes_only_fullwidth_periods_from_translated_text():
+    asr_data = ASRData(
+        [
+            ASRDataSeg(
+                "原文。",
+                0,
+                100,
+                translated_text="中文。English. 3.14。",
+            )
+        ]
+    )
+
+    asr_data.remove_translated_periods()
+
+    assert asr_data.segments[0].translated_text == "中文English. 3.14"

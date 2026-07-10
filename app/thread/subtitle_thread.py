@@ -230,7 +230,7 @@ class SubtitleThread(QThread):
                     and subtitle_config.target_language in CHINESE_TARGET_LANGUAGES
                 ):
                     asr_data.remove_translated_chinese_commas()
-                # 删除译文中的全部句号
+                # 仅删除译文中的全角句号
                 if subtitle_config.need_remove_punctuation:
                     asr_data.remove_translated_periods()
                 self.update_all.emit(asr_data.to_json())

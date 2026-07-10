@@ -56,8 +56,8 @@ class SubtitleSettingDialog(MessageBoxBase):
 
         self.remove_punctuation_card = SwitchSettingCard(
             FIF.ALIGNMENT,
-            self.tr("删除译文所有句号"),
-            self.tr("是否删除翻译后字幕中的全部句号（包括句中与句末）"),
+            self.tr("删除译文全角句号"),
+            self.tr("是否删除翻译后字幕中的全角句号（包括句中与句末），保留半角句号"),
             cfg.needs_remove_punctuation,
             self,
         )

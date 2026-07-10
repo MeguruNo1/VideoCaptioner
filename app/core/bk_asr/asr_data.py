@@ -278,12 +278,12 @@ class ASRData:
         return self
 
     def remove_translated_periods(self) -> "ASRData":
-        """删除译文中的所有句号，保留其他文本内容不变"""
+        """仅删除译文中的全角句号，保留半角句号和其他文本内容。"""
         for seg in self.segments:
             translated = seg.translated_text or ""
             if not translated:
                 continue
-            seg.translated_text = translated.replace("。", "").replace(".", "")
+            seg.translated_text = translated.replace("。", "")
         return self
 
     def remove_translated_chinese_commas(self) -> "ASRData":
