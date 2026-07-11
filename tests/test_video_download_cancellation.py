@@ -4,7 +4,11 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.thread.video_download_thread import VideoDownloadThread
+from app.thread.video_download_thread import (
+    VideoDownloadThread,
+    _build_ydl_options,
+    _pick_subtitle_item,
+)
 
 
 def _make_thread(download_dir: Path) -> VideoDownloadThread:
@@ -29,6 +33,32 @@ def _make_process(pid: int, name: str, command: list[str]):
     process.name.return_value = name
     process.cmdline.return_value = command
     return process
+
+
+def test_download_options_keep_partial_files_for_network_resume(tmp_path):
+    options = _build_ydl_options("", tmp_path / "missing-cookies.txt")
+
+    assert options["continuedl"] is True
+    assert options["nopart"] is False
+    assert options["retries"] == 10
+    assert options["fragment_retries"] == 10
+    assert options["file_access_retries"] == 3
+    assert options["extractor_retries"] == 3
+    assert options["socket_timeout"] == 30
+
+
+def test_selected_english_subtitle_wins_over_video_original_language():
+    info = {
+        "automatic_captions": {
+            "ru": [{"url": "https://example.test/ru.vtt", "ext": "vtt"}],
+            "en": [{"url": "https://example.test/en.vtt", "ext": "vtt"}],
+        }
+    }
+
+    url, extension = _pick_subtitle_item(info, "auto", "en")
+
+    assert url == "https://example.test/en.vtt"
+    assert extension == "vtt"
 
 
 def test_request_terminate_stops_only_ffmpeg_for_current_download(tmp_path):

@@ -1,4 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
+import base64
+import json
 import os
 import sys
 from pathlib import Path
@@ -129,6 +131,7 @@ class CurrentPageStackedWidget(QStackedWidget):
 
 class DownloadCenterInterface(QWidget):
     send_to_transcription = pyqtSignal(str)
+    DOWNLOAD_STATE_PATH = APP_DATA_PATH / "download_center_state.json"
     PR_SUPPORTED_AUDIO_EXTS = {"aac", "aif", "aiff", "bwf", "m4a", "mp3", "mp4", "wav"}
     PR_SMART_PREFERRED_AUDIO_EXTS = {"aac", "m4a"}
     PR_SMART_PREFERRED_AUDIO_CODECS = ("mp4a", "aac")
@@ -191,6 +194,10 @@ class DownloadCenterInterface(QWidget):
         self.time_range_rows = []
         self.controls_enabled = True
         self.download_action_state = "idle"
+        self._pending_download_request = None
+        self._pending_subtitle_mode = "manual"
+        self._pending_work_dir = ""
+        self._last_persisted_progress = -1
         self._restoring_download_preferences = True
 
         self.setObjectName("DownloadCenterInterface")
@@ -212,6 +219,104 @@ class DownloadCenterInterface(QWidget):
         self._apply_theme_styles()
         self._on_professional_mode_changed()
         self._set_download_action_state("idle")
+        self._restore_download_state()
+
+    def _serializable_preview(self) -> dict | None:
+        if not self.preview_data:
+            return None
+        preview = {
+            key: value
+            for key, value in self.preview_data.items()
+            if key not in {"thumbnail_bytes", "info_dict"}
+        }
+        duration = (self.preview_data.get("info_dict") or {}).get("duration")
+        preview["info_dict"] = {"duration": duration}
+        thumbnail_bytes = self.preview_data.get("thumbnail_bytes")
+        preview["thumbnail_base64"] = (
+            base64.b64encode(thumbnail_bytes).decode("ascii") if thumbnail_bytes else ""
+        )
+        return preview
+
+    def _save_download_state(
+        self,
+        *,
+        status: str = "ready",
+        request: dict | None = None,
+        progress: int | None = None,
+        detail: dict | None = None,
+    ) -> None:
+        preview = self._serializable_preview()
+        if not preview:
+            return
+        previous = {}
+        try:
+            previous = json.loads(self.DOWNLOAD_STATE_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            pass
+        stored_request = (
+            previous.get("request")
+            if request is None and status in {"downloading", "interrupted"}
+            else request
+        )
+        payload = {
+            "version": 1,
+            "status": status,
+            "url": self.parsed_url,
+            "preview": preview,
+            "request": stored_request,
+            "subtitle_mode": self._pending_subtitle_mode,
+            "work_dir": self._pending_work_dir or self._effective_output_dir(),
+            "progress": int(self.progress_bar.value() if progress is None else progress),
+            "detail": detail if detail is not None else previous.get("detail", {}),
+        }
+        temporary = self.DOWNLOAD_STATE_PATH.with_suffix(".tmp")
+        try:
+            self.DOWNLOAD_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            os.replace(temporary, self.DOWNLOAD_STATE_PATH)
+        except (OSError, TypeError, ValueError):
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _restore_download_state(self) -> None:
+        try:
+            payload = json.loads(self.DOWNLOAD_STATE_PATH.read_text(encoding="utf-8"))
+            preview = dict(payload["preview"])
+            encoded_thumbnail = preview.pop("thumbnail_base64", "")
+            preview["thumbnail_bytes"] = (
+                base64.b64decode(encoded_thumbnail) if encoded_thumbnail else None
+            )
+            url = str(payload.get("url") or preview.get("url") or "").strip()
+            if not url or not self._is_valid_url(url):
+                return
+        except (OSError, ValueError, TypeError, KeyError):
+            return
+
+        self.url_input.setText(url)
+        self.preview_data = preview
+        self.parsed_url = url
+        self._set_preview_visible(True)
+        self._render_preview_card(preview)
+        self._populate_video_table(preview.get("video_formats") or [])
+        self._populate_audio_table(preview.get("audio_formats") or [])
+        self._populate_subtitle_languages()
+        self._pending_download_request = payload.get("request") or None
+        self._pending_subtitle_mode = str(payload.get("subtitle_mode") or "manual")
+        self._pending_work_dir = str(payload.get("work_dir") or "")
+        progress = max(0, min(100, int(payload.get("progress") or 0)))
+        self.progress_bar.setValue(progress)
+        detail = payload.get("detail") or {}
+        if detail:
+            self._render_download_detail_panel(detail)
+        if self._pending_download_request and payload.get("status") in {"downloading", "interrupted"}:
+            self.start_button.setText(self.tr("继续下载"))
+            self.status_label.setText(self.tr("已恢复上次下载进度，点击继续下载"))
+        else:
+            self._pending_download_request = None
+            self.status_label.setText(self.tr("已恢复上次解析结果"))
+        self._refresh_selection_summary()
 
     def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -536,8 +641,15 @@ class DownloadCenterInterface(QWidget):
         self.subtitle_mode_combo.addItem(self.tr("人工字幕"), userData="manual")
         self.subtitle_mode_combo.addItem(self.tr("自动字幕"), userData="auto")
         self.subtitle_mode_combo.setMinimumWidth(140)
+        self.subtitle_language_label = BodyLabel(self.tr("字幕语言"), self.subtitle_mode_row)
+        self.subtitle_language_label.setObjectName("downloadPrimaryLabel")
+        self.subtitle_language_combo = ComboBox(self.subtitle_mode_row)
+        self.subtitle_language_combo.addItem("English (en)", userData="en")
+        self.subtitle_language_combo.setMinimumWidth(160)
         subtitle_mode_layout.addWidget(self.subtitle_mode_label)
         subtitle_mode_layout.addWidget(self.subtitle_mode_combo)
+        subtitle_mode_layout.addWidget(self.subtitle_language_label)
+        subtitle_mode_layout.addWidget(self.subtitle_language_combo)
         subtitle_mode_layout.addStretch(1)
 
         self.time_range_section = QWidget(self.options_section)
@@ -770,7 +882,8 @@ class DownloadCenterInterface(QWidget):
         self.pr_smart_postprocess_checkbox.toggled.connect(self._on_postprocess_checkbox_toggled)
         self.professional_postprocess_checkbox.toggled.connect(self._on_postprocess_checkbox_toggled)
         self.pr_smart_transcript_checkbox.toggled.connect(self._on_pr_smart_transcript_toggled)
-        self.subtitle_mode_combo.currentIndexChanged.connect(self._save_download_preferences)
+        self.subtitle_mode_combo.currentIndexChanged.connect(self._on_subtitle_mode_changed)
+        self.subtitle_language_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.custom_video_codec_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.custom_container_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.custom_audio_codec_combo.currentIndexChanged.connect(self._save_download_preferences)
@@ -919,6 +1032,11 @@ class DownloadCenterInterface(QWidget):
             "manual",
         )
         self._set_combo_current_data(
+            self.subtitle_language_combo,
+            str(cfg.get(cfg.download_center_subtitle_language) or "en"),
+            "en",
+        )
+        self._set_combo_current_data(
             self.custom_video_codec_combo,
             str(cfg.get(cfg.download_center_custom_video_codec) or "auto"),
             "auto",
@@ -959,6 +1077,10 @@ class DownloadCenterInterface(QWidget):
         cfg.set(cfg.download_center_need_metadata, self.metadata_checkbox.isChecked())
         cfg.set(cfg.download_center_need_description_txt, self.description_txt_checkbox.isChecked())
         cfg.set(cfg.download_center_subtitle_mode, self._selected_subtitle_mode())
+        cfg.set(
+            cfg.download_center_subtitle_language,
+            self.subtitle_language_combo.currentData() or "en",
+        )
         cfg.set(cfg.download_center_custom_video_codec, self.custom_video_codec_combo.currentData() or "auto")
         cfg.set(cfg.download_center_custom_container, self.custom_container_combo.currentData() or "auto")
         cfg.set(cfg.download_center_custom_audio_codec, self.custom_audio_codec_combo.currentData() or "auto")
@@ -1017,6 +1139,7 @@ class DownloadCenterInterface(QWidget):
             self._is_pr_smart_preset_selected() and self.pr_smart_transcript_checkbox.isChecked()
         )
         self.subtitle_mode_combo.setEnabled(enabled and subtitle_source_needed)
+        self.subtitle_language_combo.setEnabled(enabled and subtitle_source_needed)
         self.choose_output_dir_button.setEnabled(enabled)
         self.reset_output_dir_button.setEnabled(enabled)
         self.custom_video_codec_combo.setEnabled(enabled and self._is_custom_simple_preset_selected())
@@ -1358,6 +1481,11 @@ class DownloadCenterInterface(QWidget):
         self._clear_table(self.audio_table)
         self._set_preview_visible(False)
         self._refresh_selection_summary()
+        self._pending_download_request = None
+        try:
+            self.DOWNLOAD_STATE_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def _clear_table(self, table: QTableWidget):
         table.setRowCount(0)
@@ -1375,7 +1503,48 @@ class DownloadCenterInterface(QWidget):
         )
         self.subtitle_mode_row.setVisible(subtitle_source_needed)
         self.subtitle_mode_combo.setEnabled(self.controls_enabled and subtitle_source_needed)
+        self.subtitle_language_combo.setEnabled(self.controls_enabled and subtitle_source_needed)
         self._refresh_selection_summary()
+
+    def _on_subtitle_mode_changed(self, *_args):
+        self._populate_subtitle_languages()
+        self._save_download_preferences()
+        self._refresh_selection_summary()
+
+    def _populate_subtitle_languages(self):
+        if not hasattr(self, "subtitle_language_combo"):
+            return
+        mode = self._selected_subtitle_mode()
+        key = "manual_subtitle_languages" if mode == "manual" else "auto_subtitle_languages"
+        languages = list((self.preview_data or {}).get(key) or [])
+        preferred = str(cfg.get(cfg.download_center_subtitle_language) or "en").lower()
+        previous = str(self.subtitle_language_combo.currentData() or preferred).lower()
+        candidates = []
+        for language in languages:
+            language = str(language).strip()
+            if language and language not in candidates:
+                candidates.append(language)
+        if not candidates:
+            candidates = ["en"]
+
+        old_blocked = self.subtitle_language_combo.blockSignals(True)
+        self.subtitle_language_combo.clear()
+        for language in candidates:
+            label = "English" if language.lower() == "en" or language.lower().startswith("en-") else language
+            self.subtitle_language_combo.addItem(f"{label} ({language})", userData=language)
+
+        lowered = [language.lower() for language in candidates]
+        target = next(
+            (
+                language
+                for wanted in (preferred, previous, "en")
+                for language in candidates
+                if language.lower() == wanted or language.lower().startswith(wanted + "-")
+            ),
+            candidates[0],
+        )
+        self._set_combo_current_data(self.subtitle_language_combo, target, candidates[0])
+        self.subtitle_language_combo.blockSignals(old_blocked)
 
     def _is_custom_simple_preset_selected(self) -> bool:
         return (self.simple_preset_combo.currentData() or "") == "custom_preferences"
@@ -1695,8 +1864,11 @@ class DownloadCenterInterface(QWidget):
         self._render_preview_card(preview)
         self._populate_video_table(preview.get("video_formats") or [])
         self._populate_audio_table(preview.get("audio_formats") or [])
+        self._populate_subtitle_languages()
         self._adjust_responsive_layout()
         self._refresh_selection_summary()
+        self._pending_download_request = None
+        self._save_download_state(status="ready", progress=0)
         InfoBar.success(self.tr("解析完成"), self.tr("已获取可选格式，请确认下载方案。"), duration=2500, parent=self)
 
     def on_preview_error(self, error: str):
@@ -2167,7 +2339,10 @@ class DownloadCenterInterface(QWidget):
 
         extras = []
         if self.subtitle_checkbox.isChecked():
-            extras.append(self.tr("字幕"))
+            extras.append(
+                self.tr("字幕")
+                + f" ({self.subtitle_language_combo.currentData() or 'en'})"
+            )
         if self.thumbnail_checkbox.isChecked():
             extras.append(self.tr("封面"))
         if self.metadata_checkbox.isChecked():
@@ -2203,6 +2378,7 @@ class DownloadCenterInterface(QWidget):
             "download_sections": [],
             "pr_smart_transcode_hevc_on_av1": False,
             "ensure_mp4_output": False,
+            "subtitle_language": self.subtitle_language_combo.currentData() or "en",
         }
 
         simple_preset = None
@@ -2286,7 +2462,7 @@ class DownloadCenterInterface(QWidget):
         if not self.preview_data or url != self.parsed_url:
             InfoBar.warning(self.tr("提示"), self.tr("请先解析当前链接，再开始下载。"), duration=3000, parent=self)
             return
-        request = self._build_download_request()
+        request = self._pending_download_request or self._build_download_request()
         if not request:
             return
         self._refresh_selection_summary()
@@ -2295,6 +2471,13 @@ class DownloadCenterInterface(QWidget):
             self.last_selection_summary = self.last_selection_summary + self.tr("；") + time_range_notice
             self.selection_summary_label.setText(self.tr("已选方案：") + self.last_selection_summary)
         self._refresh_edge_cookie_if_needed()
+        resuming = self._pending_download_request is not None
+        subtitle_mode = self._pending_subtitle_mode if resuming else self._selected_subtitle_mode()
+        work_dir = self._pending_work_dir if resuming and self._pending_work_dir else self._effective_output_dir()
+        self._pending_download_request = dict(request)
+        self._pending_subtitle_mode = subtitle_mode
+        self._pending_work_dir = work_dir
+        self._last_persisted_progress = -1
         self.last_result = {}
         self.ffmpeg_fallback_thread = None
         self._reset_result_labels()
@@ -2302,17 +2485,24 @@ class DownloadCenterInterface(QWidget):
         self._set_result_actions_enabled(False)
         self._set_controls_enabled(False)
         self._set_download_action_state("downloading")
-        self.progress_bar.setValue(0)
-        self.status_label.setText(self.tr("开始下载…"))
+        if not resuming:
+            self.progress_bar.setValue(0)
+        self.status_label.setText(self.tr("正在继续上次下载…") if resuming else self.tr("开始下载…"))
+        self._save_download_state(
+            status="downloading",
+            request=self._pending_download_request,
+            progress=self.progress_bar.value(),
+        )
         from app.thread.video_download_thread import VideoDownloadThread
 
         self.download_thread = VideoDownloadThread(
             url=url,
-            work_dir=self._effective_output_dir(),
+            work_dir=work_dir,
             need_video=request["need_video"],
             need_subtitle=request["need_subtitle"],
             need_thumbnail=request["need_thumbnail"],
-            subtitle_mode=self._selected_subtitle_mode(),
+            subtitle_mode=subtitle_mode,
+            subtitle_language=request.get("subtitle_language") or "en",
             download_engine_strategy=str(cfg.get(cfg.download_engine_strategy) or "智能选择"),
             download_mode=request["download_mode"],
             selected_video_format_id=request["selected_video_format_id"],
@@ -2337,9 +2527,13 @@ class DownloadCenterInterface(QWidget):
         self._set_progress_indeterminate(False)
         self.progress_bar.setValue(value)
         self.status_label.setText(status)
+        if value != self._last_persisted_progress:
+            self._last_persisted_progress = value
+            self._save_download_state(status="downloading", progress=value)
 
     def on_download_progress_detail(self, detail: dict):
         self._render_download_detail_panel(detail)
+        self.latest_download_detail = dict(detail)
 
     def on_download_finished(self, result: dict):
         self.last_result = result
@@ -2348,6 +2542,8 @@ class DownloadCenterInterface(QWidget):
         self.download_thread = None
         self._set_progress_indeterminate(False)
         self.progress_bar.setValue(100)
+        self._pending_download_request = None
+        self._save_download_state(status="ready", request=None, progress=100, detail={})
         self.status_label.setText(self.tr("下载完成"))
         self.result_summary.setText(self.tr("方案摘要：") + self.last_selection_summary)
         self.result_work_dir.setText(self.tr("输出目录：") + str(result.get("work_dir") or self.tr("暂无")))
@@ -2408,6 +2604,8 @@ class DownloadCenterInterface(QWidget):
         self.download_thread = None
         self._set_result_actions_enabled(False)
         self.progress_bar.setValue(0)
+        self._pending_download_request = None
+        self._save_download_state(status="ready", request=None, progress=0, detail={})
         self.status_label.setText(self.tr("下载已终止"))
         self._reset_download_detail_panel()
         InfoBar.warning(self.tr("下载已终止"), message, duration=4000, parent=self)
@@ -2418,6 +2616,13 @@ class DownloadCenterInterface(QWidget):
         self.download_thread = None
         self._set_result_actions_enabled(bool(self.last_result), bool(self.last_result.get("video_path")))
         self.status_label.setText(self.tr("下载失败"))
+        self._save_download_state(
+            status="interrupted",
+            request=self._pending_download_request,
+            progress=self.progress_bar.value(),
+            detail=self.latest_download_detail,
+        )
+        self.start_button.setText(self.tr("继续下载"))
         self._reset_download_detail_panel()
         InfoBar.error(self.tr("下载失败"), error, duration=5000, parent=self)
         send_desktop_notification(

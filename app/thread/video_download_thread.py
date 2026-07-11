@@ -698,6 +698,15 @@ def _build_ydl_options(proxy_url: str, cookiefile_path: Path, progress_hooks=Non
         "noprogress": True,
         "ignoreerrors": False,
         "nocheckcertificate": False,
+        # Keep yt-dlp's partial files after transient failures. Starting the same
+        # download again will reuse them instead of downloading completed bytes.
+        "continuedl": True,
+        "nopart": False,
+        "retries": 10,
+        "fragment_retries": 10,
+        "file_access_retries": 3,
+        "extractor_retries": 3,
+        "socket_timeout": 30,
     }
     if progress_hooks:
         options["progress_hooks"] = progress_hooks
@@ -1039,6 +1048,7 @@ class VideoDownloadThread(QThread):
         need_subtitle: bool = True,
         need_thumbnail: bool = False,
         subtitle_mode: str = "auto",
+        subtitle_language: str = "en",
         download_engine_strategy: str | None = None,
         download_mode: str = "video_audio",
         selected_video_format_id: str = "",
@@ -1059,6 +1069,7 @@ class VideoDownloadThread(QThread):
         self.need_subtitle = need_subtitle
         self.need_thumbnail = need_thumbnail
         self.subtitle_mode = subtitle_mode if subtitle_mode in {"manual", "auto"} else "auto"
+        self.subtitle_language = str(subtitle_language or "en").strip().lower()
         self.download_engine_strategy = download_engine_strategy
         self.download_mode = download_mode
         self.selected_video_format_id = selected_video_format_id
@@ -1092,6 +1103,7 @@ class VideoDownloadThread(QThread):
                 need_subtitle=self.need_subtitle,
                 need_thumbnail=self.need_thumbnail,
                 subtitle_mode=self.subtitle_mode,
+                subtitle_language=self.subtitle_language,
                 need_metadata=self.need_metadata,
                 need_description_txt=self.need_description_txt,
                 need_transcript_txt=self.need_transcript_txt,
@@ -1613,6 +1625,7 @@ class VideoDownloadThread(QThread):
         need_subtitle: bool = True,
         need_thumbnail: bool = False,
         subtitle_mode: str = "auto",
+        subtitle_language: str = "en",
         need_metadata: bool = False,
         need_description_txt: bool = False,
         need_transcript_txt: bool = False,
@@ -1648,9 +1661,7 @@ class VideoDownloadThread(QThread):
         work_dir.mkdir(parents=True, exist_ok=True)
         self._raise_if_terminated()
 
-        subtitle_language = info_dict.get("language")
-        if subtitle_language:
-            subtitle_language = str(subtitle_language).lower().split("-")[0]
+        subtitle_language = str(subtitle_language or "en").strip().lower()
 
         subtitle_download_link = None
         subtitle_ext = "vtt"
@@ -1702,6 +1713,7 @@ class VideoDownloadThread(QThread):
                 },
                 "writesubtitles": ydl_need_subtitle and subtitle_mode == "manual",
                 "writeautomaticsub": ydl_need_subtitle and subtitle_mode == "auto",
+                "subtitleslangs": [subtitle_language],
                 "writethumbnail": need_thumbnail,
                 "thumbnail_format": "png",
                 "skip_download": not need_video,

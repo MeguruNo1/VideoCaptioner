@@ -499,6 +499,9 @@ class Config(QConfig):
         "manual",
         OptionsValidator(["manual", "auto"]),
     )
+    download_center_subtitle_language = ConfigItem(
+        "Download", "CenterSubtitleLanguage", "en"
+    )
     download_center_custom_video_codec = OptionsConfigItem(
         "Download",
         "CenterCustomVideoCodec",
