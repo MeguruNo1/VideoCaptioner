@@ -102,7 +102,7 @@ scripts/build_macos_app.sh --install
 发布用 DMG 通过 PyInstaller 构建独立 `.app`，输出到 `dist/release/`：
 
 ```bash
-VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.0 scripts/build_macos_release.sh
+VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.1 scripts/build_macos_release.sh
 ```
 
 构建产物会包含 Python 运行时和 Python 依赖，但仍依赖系统可用的 FFmpeg，并会在首次使用 ASR 时下载模型。

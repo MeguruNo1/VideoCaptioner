@@ -2,8 +2,14 @@
 set -euo pipefail
 
 APP_NAME="VideoCaptioner"
-DEFAULT_VERSION="macos-enhanced-v0.1.0"
+DEFAULT_VERSION="macos-enhanced-v0.1.1"
 VERSION="${VIDEO_CAPTIONER_VERSION:-$DEFAULT_VERSION}"
+if [[ ! "$VERSION" =~ ^macos-enhanced-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    echo "Invalid release version: $VERSION" >&2
+    echo "Expected format: macos-enhanced-vX.Y.Z" >&2
+    exit 1
+fi
+APP_VERSION="${BASH_REMATCH[1]}"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
 PYINSTALLER_BIN="$PROJECT_ROOT/.venv/bin/pyinstaller"
@@ -16,6 +22,7 @@ RELEASE_DIR="$DIST_DIR/release"
 STAGING_DIR="$DIST_DIR/dmg-staging"
 APP_PATH="$PYINSTALLER_DIST/$APP_NAME.app"
 DMG_PATH="$RELEASE_DIR/$APP_NAME-$VERSION.dmg"
+CHECKSUM_PATH="$DMG_PATH.sha256"
 BUNDLE_ID="com.meguruno1.videocaptioner.macosenhanced"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
@@ -32,7 +39,7 @@ if ! command -v hdiutil >/dev/null 2>&1; then
 fi
 
 rm -rf "$PYINSTALLER_DIST" "$PYINSTALLER_WORK" "$STAGING_DIR"
-rm -f "$DMG_PATH"
+rm -f "$DMG_PATH" "$CHECKSUM_PATH"
 mkdir -p "$RELEASE_DIR"
 
 # Reuse the local launcher script only for its icon generation path.
@@ -59,7 +66,7 @@ bash "$PROJECT_ROOT/scripts/build_macos_app.sh" >/dev/null
     --hidden-import ctranslate2 \
     "$PROJECT_ROOT/main.py"
 
-"$PYTHON_BIN" - "$APP_PATH/Contents/Info.plist" "$VERSION" "$BUNDLE_ID" <<'PY'
+"$PYTHON_BIN" - "$APP_PATH/Contents/Info.plist" "$APP_VERSION" "$BUNDLE_ID" <<'PY'
 import plistlib
 import sys
 from pathlib import Path
@@ -82,6 +89,7 @@ with plist_path.open("wb") as file:
 PY
 
 codesign --force --deep --sign - "$APP_PATH" >/dev/null
+codesign --verify --deep --strict "$APP_PATH"
 
 mkdir -p "$STAGING_DIR"
 cp -R "$APP_PATH" "$STAGING_DIR/$APP_NAME.app"
@@ -113,5 +121,12 @@ hdiutil create \
     -format UDZO \
     "$DMG_PATH" >/dev/null
 rm -rf "$STAGING_DIR"
+hdiutil verify "$DMG_PATH" >/dev/null
+
+(
+    cd "$RELEASE_DIR"
+    shasum -a 256 "$(basename "$DMG_PATH")" > "$(basename "$CHECKSUM_PATH")"
+)
 
 echo "Built $DMG_PATH"
+echo "Wrote $CHECKSUM_PATH"

@@ -102,7 +102,7 @@ scripts/build_macos_app.sh --install
 Release DMGs are built with PyInstaller and written to `dist/release/`:
 
 ```bash
-VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.0 scripts/build_macos_release.sh
+VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.1 scripts/build_macos_release.sh
 ```
 
 The output app includes the Python runtime and Python dependencies, but still expects system FFmpeg and downloads ASR models on first use.

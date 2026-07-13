@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QBoxLayout
+from qfluentwidgets import CheckBox
 
 from app.view.download_center_interface import DownloadCenterInterface
 
@@ -31,6 +32,79 @@ class DownloadCenterLayoutTests(unittest.TestCase):
             self.app.processEvents()
             self.assertTrue(interface.simple_panel.isHidden())
             self.assertFalse(interface.professional_panel.isHidden())
+        interface.deleteLater()
+
+    def test_compact_layout_stacks_preview_and_wraps_download_options(self):
+        interface = DownloadCenterInterface()
+        interface.resize(700, 760)
+        interface.show()
+        interface._set_preview_visible(True)
+        self.app.processEvents()
+
+        self.assertEqual(
+            interface.preview_card_layout.direction(), QBoxLayout.TopToBottom
+        )
+        compact_positions = [
+            interface.download_options_grid.getItemPosition(
+                interface.download_options_grid.indexOf(checkbox)
+            )[:2]
+            for checkbox in interface.download_option_checkboxes
+        ]
+        self.assertEqual(compact_positions, [(0, 0), (0, 1), (1, 0), (1, 1)])
+        self.assertEqual(interface.output_dir_layout.direction(), QBoxLayout.TopToBottom)
+        compact_custom_positions = [
+            (
+                interface.custom_preferences_grid.getItemPosition(
+                    interface.custom_preferences_grid.indexOf(label)
+                )[:2],
+                interface.custom_preferences_grid.getItemPosition(
+                    interface.custom_preferences_grid.indexOf(combo)
+                )[:2],
+            )
+            for label, combo in interface.custom_preference_fields
+        ]
+        self.assertEqual(
+            compact_custom_positions,
+            [((0, 0), (0, 1)), ((1, 0), (1, 1)), ((2, 0), (2, 1))],
+        )
+
+        interface.resize(1000, 760)
+        self.app.processEvents()
+        self.assertEqual(
+            interface.preview_card_layout.direction(), QBoxLayout.LeftToRight
+        )
+        wide_positions = [
+            interface.download_options_grid.getItemPosition(
+                interface.download_options_grid.indexOf(checkbox)
+            )[:2]
+            for checkbox in interface.download_option_checkboxes
+        ]
+        self.assertEqual(wide_positions, [(0, 0), (0, 1), (0, 2), (0, 3)])
+        self.assertEqual(interface.output_dir_layout.direction(), QBoxLayout.LeftToRight)
+        wide_custom_positions = [
+            (
+                interface.custom_preferences_grid.getItemPosition(
+                    interface.custom_preferences_grid.indexOf(label)
+                )[:2],
+                interface.custom_preferences_grid.getItemPosition(
+                    interface.custom_preferences_grid.indexOf(combo)
+                )[:2],
+            )
+            for label, combo in interface.custom_preference_fields
+        ]
+        self.assertEqual(
+            wide_custom_positions,
+            [((0, 0), (0, 1)), ((0, 2), (0, 3)), ((0, 4), (0, 5))],
+        )
+        interface.deleteLater()
+
+    def test_download_options_use_fluent_checkboxes_with_larger_hit_targets(self):
+        interface = DownloadCenterInterface()
+
+        self.assertEqual(len(interface.download_checkboxes), 9)
+        for checkbox in interface.download_checkboxes:
+            self.assertIsInstance(checkbox, CheckBox)
+            self.assertGreaterEqual(checkbox.minimumHeight(), 28)
         interface.deleteLater()
 
     def test_preview_summarizes_large_subtitle_language_lists(self):

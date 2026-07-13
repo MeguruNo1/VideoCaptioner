@@ -11,9 +11,9 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
-    QCheckBox,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -31,6 +31,7 @@ from qfluentwidgets import (
     Action,
     BodyLabel,
     CardWidget,
+    CheckBox,
     ComboBox,
     CommandBar,
     FluentIcon as FIF,
@@ -117,6 +118,7 @@ class AspectRatioLabel(QLabel):
 class DownloadCenterInterface(QWidget):
     send_to_transcription = pyqtSignal(str)
     DOWNLOAD_STATE_PATH = APP_DATA_PATH / "download_center_state.json"
+    COMPACT_CONTENT_WIDTH = 640
     PR_SUPPORTED_AUDIO_EXTS = {"aac", "aif", "aiff", "bwf", "m4a", "mp3", "mp4", "wav"}
     PR_SMART_PREFERRED_AUDIO_EXTS = {"aac", "m4a"}
     PR_SMART_PREFERRED_AUDIO_CODECS = ("mp4a", "aac")
@@ -184,6 +186,7 @@ class DownloadCenterInterface(QWidget):
         self._pending_work_dir = ""
         self._last_persisted_progress = -1
         self._restoring_download_preferences = True
+        self._compact_layout_active = None
 
         self.setObjectName("DownloadCenterInterface")
         self.setWindowTitle(self.tr("下载中心"))
@@ -514,15 +517,15 @@ class DownloadCenterInterface(QWidget):
         self.custom_audio_codec_combo.addItem("Opus", userData="opus")
         self.custom_audio_codec_combo.setMinimumWidth(160)
 
-        custom_preferences_row = QHBoxLayout()
-        custom_preferences_row.setSpacing(12)
-        custom_preferences_row.addWidget(self.custom_video_codec_label)
-        custom_preferences_row.addWidget(self.custom_video_codec_combo)
-        custom_preferences_row.addWidget(self.custom_container_label)
-        custom_preferences_row.addWidget(self.custom_container_combo)
-        custom_preferences_row.addWidget(self.custom_audio_codec_label)
-        custom_preferences_row.addWidget(self.custom_audio_codec_combo)
-        custom_preferences_row.addStretch(1)
+        self.custom_preferences_grid = QGridLayout()
+        self.custom_preferences_grid.setContentsMargins(0, 0, 0, 0)
+        self.custom_preferences_grid.setHorizontalSpacing(12)
+        self.custom_preferences_grid.setVerticalSpacing(8)
+        self.custom_preference_fields = (
+            (self.custom_video_codec_label, self.custom_video_codec_combo),
+            (self.custom_container_label, self.custom_container_combo),
+            (self.custom_audio_codec_label, self.custom_audio_codec_combo),
+        )
 
         self.custom_preferences_hint_label = BodyLabel(
             self.tr("自定义预设会按你的偏好组合下载格式，并保留自动回退策略。"),
@@ -534,18 +537,18 @@ class DownloadCenterInterface(QWidget):
         simple_layout.addLayout(simple_row)
         simple_layout.addWidget(self.simple_hint_label)
         custom_preferences_layout.addWidget(custom_preferences_title)
-        custom_preferences_layout.addLayout(custom_preferences_row)
+        custom_preferences_layout.addLayout(self.custom_preferences_grid)
         custom_preferences_layout.addWidget(self.custom_preferences_hint_label)
         simple_layout.addWidget(self.custom_preferences_section)
         self.custom_preferences_section.setVisible(False)
 
-        self.pr_smart_postprocess_checkbox = QCheckBox(
+        self.pr_smart_postprocess_checkbox = CheckBox(
             self.tr("若下载结果为 AV1/VP9，则额外转为 H.265"),
             self.simple_panel,
         )
         self.pr_smart_postprocess_checkbox.setVisible(False)
         simple_layout.addWidget(self.pr_smart_postprocess_checkbox)
-        self.pr_smart_transcript_checkbox = QCheckBox(
+        self.pr_smart_transcript_checkbox = CheckBox(
             self.tr("生成视频文稿（使用 YouTube 字幕）"),
             self.simple_panel,
         )
@@ -574,7 +577,7 @@ class DownloadCenterInterface(QWidget):
         self.video_table = self._create_format_table(self.professional_panel)
         self.audio_table = self._create_format_table(self.professional_panel)
         professional_layout.addLayout(mode_row)
-        self.professional_postprocess_checkbox = QCheckBox(
+        self.professional_postprocess_checkbox = CheckBox(
             self.tr("若下载结果为 AV1/VP9，则额外转为 H.265"),
             self.professional_panel,
         )
@@ -610,22 +613,29 @@ class DownloadCenterInterface(QWidget):
         options_layout.setContentsMargins(20, 12, 20, 16)
         options_layout.setSpacing(12)
 
-        options_header = QHBoxLayout()
-        options_header.setSpacing(18)
+        self.options_header_layout = QBoxLayout(QBoxLayout.LeftToRight)
+        self.options_header_layout.setSpacing(12)
         options_title = BodyLabel(self.tr("附加下载项"), self.options_section)
         options_title.setObjectName("downloadSectionTitle")
-        self.subtitle_checkbox = QCheckBox(self.tr("下载字幕"), self.options_section)
-        self.thumbnail_checkbox = QCheckBox(self.tr("下载封面"), self.options_section)
-        self.metadata_checkbox = QCheckBox(self.tr("下载元数据"), self.options_section)
-        self.description_txt_checkbox = QCheckBox(self.tr("生成说明TXT"), self.options_section)
+        self.subtitle_checkbox = CheckBox(self.tr("下载字幕"), self.options_section)
+        self.thumbnail_checkbox = CheckBox(self.tr("下载封面"), self.options_section)
+        self.metadata_checkbox = CheckBox(self.tr("下载元数据"), self.options_section)
+        self.description_txt_checkbox = CheckBox(self.tr("生成说明TXT"), self.options_section)
         self.description_txt_checkbox.setChecked(True)
         self.thumbnail_checkbox.setChecked(True)
-        options_header.addWidget(options_title)
-        options_header.addWidget(self.subtitle_checkbox)
-        options_header.addWidget(self.thumbnail_checkbox)
-        options_header.addWidget(self.metadata_checkbox)
-        options_header.addWidget(self.description_txt_checkbox)
-        options_header.addStretch(1)
+        self.download_option_checkboxes = (
+            self.subtitle_checkbox,
+            self.thumbnail_checkbox,
+            self.metadata_checkbox,
+            self.description_txt_checkbox,
+        )
+        self.download_options_container = QWidget(self.options_section)
+        self.download_options_grid = QGridLayout(self.download_options_container)
+        self.download_options_grid.setContentsMargins(0, 0, 0, 0)
+        self.download_options_grid.setHorizontalSpacing(16)
+        self.download_options_grid.setVerticalSpacing(8)
+        self.options_header_layout.addWidget(options_title)
+        self.options_header_layout.addWidget(self.download_options_container, 1)
 
         self.subtitle_mode_row = QWidget(self.options_section)
         subtitle_mode_layout = QHBoxLayout(self.subtitle_mode_row)
@@ -656,8 +666,8 @@ class DownloadCenterInterface(QWidget):
         time_range_header = QHBoxLayout()
         time_range_header.setContentsMargins(0, 0, 0, 0)
         time_range_header.setSpacing(12)
-        self.enable_time_ranges_checkbox = QCheckBox(self.tr("启用时间段下载"), self.time_range_section)
-        self.multi_time_ranges_checkbox = QCheckBox(self.tr("多时间段"), self.time_range_section)
+        self.enable_time_ranges_checkbox = CheckBox(self.tr("启用时间段下载"), self.time_range_section)
+        self.multi_time_ranges_checkbox = CheckBox(self.tr("多时间段"), self.time_range_section)
         self.multi_time_ranges_checkbox.setEnabled(False)
         time_range_header.addWidget(self.enable_time_ranges_checkbox)
         time_range_header.addWidget(self.multi_time_ranges_checkbox)
@@ -687,9 +697,9 @@ class DownloadCenterInterface(QWidget):
         self._update_time_range_ui_state()
 
         self.output_dir_row = QWidget(self.options_section)
-        output_dir_layout = QHBoxLayout(self.output_dir_row)
-        output_dir_layout.setContentsMargins(0, 0, 0, 0)
-        output_dir_layout.setSpacing(12)
+        self.output_dir_layout = QBoxLayout(QBoxLayout.LeftToRight, self.output_dir_row)
+        self.output_dir_layout.setContentsMargins(0, 0, 0, 0)
+        self.output_dir_layout.setSpacing(12)
         self.output_dir_title = BodyLabel(self.tr("输出目录"), self.output_dir_row)
         self.output_dir_title.setObjectName("downloadPrimaryLabel")
         self.output_dir_value = BodyLabel("", self.output_dir_row)
@@ -697,16 +707,27 @@ class DownloadCenterInterface(QWidget):
         self.output_dir_value.setWordWrap(True)
         self.choose_output_dir_button = PushButton(self.tr("选择目录"), self.output_dir_row)
         self.reset_output_dir_button = PushButton(self.tr("跟随工作目录"), self.output_dir_row)
-        output_dir_layout.addWidget(self.output_dir_title)
-        output_dir_layout.addWidget(self.output_dir_value, 1)
-        output_dir_layout.addWidget(self.choose_output_dir_button)
-        output_dir_layout.addWidget(self.reset_output_dir_button)
+        self.output_dir_layout.addWidget(self.output_dir_title)
+        self.output_dir_layout.addWidget(self.output_dir_value, 1)
+        self.output_dir_layout.addWidget(self.choose_output_dir_button)
+        self.output_dir_layout.addWidget(self.reset_output_dir_button)
+
+        self.download_checkboxes = (
+            self.pr_smart_postprocess_checkbox,
+            self.pr_smart_transcript_checkbox,
+            self.professional_postprocess_checkbox,
+            *self.download_option_checkboxes,
+            self.enable_time_ranges_checkbox,
+            self.multi_time_ranges_checkbox,
+        )
+        for checkbox in self.download_checkboxes:
+            checkbox.setMinimumHeight(28)
 
         self.strategy_label = BodyLabel("", self.options_section)
         self.strategy_label.setObjectName("downloadHintLabel")
         self.strategy_label.setWordWrap(True)
 
-        options_layout.addLayout(options_header)
+        options_layout.addLayout(self.options_header_layout)
         options_layout.addWidget(self.subtitle_mode_row)
         options_layout.addWidget(self.time_range_section)
         options_layout.addWidget(self.output_dir_row)
@@ -953,11 +974,11 @@ class DownloadCenterInterface(QWidget):
             QLabel#downloadPrimaryLabel {{ color: {primary_color}; }}
             QLabel#downloadHintLabel {{ color: {hint_color}; font-size: 13px; }}
             QLabel#downloadPathValueLabel {{ color: {value_color}; font-size: 13px; }}
-            QCheckBox {{
+            CheckBox, QCheckBox {{
                 color: {primary_color};
                 spacing: 6px;
             }}
-            QCheckBox:disabled {{
+            CheckBox:disabled, QCheckBox:disabled {{
                 color: {hint_color};
             }}
             QLabel#downloadThumbnailLabel {{
@@ -985,6 +1006,8 @@ class DownloadCenterInterface(QWidget):
                 font-size: 13px;
             }}
         """)
+        for checkbox in getattr(self, "download_checkboxes", ()):
+            checkbox.setMinimumHeight(28)
 
     def _switch_download_mode(self, mode_key: str):
         if mode_key not in {"simple", "professional"}:
@@ -1096,18 +1119,35 @@ class DownloadCenterInterface(QWidget):
         if not hasattr(self, "video_table") or not hasattr(self, "audio_table"):
             return
 
-        try:
-            if hasattr(self, "preview_card_layout"):
-                if self.width() < 640:
-                    self.preview_card_layout.setDirection(QBoxLayout.TopToBottom)
-                    self.thumbnail_label.setMaximumWidth(16777215)
-                    self.thumbnail_label.setMaximumHeight(180)
-                else:
-                    self.preview_card_layout.setDirection(QBoxLayout.LeftToRight)
-                    self.thumbnail_label.setMaximumWidth(280)
-                    self.thumbnail_label.setMaximumHeight(16777215)
-        except Exception:
-            pass
+        viewport_width = self.content_scroll.viewport().width()
+        content_width = viewport_width if viewport_width > 0 else self.width()
+        compact = content_width <= self.COMPACT_CONTENT_WIDTH
+
+        if self._compact_layout_active != compact:
+            self._compact_layout_active = compact
+            direction = (
+                QBoxLayout.TopToBottom if compact else QBoxLayout.LeftToRight
+            )
+            self.preview_card_layout.setDirection(direction)
+            self.options_header_layout.setDirection(direction)
+            self.output_dir_layout.setDirection(direction)
+            self._reflow_download_option_checkboxes(compact)
+            self._reflow_custom_preference_fields(compact)
+            self.scroll_content_layout.invalidate()
+            self.scroll_content.updateGeometry()
+
+        if compact:
+            self.thumbnail_label.setMaximumWidth(320)
+            self.thumbnail_label.setMaximumHeight(180)
+            self.preview_card_layout.setAlignment(
+                self.thumbnail_label, Qt.AlignHCenter
+            )
+        else:
+            self.thumbnail_label.setMaximumWidth(280)
+            self.thumbnail_label.setMaximumHeight(16777215)
+            self.preview_card_layout.setAlignment(
+                self.thumbnail_label, Qt.AlignVCenter
+            )
 
         visible_tables = int(self.video_table.isVisible()) + int(self.audio_table.isVisible())
         if visible_tables <= 0:
@@ -1120,6 +1160,41 @@ class DownloadCenterInterface(QWidget):
             self.video_table.setMinimumHeight(per_table_height)
         if self.audio_table.isVisible():
             self.audio_table.setMinimumHeight(per_table_height)
+
+    def _reflow_download_option_checkboxes(self, compact: bool):
+        while self.download_options_grid.count():
+            self.download_options_grid.takeAt(0)
+
+        column_count = 2 if compact else len(self.download_option_checkboxes)
+        for index, checkbox in enumerate(self.download_option_checkboxes):
+            row, column = divmod(index, column_count)
+            self.download_options_grid.addWidget(checkbox, row, column)
+
+        for column in range(len(self.download_option_checkboxes)):
+            self.download_options_grid.setColumnStretch(
+                column, 1 if column < column_count else 0
+            )
+
+    def _reflow_custom_preference_fields(self, compact: bool):
+        while self.custom_preferences_grid.count():
+            self.custom_preferences_grid.takeAt(0)
+        for column in range(len(self.custom_preference_fields) * 2 + 1):
+            self.custom_preferences_grid.setColumnStretch(column, 0)
+
+        if compact:
+            for row, (label, combo) in enumerate(self.custom_preference_fields):
+                self.custom_preferences_grid.addWidget(label, row, 0)
+                self.custom_preferences_grid.addWidget(combo, row, 1)
+            self.custom_preferences_grid.setColumnStretch(1, 1)
+            return
+
+        for index, (label, combo) in enumerate(self.custom_preference_fields):
+            column = index * 2
+            self.custom_preferences_grid.addWidget(label, 0, column)
+            self.custom_preferences_grid.addWidget(combo, 0, column + 1)
+        self.custom_preferences_grid.setColumnStretch(
+            len(self.custom_preference_fields) * 2, 1
+        )
 
     def _set_controls_enabled(self, enabled: bool):
         self.controls_enabled = enabled

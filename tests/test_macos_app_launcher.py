@@ -8,6 +8,14 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 class MacOSAppLauncherTests(unittest.TestCase):
+    def test_release_script_uses_current_version_and_generates_checksum(self):
+        script = (ROOT_DIR / "scripts" / "build_macos_release.sh").read_text()
+
+        self.assertIn('DEFAULT_VERSION="macos-enhanced-v0.1.1"', script)
+        self.assertIn('APP_VERSION="${BASH_REMATCH[1]}"', script)
+        self.assertIn('shasum -a 256', script)
+        self.assertIn('hdiutil verify "$DMG_PATH"', script)
+
     def test_build_creates_native_arm64_launcher(self):
         subprocess.run(
             ["bash", str(ROOT_DIR / "scripts" / "build_macos_app.sh")],

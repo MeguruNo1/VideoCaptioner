@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QTime, QUrl, QAbstractTableModel, QEvent, pyqtSignal
-from PyQt5.QtGui import QColor, QDragEnterEvent, QDropEvent
+from PyQt5.QtGui import QColor, QDragEnterEvent, QDropEvent, QPalette
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -33,6 +33,7 @@ from qfluentwidgets import (
     TextEdit,
     TransparentDropDownPushButton,
     isDarkTheme,
+    themeColor,
 )
 
 from app.common.config import cfg
@@ -175,6 +176,7 @@ class SubtitleTableModel(QAbstractTableModel):
 
 class SubtitleInterface(QWidget):
     finished = pyqtSignal(str, str)
+    COMPACT_LAYOUT_WIDTH = 760
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -190,7 +192,9 @@ class SubtitleInterface(QWidget):
         self.set_values()
         cfg.themeMode.valueChanged.connect(lambda *_: self._apply_theme_styles())
         cfg.themeColor.valueChanged.connect(lambda *_: self._refresh_accent_icons())
+        cfg.themeColor.valueChanged.connect(lambda *_: self._apply_theme_styles())
         self._apply_theme_styles()
+        self._adjust_responsive_layout()
 
     @staticmethod
     def _extract_supported_subtitle_paths(urls):
@@ -372,6 +376,9 @@ class SubtitleInterface(QWidget):
             QSplitter::handle:horizontal {
                 width: 1px;
             }
+            QSplitter::handle:vertical {
+                height: 4px;
+            }
             """
         )
         self.original_table = TableView(self)
@@ -430,6 +437,8 @@ class SubtitleInterface(QWidget):
             grid_color = "rgba(255, 255, 255, 0.07)"
             header_background = "rgba(255, 255, 255, 0.06)"
             text_color = "#F5F5F5"
+            table_base_background = "#292A2D"
+            alternate_row_background = "#303134"
             handle_color = "rgba(255, 255, 255, 0.12)"
         else:
             page_background = "#F5F7FA"
@@ -439,7 +448,13 @@ class SubtitleInterface(QWidget):
             grid_color = "rgba(17, 24, 39, 0.10)"
             header_background = "#F2F4F7"
             text_color = "#1D2939"
+            table_base_background = "#FFFFFF"
+            alternate_row_background = "#F7F8FA"
             handle_color = "rgba(17, 24, 39, 0.16)"
+
+        accent_color = themeColor()
+        selection_background = accent_color.name()
+        selection_text = "#102124" if accent_color.lightness() >= 160 else "#FFFFFF"
 
         self.setStyleSheet(
             f"""
@@ -477,17 +492,35 @@ class SubtitleInterface(QWidget):
             QSplitter::handle:horizontal {{
                 width: 1px;
             }}
+            QSplitter::handle:vertical {{
+                height: 4px;
+            }}
             """
         )
         for table in (self.original_table, self.subtitle_table):
+            palette = table.palette()
+            palette.setColor(QPalette.Base, QColor(table_base_background))
+            palette.setColor(
+                QPalette.AlternateBase, QColor(alternate_row_background)
+            )
+            palette.setColor(QPalette.Text, QColor(text_color))
+            palette.setColor(QPalette.Highlight, accent_color)
+            palette.setColor(QPalette.HighlightedText, QColor(selection_text))
+            table.setPalette(palette)
+            table.setAlternatingRowColors(True)
             table.setStyleSheet(
                 f"""
                 QTableView {{
-                    background-color: {panel_background};
+                    background-color: {table_base_background};
+                    alternate-background-color: {alternate_row_background};
                     color: {text_color};
                     border: 1px solid {border_color};
                     border-radius: 8px;
                     gridline-color: {grid_color};
+                }}
+                QTableView::item:selected {{
+                    background-color: {selection_background};
+                    color: {selection_text};
                 }}
                 QHeaderView::section {{
                     background-color: {header_background};
@@ -507,6 +540,43 @@ class SubtitleInterface(QWidget):
                 border-radius: 8px;
             }}
             """
+        )
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._adjust_responsive_layout()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._adjust_responsive_layout()
+
+    def _adjust_responsive_layout(self):
+        if not hasattr(self, "content_splitter"):
+            return
+
+        target_orientation = (
+            Qt.Vertical
+            if self.width() <= self.COMPACT_LAYOUT_WIDTH
+            else Qt.Horizontal
+        )
+        if self.content_splitter.orientation() == target_orientation:
+            return
+
+        self.content_splitter.setOrientation(target_orientation)
+        self.content_splitter.setHandleWidth(
+            4 if target_orientation == Qt.Vertical else 1
+        )
+        available_size = (
+            max(self.content_splitter.height(), 1)
+            if target_orientation == Qt.Vertical
+            else max(self.content_splitter.width(), 1)
+        )
+        self.content_splitter.setSizes(
+            [
+                int(available_size * 0.36),
+                int(available_size * 0.36),
+                int(available_size * 0.28),
+            ]
         )
 
     def _setup_synced_subtitle_scrollbars(self):
@@ -759,6 +829,7 @@ class SubtitleInterface(QWidget):
         if hasattr(self, "subtitle_optimization_thread"):
             self.subtitle_optimization_thread.stop()
         self.start_button.setEnabled(True)
+        self.start_button.setText(self.tr("开始"))
         self.start_button.setToolTip(self.tr("开始处理当前字幕"))
         self.save_button.setEnabled(True)
         self.save_button.setToolTip(self.tr("保存字幕"))
@@ -782,8 +853,10 @@ class SubtitleInterface(QWidget):
             )
             return
         self.start_button.setEnabled(False)
+        self.start_button.setText(self.tr("处理中…"))
         self.progress_bar.reset()
         self.cancel_button.show()
+        self.status_label.setToolTip("")
         self.log_text.clear()
         self.append_task_log(self.tr("开始字幕处理"))
 
@@ -822,7 +895,12 @@ class SubtitleInterface(QWidget):
 
     def on_subtitle_optimization_finished(self, video_path, output_path):
         self.start_button.setEnabled(True)
+        self.start_button.setText(self.tr("再次处理"))
+        self.start_button.setToolTip(self.tr("再次处理当前字幕"))
         self.cancel_button.hide()  # 隐藏取消按钮
+        self.progress_bar.setValue(100)
+        self.status_label.setText(self.tr("处理完成"))
+        self.status_label.setToolTip(str(output_path))
         if self.task.need_next_task:
             self.finished.emit(video_path, output_path)
         self.append_task_log(
@@ -843,8 +921,12 @@ class SubtitleInterface(QWidget):
 
     def on_subtitle_optimization_error(self, error):
         self.start_button.setEnabled(True)
+        self.start_button.setText(self.tr("重试"))
+        self.start_button.setToolTip(self.tr("重新处理当前字幕"))
         self.cancel_button.hide()  # 隐藏取消按钮
         self.progress_bar.error()
+        self.status_label.setText(self.tr("处理失败"))
+        self.status_label.setToolTip(str(error))
         self.append_task_log(self.tr("错误: ") + str(error))
         InfoBar.error(self.tr("优化失败"), self.tr(error), duration=20000, parent=self)
         send_desktop_notification(
@@ -969,6 +1051,7 @@ class SubtitleInterface(QWidget):
         asr_data = ASRData.from_subtitle_file(file_path)
         self._set_subtitle_data(asr_data.to_json())
         self.start_button.setEnabled(True)
+        self.start_button.setText(self.tr("开始"))
         self.start_button.setToolTip(self.tr("开始处理当前字幕"))
         self.save_button.setEnabled(True)
         self.save_button.setToolTip(self.tr("保存字幕"))

@@ -1,9 +1,13 @@
 import os
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import QApplication
 
 from app.view.subtitle_interface import SubtitleInterface
@@ -40,6 +44,61 @@ class WorkspaceUxStateTests(unittest.TestCase):
 
         self.assertTrue(interface.start_button.isEnabled())
         self.assertTrue(interface.save_button.isEnabled())
+        interface.deleteLater()
+
+    def test_subtitle_layout_stacks_panels_on_compact_width(self):
+        interface = SubtitleInterface()
+        interface.resize(700, 680)
+        interface.show()
+        self.app.processEvents()
+
+        self.assertEqual(interface.content_splitter.orientation(), Qt.Vertical)
+
+        interface.resize(1000, 680)
+        self.app.processEvents()
+        self.assertEqual(interface.content_splitter.orientation(), Qt.Horizontal)
+        interface.deleteLater()
+
+    def test_dark_subtitle_tables_have_readable_alternating_rows(self):
+        interface = SubtitleInterface()
+
+        with patch("app.view.subtitle_interface.isDarkTheme", return_value=True):
+            interface._apply_theme_styles()
+
+        for table in (interface.original_table, interface.subtitle_table):
+            palette = table.palette()
+            base = palette.color(QPalette.Base)
+            alternate = palette.color(QPalette.AlternateBase)
+            text = palette.color(QPalette.Text)
+            self.assertTrue(table.alternatingRowColors())
+            self.assertLess(base.lightness(), 90)
+            self.assertLess(alternate.lightness(), 90)
+            self.assertNotEqual(base.name(), alternate.name())
+            self.assertGreater(text.lightness() - base.lightness(), 120)
+            self.assertGreater(text.lightness() - alternate.lightness(), 120)
+        interface.deleteLater()
+
+    def test_subtitle_finish_and_error_leave_persistent_status(self):
+        interface = SubtitleInterface()
+        interface.task = SimpleNamespace(need_next_task=False)
+
+        with patch("app.view.subtitle_interface.InfoBar.success"), patch(
+            "app.view.subtitle_interface.InfoBar.error"
+        ), patch(
+            "app.view.subtitle_interface.send_desktop_notification"
+        ):
+            interface.on_subtitle_optimization_finished(
+                "video.mp4", "/tmp/processed.srt"
+            )
+            self.assertEqual(interface.status_label.text(), "处理完成")
+            self.assertEqual(interface.status_label.toolTip(), "/tmp/processed.srt")
+            self.assertEqual(interface.progress_bar.value(), 100)
+            self.assertEqual(interface.start_button.text(), "再次处理")
+
+            interface.on_subtitle_optimization_error("服务暂时不可用")
+            self.assertEqual(interface.status_label.text(), "处理失败")
+            self.assertEqual(interface.status_label.toolTip(), "服务暂时不可用")
+            self.assertEqual(interface.start_button.text(), "重试")
         interface.deleteLater()
 
 
