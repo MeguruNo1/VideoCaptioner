@@ -3,7 +3,7 @@ import unittest
 from app.view.download_center_interface import DownloadCenterInterface
 
 
-class TestableDownloadCenterInterface(DownloadCenterInterface):
+class DownloadCenterInterfaceHarness(DownloadCenterInterface):
     def tr(self, text):
         return text
 
@@ -30,7 +30,7 @@ class _Combo:
 
 class PrSmartFormatSelectionTests(unittest.TestCase):
     def _interface_with_preview(self, preview_data):
-        interface = TestableDownloadCenterInterface.__new__(TestableDownloadCenterInterface)
+        interface = DownloadCenterInterfaceHarness.__new__(DownloadCenterInterfaceHarness)
         interface.preview_data = preview_data
         return interface
 
@@ -342,7 +342,7 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
         self.assertEqual(request, {"format_selector": "custom-selector"})
 
     def test_professional_video_mode_can_enable_hevc_postprocess(self):
-        interface = TestableDownloadCenterInterface.__new__(TestableDownloadCenterInterface)
+        interface = DownloadCenterInterfaceHarness.__new__(DownloadCenterInterfaceHarness)
         interface.current_mode_key = "professional"
         interface.professional_mode_combo = _Combo("video")
         interface.selected_video_format = {"format_id": "401", "has_audio": False}
@@ -362,7 +362,7 @@ class PrSmartFormatSelectionTests(unittest.TestCase):
         self.assertTrue(request["pr_smart_transcode_hevc_on_av1"])
 
     def test_professional_audio_mode_does_not_enable_hevc_postprocess(self):
-        interface = TestableDownloadCenterInterface.__new__(TestableDownloadCenterInterface)
+        interface = DownloadCenterInterfaceHarness.__new__(DownloadCenterInterfaceHarness)
         interface.current_mode_key = "professional"
         interface.professional_mode_combo = _Combo("audio")
         interface.selected_video_format = None

@@ -60,6 +60,26 @@ def test_collapses_repeated_phrase_loops_but_keeps_short_repetitions():
     ]
 
 
+def test_collapses_repeated_phrase_loops_with_punctuation_separators():
+    asr_data = ASRData(
+        [_seg("before", 0)]
+        + [
+            _seg(text, index + 1)
+            for index, text in enumerate(["5", "-"] * 120 + ["5"])
+        ]
+        + [_seg("after", 242)]
+    )
+
+    asr_data.remove_repeated_asr_artifacts()
+
+    assert [seg.text for seg in asr_data.segments] == [
+        "before",
+        "5",
+        "-",
+        "after",
+    ]
+
+
 def test_removes_only_fullwidth_periods_from_translated_text():
     asr_data = ASRData(
         [

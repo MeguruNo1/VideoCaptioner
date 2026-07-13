@@ -202,6 +202,7 @@ class VideoInfoCard(CardWidget):
     def start_transcription(self, need_create_task=True, force_no_asr_cache=False):
         """开始转录过程"""
         self.transcription_interface.is_processing = True
+        self.transcription_interface._set_translation_handoff_enabled(False)
         self.start_button.setEnabled(False)
 
         if need_create_task:
@@ -364,6 +365,7 @@ class TranscriptionInterface(QWidget):
             triggered=self._on_send_to_translate_clicked,
         )
         self.command_bar.addAction(self.send_to_translate_action)
+        self._set_translation_handoff_enabled(False)
 
         self.main_layout.addWidget(self.command_bar)
 
@@ -443,6 +445,7 @@ class TranscriptionInterface(QWidget):
         """转录完成处理"""
         self.is_processing = False
         self.task = task
+        self._set_translation_handoff_enabled(True)
         send_desktop_notification(
             self.tr("转录完成"),
             self.tr("字幕文件已生成：") + Path(task.output_path).name,
@@ -509,6 +512,17 @@ class TranscriptionInterface(QWidget):
         """清理旧任务，避免新文件复用上一份转录结果。"""
         self.task = None
         self.video_info_card.task = None
+        self.video_info_card.start_button.setEnabled(False)
+        self.video_info_card.start_button.setText(self.tr("开始转录"))
+        self._set_translation_handoff_enabled(False)
+
+    def _set_translation_handoff_enabled(self, enabled: bool):
+        self.send_to_translate_action.setEnabled(bool(enabled))
+        self.send_to_translate_action.setToolTip(
+            self.tr("将已生成的字幕送到字幕优化与翻译页")
+            if enabled
+            else self.tr("请先完成转录")
+        )
 
     def update_info(self, file_path):
         """设置UI"""
@@ -528,11 +542,16 @@ class TranscriptionInterface(QWidget):
         """设置任务并更新UI"""
         self.task = task
         self.video_info_card.set_task(self.task)
+        output_path = Path(task.output_path) if task.output_path else None
+        self._set_translation_handoff_enabled(
+            bool(output_path and output_path.exists())
+        )
         self.update_info(self.task.file_path)
 
     def process(self):
         """主处理函数"""
         self.is_processing = True
+        self._set_translation_handoff_enabled(False)
         self.video_info_card.start_transcription(need_create_task=False)
 
     def dragEnterEvent(self, event):

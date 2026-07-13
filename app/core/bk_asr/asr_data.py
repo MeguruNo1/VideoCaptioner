@@ -105,6 +105,18 @@ class ASRData:
     def _duplicate_artifact_key(text: str) -> str:
         return re.sub(r"^[\W_]+|[\W_]+$", "", (text or "").strip().casefold())
 
+    @classmethod
+    def _phrase_artifact_key(cls, text: str) -> str:
+        """Normalize words and retain punctuation-only phrase separators."""
+        lexical_key = cls._duplicate_artifact_key(text)
+        if lexical_key:
+            return lexical_key
+
+        punctuation = re.sub(r"\s+", "", (text or "").strip().casefold())
+        if punctuation:
+            return f"__punctuation__:{punctuation}"
+        return ""
+
     def remove_long_duplicate_runs(self, min_run_length: int = 10) -> "ASRData":
         """Collapse long ASR hallucination runs like word word word ..."""
         min_run_length = max(2, int(min_run_length or 2))
@@ -148,12 +160,17 @@ class ASRData:
         if len(self.segments) < min_repetitions * 2:
             return self
 
-        keys = [self._duplicate_artifact_key(seg.text) for seg in self.segments]
+        # Punctuation-only word-timestamp segments must remain part of the
+        # pattern. Otherwise loops such as ``5 - 5 - 5 - ...`` become
+        # ``["5", "", "5", "", ...]`` and bypass duplicate detection.
+        keys = [self._phrase_artifact_key(seg.text) for seg in self.segments]
         keep = [True] * len(self.segments)
         index = 0
         while index < len(keys):
             found_loop = False
-            for phrase_len in range(max_phrase_words, 1, -1):
+            # Prefer the shortest repeating unit. Checking longer phrases first
+            # leaves duplicate cycles behind for patterns such as A-B-A-B.
+            for phrase_len in range(2, max_phrase_words + 1):
                 end = index + phrase_len * min_repetitions
                 if end > len(keys):
                     continue
@@ -178,7 +195,21 @@ class ASRData:
                     index + repeats * phrase_len,
                 ):
                     keep[remove_index] = False
-                index += repeats * phrase_len
+
+                # ASR loops can stop midway through the next cycle (for
+                # example ``5 -`` repeated many times and ending on ``5``).
+                # Drop that matching suffix as part of the same artifact.
+                run_end = index + repeats * phrase_len
+                partial_len = 0
+                while (
+                    partial_len < phrase_len
+                    and run_end + partial_len < len(keys)
+                    and keys[run_end + partial_len] == phrase[partial_len]
+                ):
+                    keep[run_end + partial_len] = False
+                    partial_len += 1
+
+                index = run_end + partial_len
                 found_loop = True
                 break
             if not found_loop:

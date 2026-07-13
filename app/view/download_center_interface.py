@@ -34,6 +34,7 @@ from qfluentwidgets import (
     ComboBox,
     CommandBar,
     FluentIcon as FIF,
+    IconWidget,
     InfoBar,
     InfoBarPosition,
     IndeterminateProgressBar,
@@ -111,22 +112,6 @@ class AspectRatioLabel(QLabel):
 
     def hasHeightForWidth(self):
         return True
-
-
-class CurrentPageStackedWidget(QStackedWidget):
-    """Size the stack from its visible page instead of its largest page."""
-
-    def sizeHint(self):
-        current_widget = self.currentWidget()
-        if current_widget is not None:
-            return current_widget.sizeHint()
-        return super().sizeHint()
-
-    def minimumSizeHint(self):
-        current_widget = self.currentWidget()
-        if current_widget is not None:
-            return current_widget.minimumSizeHint()
-        return super().minimumSizeHint()
 
 
 class DownloadCenterInterface(QWidget):
@@ -331,7 +316,9 @@ class DownloadCenterInterface(QWidget):
 
         self._switch_download_mode("simple")
         self.mode_switch.setMinimumHeight(36)
-        self.mode_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.mode_panel_container.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Preferred
+        )
         self.content_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._adjust_responsive_layout()
 
@@ -364,20 +351,24 @@ class DownloadCenterInterface(QWidget):
         url_card_layout.setContentsMargins(20, 14, 20, 14)
         url_card_layout.setSpacing(12)
 
-        url_icon_label = BodyLabel(self.url_card)
-        url_icon_label.setFixedSize(20, 20)
-        url_icon_label.setStyleSheet("font-size: 16px;")
-        url_icon_label.setText("🔗")
+        url_icon = IconWidget(FIF.LINK, self.url_card)
+        url_icon.setFixedSize(20, 20)
+        url_icon.setAccessibleName(self.tr("视频链接"))
 
         self.url_input = LineEdit(self.url_card)
         self.url_input.setPlaceholderText(self.tr("请输入视频 URL，支持 B站 / YouTube / Twitter 等平台链接"))
         self.url_input.setClearButtonEnabled(True)
         self.url_input.setMinimumHeight(36)
+        self.url_input.setAccessibleName(self.tr("视频链接"))
+        self.url_input.setAccessibleDescription(
+            self.tr("粘贴视频链接后按回车即可解析")
+        )
 
         self.parse_button = PushButton(self.tr("解析"), self.url_card)
         self.parse_button.setFixedWidth(80)
+        self.parse_button.setAccessibleName(self.tr("解析视频链接"))
 
-        url_card_layout.addWidget(url_icon_label)
+        url_card_layout.addWidget(url_icon)
         url_card_layout.addWidget(self.url_input, 1)
         url_card_layout.addWidget(self.parse_button)
 
@@ -464,7 +455,10 @@ class DownloadCenterInterface(QWidget):
         selection_layout.setSpacing(12)
 
         self.mode_switch = SegmentedWidget(self.selection_section)
-        self.mode_stack = CurrentPageStackedWidget(self.selection_section)
+        self.mode_panel_container = QWidget(self.selection_section)
+        self.mode_panel_layout = QVBoxLayout(self.mode_panel_container)
+        self.mode_panel_layout.setContentsMargins(0, 0, 0, 0)
+        self.mode_panel_layout.setSpacing(0)
         self.mode_switch.addItem(routeKey="simple", text=self.tr("简易模式"), onClick=lambda: self._switch_download_mode("simple"))
         self.mode_switch.addItem(routeKey="professional", text=self.tr("专业模式"), onClick=lambda: self._switch_download_mode("professional"))
 
@@ -590,13 +584,15 @@ class DownloadCenterInterface(QWidget):
         professional_layout.addWidget(self.audio_section_title)
         professional_layout.addWidget(self.audio_table)
 
-        self.mode_stack.addWidget(self.simple_panel)
-        self.mode_stack.addWidget(self.professional_panel)
+        self.mode_panel_layout.addWidget(self.simple_panel)
+        self.mode_panel_layout.addWidget(self.professional_panel)
+        self.professional_panel.hide()
         self.selection_summary_label = BodyLabel(self.tr("已选方案：暂无"), self.selection_section)
         self.selection_summary_label.setObjectName("downloadPrimaryLabel")
         self.selection_summary_label.setWordWrap(True)
+        self.selection_summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         selection_layout.addWidget(self.mode_switch)
-        selection_layout.addWidget(self.mode_stack)
+        selection_layout.addWidget(self.mode_panel_container)
         selection_layout.addWidget(self.selection_summary_label)
 
         parent_layout.addWidget(self.selection_section)
@@ -858,6 +854,7 @@ class DownloadCenterInterface(QWidget):
 
     def setup_signals(self):
         self.url_input.textChanged.connect(self._on_url_text_changed)
+        self.url_input.returnPressed.connect(self.parse_link)
         self.parse_button.clicked.connect(self.parse_link)
         self.start_button.clicked.connect(self._on_start_button_clicked)
         self.subtitle_checkbox.toggled.connect(self._toggle_subtitle_mode_row)
@@ -994,9 +991,11 @@ class DownloadCenterInterface(QWidget):
             mode_key = "simple"
         self.current_mode_key = mode_key
         self.mode_switch.setCurrentItem(mode_key)
-        self.mode_stack.setCurrentWidget(self.simple_panel if mode_key == "simple" else self.professional_panel)
+        self.simple_panel.setVisible(mode_key == "simple")
+        self.professional_panel.setVisible(mode_key == "professional")
         self._adjust_responsive_layout()
-        self.mode_stack.updateGeometry()
+        self.mode_panel_layout.invalidate()
+        self.mode_panel_container.updateGeometry()
         self.selection_section.updateGeometry()
         self._update_custom_preferences_visibility()
         self._refresh_selection_summary()
@@ -1811,6 +1810,12 @@ class DownloadCenterInterface(QWidget):
     def _selected_subtitle_mode(self) -> str:
         return self.subtitle_mode_combo.currentData() or "manual"
 
+    def _selected_subtitle_language(self) -> str:
+        combo = self.__dict__.get("subtitle_language_combo")
+        if combo is not None:
+            return str(combo.currentData() or "en")
+        return str(cfg.get(cfg.download_center_subtitle_language) or "en")
+
     def _refresh_edge_cookie_if_needed(self):
         if not bool(cfg.get(cfg.download_auto_refresh_edge_cookies)):
             return
@@ -1889,9 +1894,16 @@ class DownloadCenterInterface(QWidget):
         self.preview_meta_label.setText(self.tr("时长 / 日期 / 播放量：") + " · ".join(meta_parts))
         manual = preview.get("manual_subtitle_languages") or []
         auto = preview.get("auto_subtitle_languages") or []
-        subtitle_text = self.tr("字幕：人工 ") + (", ".join(manual) if manual else self.tr("无"))
-        subtitle_text += self.tr("；自动 ") + (", ".join(auto) if auto else self.tr("无"))
+        subtitle_text = self.tr("字幕：") + self.tr("人工 ") + self._summarize_languages(manual)
+        subtitle_text += self.tr("；自动 ") + self._summarize_languages(auto)
         self.preview_subtitle_label.setText(subtitle_text)
+        self.preview_subtitle_label.setToolTip(
+            self.tr("人工字幕：")
+            + (", ".join(manual) if manual else self.tr("无"))
+            + "\n"
+            + self.tr("自动字幕：")
+            + (", ".join(auto) if auto else self.tr("无"))
+        )
         self.thumbnail_label.setPixmap(QPixmap())
         thumbnail_bytes = preview.get("thumbnail_bytes")
         if thumbnail_bytes:
@@ -1901,6 +1913,20 @@ class DownloadCenterInterface(QWidget):
             self.thumbnail_label.setText("")
         else:
             self.thumbnail_label.setText(self.tr("暂无封面"))
+
+    def _summarize_languages(self, languages, limit: int = 5) -> str:
+        unique_languages = []
+        for language in languages:
+            language = str(language).strip()
+            if language and language not in unique_languages:
+                unique_languages.append(language)
+        if not unique_languages:
+            return self.tr("无")
+
+        visible = ", ".join(unique_languages[:limit])
+        if len(unique_languages) <= limit:
+            return self.tr("{0} 种（{1}）").format(len(unique_languages), visible)
+        return self.tr("{0} 种（{1}…）").format(len(unique_languages), visible)
 
     def _populate_video_table(self, formats: list[dict]):
         self.video_button_group = QButtonGroup(self)
@@ -2360,6 +2386,9 @@ class DownloadCenterInterface(QWidget):
 
         self.last_selection_summary = self.tr("；").join(parts) if parts else self.tr("暂无")
         self.selection_summary_label.setText(self.tr("已选方案：") + self.last_selection_summary)
+        self.selection_summary_label.setToolTip(self.selection_summary_label.text())
+        self.mode_panel_layout.invalidate()
+        self.mode_panel_container.updateGeometry()
 
     def _build_download_request(self) -> dict | None:
         request = {
@@ -2378,7 +2407,7 @@ class DownloadCenterInterface(QWidget):
             "download_sections": [],
             "pr_smart_transcode_hevc_on_av1": False,
             "ensure_mp4_output": False,
-            "subtitle_language": self.subtitle_language_combo.currentData() or "en",
+            "subtitle_language": self._selected_subtitle_language(),
         }
 
         simple_preset = None

@@ -248,12 +248,15 @@ class SubtitleInterface(QWidget):
             save_menu.addAction(action)
 
         # 添加保存按钮(带下拉菜单)
-        save_button = TransparentDropDownPushButton(self.tr("保存"), self, FIF.SAVE)
-        save_button.setMenu(save_menu)
-        save_button.setFixedHeight(34)
-        save_button.setMinimumWidth(90)
-        save_button.setToolTip(self.tr("保存"))
-        self.command_bar.addWidget(save_button)
+        self.save_button = TransparentDropDownPushButton(
+            self.tr("保存"), self, FIF.SAVE
+        )
+        self.save_button.setMenu(save_menu)
+        self.save_button.setFixedHeight(34)
+        self.save_button.setMinimumWidth(90)
+        self.save_button.setToolTip(self.tr("请先加载字幕文件"))
+        self.save_button.setEnabled(False)
+        self.command_bar.addWidget(self.save_button)
 
         # 添加字幕排布下拉按钮
         self.layout_button = TransparentDropDownPushButton(
@@ -350,6 +353,8 @@ class SubtitleInterface(QWidget):
             lambda: self.start_subtitle_optimization(need_create_task=True)
         )
         self.start_button.setFixedHeight(34)
+        self.start_button.setEnabled(False)
+        self.start_button.setToolTip(self.tr("请先加载字幕文件"))
         top_layout.addWidget(self.start_button)
 
         self.main_layout.addLayout(top_layout)
@@ -376,6 +381,9 @@ class SubtitleInterface(QWidget):
         self.subtitle_table.setObjectName("subtitleTranslatedTable")
         self.log_text.setObjectName("subtitleLogText")
         self.log_text.setReadOnly(True)
+        self.log_text.setPlaceholderText(
+            self.tr("处理日志将在此显示\n\n先打开或拖入字幕文件，再选择字幕校正或翻译。")
+        )
 
         self.original_model = SubtitleTableModel("", "original")
         self.translation_model = SubtitleTableModel("", "translated")
@@ -751,6 +759,9 @@ class SubtitleInterface(QWidget):
         if hasattr(self, "subtitle_optimization_thread"):
             self.subtitle_optimization_thread.stop()
         self.start_button.setEnabled(True)
+        self.start_button.setToolTip(self.tr("开始处理当前字幕"))
+        self.save_button.setEnabled(True)
+        self.save_button.setToolTip(self.tr("保存字幕"))
         self.task = task
         self.subtitle_path = task.subtitle_path
         self.update_info(task)
@@ -957,6 +968,10 @@ class SubtitleInterface(QWidget):
         self.subtitle_path = file_path
         asr_data = ASRData.from_subtitle_file(file_path)
         self._set_subtitle_data(asr_data.to_json())
+        self.start_button.setEnabled(True)
+        self.start_button.setToolTip(self.tr("开始处理当前字幕"))
+        self.save_button.setEnabled(True)
+        self.save_button.setToolTip(self.tr("保存字幕"))
         self.status_label.setText(self.tr("已加载文件"))
         self.append_task_log(self.tr("已加载字幕: ") + os.path.basename(file_path))
 

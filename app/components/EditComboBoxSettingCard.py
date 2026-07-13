@@ -24,6 +24,7 @@ class EditComboBoxSettingCard(SettingCard):
 
         self.configItem = configItem
         self.items = items or []
+        self._updating_from_user = False
 
         # 创建可编辑的组合框
         self.comboBox = EditableComboBox(self)
@@ -46,13 +47,29 @@ class EditComboBoxSettingCard(SettingCard):
 
     def __onTextChanged(self, text: str):
         """当文本改变时触发"""
-        self.setValue(text)
+        self._updating_from_user = True
+        try:
+            qconfig.set(self.configItem, text)
+            self.comboBox.setToolTip(text)
+        finally:
+            self._updating_from_user = False
         self.currentTextChanged.emit(text)
 
     def setValue(self, value: str):
         """设置值"""
-        qconfig.set(self.configItem, value)
-        self.comboBox.setText(value)
+        text = str(value or "")
+        qconfig.set(self.configItem, text)
+        self.comboBox.setToolTip(text)
+        if self._updating_from_user:
+            return
+        if self.comboBox.text() == text:
+            self.comboBox.setCursorPosition(0)
+            return
+
+        blocked = self.comboBox.blockSignals(True)
+        self.comboBox.setText(text)
+        self.comboBox.setCursorPosition(0)
+        self.comboBox.blockSignals(blocked)
 
     def addItems(self, items: List[str]):
         """添加选项"""
