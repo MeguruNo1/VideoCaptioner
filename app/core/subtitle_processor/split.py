@@ -37,7 +37,7 @@ MAX_WORD_COUNT_ENGLISH = 18  # 英文文本最大单词数
 SEGMENT_THRESHOLD = 300  # 每个分段的最大字数
 MAX_GAP = 1500  # 允许每个词语之间的最大时间间隔（毫秒）
 SHORT_DISPLAY_GAP_FILL_MS = 2000  # 断句后自动补齐的短显示空隙
-SPLIT_STRATEGY_VERSION = "lossless-sequential-alignment-v2"
+SPLIT_STRATEGY_VERSION = "lossless-sequential-alignment-v3-abbreviation-aware"
 
 
 def is_pure_punctuation(text: str) -> bool:
@@ -210,6 +210,7 @@ class SubtitleSplitter:
     )
     STRONG_TERMINAL_SUFFIXES = (".", "!", "?", "。", "！", "？")
     TERMINAL_STRIP_CHARS = ' \t\r\n"\'”’）)]}】》'
+    TITLE_ABBREVIATIONS = frozenset({"mr", "mrs"})
     ENGLISH_PREFIX_SPLIT_WORDS = {
         "and",
         "or",
@@ -311,10 +312,84 @@ class SubtitleSplitter:
         return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
 
     @classmethod
-    def _has_strong_terminal_boundary(cls, text: str) -> bool:
-        return (text or "").rstrip(cls.TERMINAL_STRIP_CHARS).endswith(
-            cls.STRONG_TERMINAL_SUFFIXES
+    def _ends_with_title_abbreviation(cls, text: str) -> bool:
+        stripped = (text or "").rstrip(cls.TERMINAL_STRIP_CHARS)
+        match = re.search(r"(?<![A-Za-z])([A-Za-z]+)\.?$", stripped)
+        return bool(match and match.group(1).casefold() in cls.TITLE_ABBREVIATIONS)
+
+    @classmethod
+    def _is_protected_title_boundary(
+        cls, text: str, next_text: str = ""
+    ) -> bool:
+        return bool((next_text or "").strip()) and cls._ends_with_title_abbreviation(
+            text
         )
+
+    @classmethod
+    def _has_punctuation_split_boundary(
+        cls, text: str, next_text: str = ""
+    ) -> bool:
+        stripped = (text or "").rstrip(cls.TERMINAL_STRIP_CHARS)
+        return not cls._is_protected_title_boundary(
+            stripped, next_text
+        ) and stripped.endswith(cls.PUNCTUATION_SPLIT_SUFFIXES)
+
+    @classmethod
+    def _has_strong_terminal_boundary(cls, text: str, next_text: str = "") -> bool:
+        stripped = (text or "").rstrip(cls.TERMINAL_STRIP_CHARS)
+        return not cls._is_protected_title_boundary(
+            stripped, next_text
+        ) and stripped.endswith(cls.STRONG_TERMINAL_SUFFIXES)
+
+    @classmethod
+    def _nearest_safe_split_index(
+        cls, segments: List[ASRDataSeg], target_index: int
+    ) -> int:
+        candidates = [
+            index
+            for index in range(len(segments) - 1)
+            if not cls._is_protected_title_boundary(
+                segments[index].text, segments[index + 1].text
+            )
+        ]
+        if not candidates:
+            return min(max(target_index, 0), len(segments) - 2)
+        return min(
+            candidates,
+            key=lambda index: (
+                abs(index - target_index),
+                index < target_index,
+            ),
+        )
+
+    @classmethod
+    def _merge_title_boundaries_added_by_split_stage(
+        cls, split_segments: List[str], restored_sentences: List[str]
+    ) -> List[str]:
+        """只撤销切短阶段新增的称谓与姓名边界，保留恢复阶段的句界。"""
+        restored_boundary_counts: set[int] = set()
+        restored_count = 0
+        for index, sentence in enumerate(restored_sentences):
+            restored_count += count_words(sentence)
+            if index < len(restored_sentences) - 1:
+                restored_boundary_counts.add(restored_count)
+
+        merged: List[str] = []
+        split_count = 0
+        for segment in split_segments:
+            segment = segment.strip()
+            if not segment:
+                continue
+            if (
+                merged
+                and split_count not in restored_boundary_counts
+                and cls._is_protected_title_boundary(merged[-1], segment)
+            ):
+                merged[-1] = f"{merged[-1].rstrip()} {segment}"
+            else:
+                merged.append(segment)
+            split_count += count_words(segment)
+        return merged
 
     def _init_client(self):
         """初始化OpenAI客户端"""
@@ -436,17 +511,26 @@ class SubtitleSplitter:
             start = max(0, split_point - SPLIT_RANGE)
             end = min(total_segs - 1, split_point + SPLIT_RANGE)
 
-            # 在范围内找到时间间隔最大的点
             max_gap = -1
-            best_index = split_point
-
-            for j in range(start, end):
+            best_index = None
+            for index in range(start, end):
+                if self._is_protected_title_boundary(
+                    asr_data.segments[index].text,
+                    asr_data.segments[index + 1].text,
+                ):
+                    continue
                 gap = (
-                    asr_data.segments[j + 1].start_time - asr_data.segments[j].end_time
+                    asr_data.segments[index + 1].start_time
+                    - asr_data.segments[index].end_time
                 )
                 if gap > max_gap:
                     max_gap = gap
-                    best_index = j
+                    best_index = index
+
+            if best_index is None:
+                best_index = self._nearest_safe_split_index(
+                    asr_data.segments, split_point
+                )
 
             adjusted_split_indices.append(best_index)
 
@@ -669,7 +753,7 @@ class SubtitleSplitter:
             f"rewrite the content:\n{restored_text}"
         )
 
-        return self._call_split_llm(
+        split_segments = self._call_split_llm(
             stage="split",
             cache_key=original_text,
             source_text=restored_text,
@@ -683,6 +767,9 @@ class SubtitleSplitter:
                     restored_text.encode("utf-8")
                 ).hexdigest(),
             },
+        )
+        return self._merge_title_boundaries_added_by_split_stage(
+            split_segments, restored_sentences
         )
 
     def _process_by_rules(self, segments: List[ASRDataSeg]) -> List[ASRDataSeg]:
@@ -756,8 +843,13 @@ class SubtitleSplitter:
 
         for i in range(1, len(segments)):
             time_gap = segments[i].start_time - segments[i - 1].end_time
+            protected_title_boundary = (
+                self._is_protected_title_boundary(
+                    segments[i - 1].text, segments[i].text
+                )
+            )
 
-            if check_large_gaps:
+            if check_large_gaps and not protected_title_boundary:
                 recent_gaps.append(time_gap)
                 if len(recent_gaps) > WINDOW_SIZE:
                     recent_gaps.pop(0)
@@ -772,7 +864,7 @@ class SubtitleSplitter:
                         current_group = []
                         recent_gaps = []  # 重置间隔记录
 
-            if time_gap > max_gap:
+            if time_gap > max_gap and not protected_title_boundary:
                 # logger.debug(
                 #     f"超过阈值，分组: {''.join(seg.text for seg in current_group)}"
                 # )
@@ -800,7 +892,9 @@ class SubtitleSplitter:
             current_group.append(seg)
             if (
                 index < len(segments) - 1
-                and self._has_strong_terminal_boundary(seg.text)
+                and self._has_strong_terminal_boundary(
+                    seg.text, segments[index + 1].text
+                )
             ):
                 result.append(current_group)
                 logger.debug(f"在强终止标点后分割: {seg.text}")
@@ -912,7 +1006,9 @@ class SubtitleSplitter:
             if (
                 i > 0
                 and current_group
-                and self._has_strong_terminal_boundary(segments[i - 1].text)
+                and self._has_strong_terminal_boundary(
+                    segments[i - 1].text, seg.text
+                )
             ):
                 result.append(current_group)
                 logger.debug(f"在强终止标点 {segments[i-1].text} 后分割")
@@ -932,6 +1028,9 @@ class SubtitleSplitter:
                 and any(
                     segments[i - 1].text.lower().endswith(word)
                     for word in suffix_split_words
+                )
+                and not self._is_protected_title_boundary(
+                    segments[i - 1].text, seg.text
                 )
                 and len(current_group) >= int(max_word_count * 0.4)
             ):
@@ -1020,19 +1119,37 @@ class SubtitleSplitter:
 
                 if all_equal:
                     # 如果时间间隔都相等，在中间位置断句
-                    split_index = n // 2
+                    split_index = self._nearest_safe_split_index(
+                        current_segments, n // 2
+                    )
                 else:
                     # 在分段中间2/3部分寻找最大时间间隔点
                     start_idx = max(n // 6, 1)
                     end_idx = min((5 * n) // 6, n - 2)
-                    split_index = max(
-                        range(start_idx, end_idx),
-                        key=lambda i: current_segments[i + 1].start_time
-                        - current_segments[i].end_time,
-                        default=n // 2,
-                    )
+                    candidate_indices = [
+                        index
+                        for index in range(start_idx, end_idx)
+                        if not self._is_protected_title_boundary(
+                            current_segments[index].text,
+                            current_segments[index + 1].text,
+                        )
+                    ]
+                    if candidate_indices:
+                        split_index = max(
+                            candidate_indices,
+                            key=lambda index: current_segments[
+                                index + 1
+                            ].start_time
+                            - current_segments[index].end_time,
+                        )
+                    else:
+                        split_index = self._nearest_safe_split_index(
+                            current_segments, n // 2
+                        )
                     if split_index == 0 or split_index == n - 1:
-                        split_index = n // 2
+                        split_index = self._nearest_safe_split_index(
+                            current_segments, n // 2
+                        )
 
             # 将分割后的两部分添加到处理队列中
             first_segs = current_segments[: split_index + 1]
@@ -1073,7 +1190,11 @@ class SubtitleSplitter:
             left_count = count_words(left_text)
             right_count = count_words(right_text)
             current_text = segments[index].text.strip()
-            if self._has_strong_terminal_boundary(current_text) and right_count > 0:
+            next_text = segments[index + 1].text.strip()
+            if (
+                self._has_strong_terminal_boundary(current_text, next_text)
+                and right_count > 0
+            ):
                 return index
 
             if (
@@ -1083,12 +1204,11 @@ class SubtitleSplitter:
             ):
                 continue
 
-            next_text = segments[index + 1].text.strip()
             if left_count in hint_boundary_counts:
                 candidates.append((0, abs(left_count - target_count), index))
                 continue
 
-            if current_text.endswith(self.PUNCTUATION_SPLIT_SUFFIXES):
+            if self._has_punctuation_split_boundary(current_text, next_text):
                 candidates.append((1, abs(left_count - target_count), index))
                 continue
 
@@ -1147,8 +1267,12 @@ class SubtitleSplitter:
 
         if is_cjk_text:
             visible_count = 0
-            for char in hint_text:
+            for index, char in enumerate(hint_text):
                 if char in self.STRONG_TERMINAL_SUFFIXES:
+                    if self._is_protected_title_boundary(
+                        hint_text[: index + 1], hint_text[index + 1 :]
+                    ):
+                        continue
                     if visible_count > 0:
                         boundaries.add(visible_count)
                     continue
@@ -1159,7 +1283,8 @@ class SubtitleSplitter:
 
         words = [word for word in hint_text.split() if word.strip()]
         for index, word in enumerate(words):
-            if self._has_strong_terminal_boundary(word):
+            next_word = words[index + 1] if index + 1 < len(words) else ""
+            if self._has_strong_terminal_boundary(word, next_word):
                 boundaries.add(index + 1)
         return boundaries
 
@@ -1171,8 +1296,12 @@ class SubtitleSplitter:
         boundaries: set[int] = set()
         if is_cjk_text:
             visible_count = 0
-            for char in hint_text:
+            for index, char in enumerate(hint_text):
                 if char in self.PUNCTUATION_SPLIT_SUFFIXES:
+                    if self._is_protected_title_boundary(
+                        hint_text[: index + 1], hint_text[index + 1 :]
+                    ):
+                        continue
                     if visible_count > 0:
                         boundaries.add(visible_count)
                     continue
@@ -1194,7 +1323,8 @@ class SubtitleSplitter:
         for index, word in enumerate(words):
             stripped = word.strip()
             normalized = stripped.lower().strip(" \t\r\n.,!?;:\"'()[]{}")
-            if stripped.endswith(self.PUNCTUATION_SPLIT_SUFFIXES):
+            next_word = words[index + 1] if index + 1 < len(words) else ""
+            if self._has_punctuation_split_boundary(stripped, next_word):
                 boundaries.add(index + 1)
             if normalized in self.ENGLISH_PREFIX_SPLIT_WORDS and index > 0:
                 boundaries.add(index)
@@ -1249,7 +1379,9 @@ class SubtitleSplitter:
                 else self.max_word_count_english
             )
 
-            if self._has_strong_terminal_boundary(current_seg.text):
+            if self._has_strong_terminal_boundary(
+                current_seg.text, next_seg.text
+            ):
                 i += 1
                 continue
 

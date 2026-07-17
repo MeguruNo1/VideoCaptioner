@@ -1,6 +1,6 @@
 import unittest
 
-from app.core.bk_asr.asr_data import ASRDataSeg
+from app.core.bk_asr.asr_data import ASRData, ASRDataSeg
 from app.core.subtitle_processor.split import (
     SPLIT_STRATEGY_VERSION,
     SubtitleSplitter,
@@ -49,6 +49,258 @@ class StrictPunctuationSplitTests(unittest.TestCase):
             [[seg.text for seg in group] for group in groups],
             [["那", "有没有？"], ["我", "来回答"]],
         )
+
+    def test_title_abbreviation_period_is_not_a_strong_boundary(self):
+        splitter = make_splitter()
+        segments = [
+            ASRDataSeg("Please", 0, 100),
+            ASRDataSeg("welcome", 100, 200),
+            ASRDataSeg("Mr.", 200, 300),
+            ASRDataSeg("Smith", 300, 400),
+            ASRDataSeg("today.", 400, 500),
+        ]
+
+        groups = splitter._split_by_strong_terminal_punctuation(segments)
+
+        self.assertFalse(splitter._has_strong_terminal_boundary("Mr.", "Smith"))
+        self.assertFalse(splitter._has_strong_terminal_boundary("Mrs.", "Jones"))
+        self.assertTrue(splitter._has_strong_terminal_boundary("Mr."))
+        self.assertTrue(splitter._has_strong_terminal_boundary("today."))
+        for title, surname in (("Mr.", "He"), ("Mrs.", "May"), ("Mr.", "Will")):
+            with self.subTest(title=title, surname=surname):
+                self.assertFalse(
+                    splitter._has_strong_terminal_boundary(title, surname)
+                )
+        self.assertEqual(
+            [[seg.text for seg in group] for group in groups],
+            [["Please", "welcome", "Mr.", "Smith", "today."]],
+        )
+
+    def test_hint_boundaries_ignore_title_abbreviation_periods(self):
+        splitter = make_splitter()
+        hint = "Please welcome Mr. Smith today. Mrs. Jones speaks."
+
+        self.assertEqual(
+            splitter._hint_terminal_boundary_counts(hint, is_cjk_text=False),
+            {5, 8},
+        )
+        self.assertEqual(
+            splitter._hint_boundary_counts(hint, is_cjk_text=False),
+            {5, 8},
+        )
+
+        real_sentence_end = "The abbreviation is Mr."
+        self.assertEqual(
+            splitter._hint_terminal_boundary_counts(
+                real_sentence_end, is_cjk_text=False
+            ),
+            {4},
+        )
+
+    def test_cjk_hint_scanning_ignores_embedded_title_abbreviation_period(self):
+        splitter = make_splitter()
+        hint = "欢迎Mr. Smith。"
+
+        self.assertEqual(
+            splitter._hint_terminal_boundary_counts(hint, is_cjk_text=True),
+            {9},
+        )
+        self.assertEqual(
+            splitter._hint_boundary_counts(hint, is_cjk_text=True),
+            {9},
+        )
+
+    def test_split_stage_cannot_add_title_name_boundary(self):
+        splitter = make_splitter()
+        splitter.split_type = "sentence"
+        splitter._call_split_llm = lambda **_: [
+            "Please welcome Mr.",
+            "Smith today.",
+        ]
+
+        self.assertEqual(
+            splitter._split_restored_sentences_with_llm(
+                "Please welcome Mr Smith today",
+                ["Please welcome Mr. Smith today."],
+            ),
+            ["Please welcome Mr. Smith today."],
+        )
+
+    def test_split_stage_preserves_restored_sentence_boundary_after_title(self):
+        self.assertEqual(
+            SubtitleSplitter._merge_title_boundaries_added_by_split_stage(
+                ["The abbreviation is Mr.", "Are you familiar with it?"],
+                ["The abbreviation is Mr.", "Are you familiar with it?"],
+            ),
+            ["The abbreviation is Mr.", "Are you familiar with it?"],
+        )
+
+    def test_long_split_keeps_titles_with_names_and_honors_real_periods(self):
+        splitter = make_splitter()
+        result = splitter._split_long_segment(
+            [
+                ASRDataSeg("Please", 0, 100),
+                ASRDataSeg("welcome", 100, 200),
+                ASRDataSeg("Mr.", 200, 300),
+                ASRDataSeg("Smith.", 300, 400),
+                ASRDataSeg("Mrs.", 400, 500),
+                ASRDataSeg("Jones", 500, 600),
+                ASRDataSeg("arrived.", 600, 700),
+            ]
+        )
+
+        self.assertEqual(
+            [seg.text for seg in result],
+            ["Please welcome Mr. Smith.", "Mrs. Jones arrived."],
+        )
+
+    def test_restored_hint_keeps_titles_with_names(self):
+        splitter = make_splitter()
+        result = splitter._split_long_segment(
+            [
+                ASRDataSeg("Please", 0, 100),
+                ASRDataSeg("welcome", 100, 200),
+                ASRDataSeg("Mr", 200, 300),
+                ASRDataSeg("Smith", 300, 400),
+                ASRDataSeg("Mrs", 400, 500),
+                ASRDataSeg("Jones", 500, 600),
+                ASRDataSeg("arrived", 600, 700),
+            ],
+            hint_text="Please welcome Mr. Smith. Mrs. Jones arrived.",
+        )
+
+        self.assertEqual(
+            [seg.text for seg in result],
+            ["Please welcome Mr Smith", "Mrs Jones arrived"],
+        )
+
+    def test_common_word_split_does_not_use_title_period_as_suffix(self):
+        splitter = make_splitter()
+        splitter.max_word_count_english = 5
+
+        for title, name in (("Mr.", "Smith"), ("Mrs.", "Jones")):
+            with self.subTest(title=title):
+                groups = splitter._split_by_common_words(
+                    [
+                        ASRDataSeg("Please", 0, 100),
+                        ASRDataSeg("welcome", 100, 200),
+                        ASRDataSeg(title, 200, 300),
+                        ASRDataSeg(name, 300, 400),
+                        ASRDataSeg("today", 400, 500),
+                    ]
+                )
+
+                self.assertEqual(len(groups), 1)
+
+    def test_length_split_does_not_end_a_segment_with_title(self):
+        splitter = make_splitter()
+        splitter.max_word_count_english = 6
+
+        for title in ("Mr.", "Mrs."):
+            with self.subTest(title=title):
+                result = splitter._split_long_segment(
+                    [
+                        ASRDataSeg("one", 0, 100),
+                        ASRDataSeg("two", 100, 200),
+                        ASRDataSeg("three", 200, 300),
+                        ASRDataSeg("four", 300, 400),
+                        ASRDataSeg(title, 400, 500),
+                        ASRDataSeg("Smith", 500, 600),
+                        ASRDataSeg("seven", 600, 700),
+                        ASRDataSeg("eight", 700, 800),
+                    ]
+                )
+
+                self.assertEqual(
+                    [seg.text for seg in result],
+                    [f"one two three four {title} Smith", "seven eight"],
+                )
+
+    def test_unpunctuated_source_uses_restored_title_hint_without_splitting(self):
+        splitter = make_splitter()
+        splitter.max_word_count_english = 6
+        words = ["one", "two", "three", "four", "Mr", "Smith", "seven", "eight"]
+        segments = [
+            ASRDataSeg(word, index * 100, (index + 1) * 100)
+            for index, word in enumerate(words)
+        ]
+
+        result = splitter._split_long_segment(
+            segments,
+            hint_text="one two three four Mr. Smith seven eight",
+        )
+
+        self.assertEqual(
+            [seg.text for seg in result],
+            ["one two three four Mr Smith", "seven eight"],
+        )
+
+    def test_short_title_segment_merges_with_name(self):
+        splitter = make_splitter()
+
+        for title, name in (("Mr.", "Smith"), ("Mrs.", "Jones")):
+            with self.subTest(title=title):
+                segments = [
+                    ASRDataSeg(title, 0, 100),
+                    ASRDataSeg(name, 100, 200),
+                ]
+
+                splitter.merge_short_segment(segments)
+
+                self.assertEqual([seg.text for seg in segments], [f"{title} {name}"])
+
+    def test_large_input_chunking_does_not_split_title_from_name(self):
+        splitter = make_splitter()
+        words = ["word"] * 600
+        words[300:302] = ["Mr", "Smith"]
+        segments = []
+        current_time = 0
+        for index, word in enumerate(words):
+            segments.append(ASRDataSeg(word, current_time, current_time + 50))
+            current_time += 1050 if index == 300 else 100
+
+        parts = splitter._split_asr_data(ASRData(segments), num_segments=2)
+
+        self.assertEqual(sum(len(part.segments) for part in parts), 600)
+        title_part = next(part for part in parts if "Mr" in part.to_txt())
+        title_index = [seg.text for seg in title_part.segments].index("Mr")
+        self.assertEqual(title_part.segments[title_index + 1].text, "Smith")
+
+    def test_time_gap_grouping_keeps_title_with_name(self):
+        splitter = make_splitter()
+        segments = [
+            ASRDataSeg(f"word{index}", index * 100, index * 100 + 50)
+            for index in range(17)
+        ]
+        segments.extend(
+            [
+                ASRDataSeg("Mr", 1700, 1750),
+                ASRDataSeg("Smith", 3750, 3800),
+                ASRDataSeg("arrived", 3800, 3900),
+            ]
+        )
+
+        rule_groups = splitter._group_by_time_gaps(
+            segments, max_gap=500, check_large_gaps=True
+        )
+        alignment_groups = splitter._group_by_time_gaps(segments, max_gap=1500)
+
+        self.assertEqual(len(rule_groups), 1)
+        self.assertEqual(len(alignment_groups), 1)
+
+    def test_rule_fallback_does_not_preserve_a_gap_split_after_title(self):
+        splitter = make_splitter()
+        words = [f"word{index}" for index in range(28)]
+        words[16:18] = ["Mr", "Smith"]
+        segments = []
+        current_time = 0
+        for index, word in enumerate(words):
+            segments.append(ASRDataSeg(word, current_time, current_time + 50))
+            current_time += 1050 if index == 16 else 100
+
+        result = splitter._process_by_rules(segments)
+
+        self.assertTrue(all(not seg.text.endswith("Mr") for seg in result))
 
     def test_short_segment_merge_does_not_cross_question_mark(self):
         splitter = make_splitter()
