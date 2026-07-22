@@ -1846,11 +1846,11 @@ class DownloadCenterInterface(QWidget):
 
     def _refresh_download_strategy_hint(self):
         strategy = str(cfg.get(cfg.download_engine_strategy) or "智能选择")
-        auto_cookie = bool(cfg.get(cfg.download_auto_refresh_edge_cookies))
+        auto_cookie = bool(cfg.get(cfg.download_auto_extract_cookies_on_startup))
         auto_cookie_text = (
-            self.tr("下载前自动刷新浏览器 Cookie：开启")
+            self.tr("启动时自动提取浏览器 Cookie：开启")
             if auto_cookie
-            else self.tr("下载前自动刷新浏览器 Cookie：关闭")
+            else self.tr("启动时自动提取浏览器 Cookie：关闭")
         )
         cookie_browser = str(cfg.get(cfg.download_cookie_browser) or "Safari")
         self.strategy_label.setText(
@@ -1891,35 +1891,11 @@ class DownloadCenterInterface(QWidget):
             return str(combo.currentData() or "en")
         return str(cfg.get(cfg.download_center_subtitle_language) or "en")
 
-    def _refresh_edge_cookie_if_needed(self):
-        if not bool(cfg.get(cfg.download_auto_refresh_edge_cookies)):
-            return
-        from app.core.utils.edge_cookie_utils import export_browser_cookies
-
-        result = export_browser_cookies(
-            browser=str(cfg.get(cfg.download_cookie_browser))
-        )
-        if result.get("success"):
-            source_label = result.get("source_browser_label") or str(
-                cfg.get(cfg.download_cookie_browser) or "Safari"
-            )
-            self.status_label.setText(
-                self.tr("已刷新浏览器 Cookie：")
-                + source_label
-                + self.tr("，继续处理链接…")
-            )
-            return
-        message = result.get("message", self.tr("无法刷新浏览器 Cookie，将继续尝试下载"))
-        if result.get("needs_elevation_hint") and not result.get("is_elevated"):
-            message += self.tr("；可尝试以管理员权限运行后重试")
-        InfoBar.warning(self.tr("Cookie 刷新失败"), message, duration=4000, parent=self, position=InfoBarPosition.BOTTOM_RIGHT)
-
     def parse_link(self):
         url = self.url_input.text().strip()
         if not self._is_valid_url(url):
             InfoBar.error(self.tr("错误"), self.tr("请输入有效的视频 URL"), duration=3000, parent=self)
             return
-        self._refresh_edge_cookie_if_needed()
         cookiefile_path = APP_DATA_PATH / "cookies.txt"
         if not cookiefile_path.exists():
             InfoBar.warning(self.tr("提示"), self.tr("建议配置 cookies.txt，以提高高清视频与字幕的可用性。"), duration=4000, parent=self, position=InfoBarPosition.BOTTOM_RIGHT)
@@ -2574,7 +2550,6 @@ class DownloadCenterInterface(QWidget):
         if time_range_notice:
             self.last_selection_summary = self.last_selection_summary + self.tr("；") + time_range_notice
             self.selection_summary_label.setText(self.tr("已选方案：") + self.last_selection_summary)
-        self._refresh_edge_cookie_if_needed()
         resuming = self._pending_download_request is not None
         subtitle_mode = self._pending_subtitle_mode if resuming else self._selected_subtitle_mode()
         work_dir = self._pending_work_dir if resuming and self._pending_work_dir else self._effective_output_dir()

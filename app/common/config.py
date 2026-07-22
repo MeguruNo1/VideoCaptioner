@@ -444,7 +444,8 @@ class Config(QConfig):
         "智能选择",
         OptionsValidator(["单线程", "多线程", "智能选择"]),
     )
-    download_auto_refresh_edge_cookies = ConfigItem(
+    # Keep the legacy persisted key so existing users retain their switch value.
+    download_auto_extract_cookies_on_startup = ConfigItem(
         "Download", "AutoRefreshEdgeCookies", False, BoolValidator()
     )
     download_cookie_browser = OptionsConfigItem(

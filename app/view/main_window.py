@@ -1,12 +1,14 @@
 import os
 
 import psutil
-from PyQt5.QtCore import QEvent, QRect, Qt, QSize, QUrl
+from PyQt5.QtCore import QEvent, QRect, Qt, QSize, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices, QIcon
 from PyQt5.QtWidgets import QApplication
 from qframelesswindow.utils import startSystemMove
 from qfluentwidgets import (
     FluentWindow,
+    InfoBar,
+    InfoBarPosition,
     MessageBox,
     SplashScreen,
     isDarkTheme,
@@ -15,6 +17,7 @@ from qfluentwidgets import (
 from app.common.config import cfg
 from app.common.signal_bus import signalBus
 from app.config import ASSETS_PATH, GITHUB_REPO_URL
+from app.thread.browser_cookie_export_thread import BrowserCookieExportThread
 from app.view.home_interface import HomeInterface
 
 LOGO_PATH = ASSETS_PATH / "logo.png"
@@ -29,6 +32,9 @@ class MainWindow(FluentWindow):
     def __init__(self):
         super().__init__()
         self._mac_drag_widgets = ()
+        self._closing = False
+        self._startup_cookie_export_attempted = False
+        self.startupCookieExportThread = None
         self._disableNavigationInterface()
         self._styleMacTitleBarBrand()
         self._installMacDragEventFilters()
@@ -45,6 +51,7 @@ class MainWindow(FluentWindow):
         # 初始化主工作台
         self.initWorkspace()
         self.splashScreen.finish()
+        QTimer.singleShot(0, self._start_cookie_extraction_on_startup)
 
         # 注册退出处理， 清理进程
         import atexit
@@ -62,6 +69,57 @@ class MainWindow(FluentWindow):
         else:
             self.setWindowTitle(self.tr("卡卡字幕助手 -- VideoCaptioner"))
         self.stackedWidget.setCurrentWidget(interface, popOut=False)
+
+    def _start_cookie_extraction_on_startup(self) -> bool:
+        if self._closing or self._startup_cookie_export_attempted:
+            return False
+        self._startup_cookie_export_attempted = True
+
+        if not bool(cfg.get(cfg.download_auto_extract_cookies_on_startup)):
+            return False
+
+        browser = str(cfg.get(cfg.download_cookie_browser) or "Safari")
+        thread = BrowserCookieExportThread(browser, self)
+        thread.completed.connect(self._on_startup_cookie_export_completed)
+        thread.finished.connect(self._release_startup_cookie_export_thread)
+        self.startupCookieExportThread = thread
+        self.settingInterface.set_cookie_export_in_progress(True)
+        thread.start()
+        return True
+
+    def _on_startup_cookie_export_completed(self, result: dict):
+        self.settingInterface.refresh_cookie_status(result)
+        if self._closing:
+            return
+        message = result.get(
+            "message", self.tr("无法从浏览器自动提取 Cookie")
+        )
+        if result.get("success"):
+            InfoBar.success(
+                self.tr("Cookie 自动提取完成"),
+                message,
+                duration=2500,
+                parent=self,
+                position=InfoBarPosition.BOTTOM_RIGHT,
+            )
+            return
+
+        InfoBar.warning(
+            self.tr("Cookie 自动提取失败"),
+            message,
+            duration=5000,
+            parent=self,
+            position=InfoBarPosition.BOTTOM_RIGHT,
+        )
+
+    def _release_startup_cookie_export_thread(self):
+        thread = self.startupCookieExportThread
+        self.startupCookieExportThread = None
+        self.settingInterface.set_cookie_export_in_progress(False)
+        if thread is not None:
+            thread.deleteLater()
+        if self._closing:
+            QTimer.singleShot(0, self.close)
 
     def systemTitleBarRect(self, size: QSize) -> QRect:
         """Place native macOS traffic-light buttons on the left."""
@@ -253,6 +311,13 @@ class MainWindow(FluentWindow):
         return super().eventFilter(obj, event)
 
     def closeEvent(self, event):
+        self._closing = True
+        thread = self.startupCookieExportThread
+        if thread is not None and thread.isRunning():
+            event.ignore()
+            self.hide()
+            return
+
         # 关闭所有子界面
         # self.homeInterface.close()
         # self.settingInterface.close()
@@ -266,6 +331,10 @@ class MainWindow(FluentWindow):
         # os._exit(0)
 
     def stop(self):
+        thread = self.startupCookieExportThread
+        if thread is not None and thread.isRunning():
+            thread.wait()
+
         # 找到 FFmpeg 进程并关闭
         process = psutil.Process(os.getpid())
         for child in process.children(recursive=True):

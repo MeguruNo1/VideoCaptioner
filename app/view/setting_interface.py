@@ -261,6 +261,7 @@ class SettingInterface(ScrollArea):
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
+        self._cookie_export_in_progress = False
         self.setWindowTitle(self.tr("设置"))
         self.scrollWidget = QWidget()
         self.expandLayout = ExpandLayout(self.scrollWidget)
@@ -283,7 +284,7 @@ class SettingInterface(ScrollArea):
         self.__applyPageStyles()
         self.__refreshDownloadProxyStatus()
         self.__refreshDownloadCenterOutputDir()
-        self.__refreshCookieStatus()
+        self.refresh_cookie_status()
         self.__refreshDesktopNotificationStatus()
 
     def __initGroups(self):
@@ -418,18 +419,18 @@ class SettingInterface(ScrollArea):
             texts=["单线程", "多线程", "智能选择"],
             parent=self.downloadSettingGroup,
         )
-        self.downloadAutoRefreshCookiesCard = SwitchSettingCard(
+        self.downloadAutoExtractCookiesOnStartupCard = SwitchSettingCard(
             FIF.SYNC,
-            self.tr("下载前自动刷新浏览器 Cookie"),
-            self.tr("下载中心开始下载前，自动从本机浏览器重新导出 cookies.txt"),
-            cfg.download_auto_refresh_edge_cookies,
+            self.tr("应用启动时自动提取浏览器 Cookie"),
+            self.tr("下次启动应用时，自动从所选浏览器提取并更新 cookies.txt"),
+            cfg.download_auto_extract_cookies_on_startup,
             self.downloadSettingGroup,
         )
         self.downloadCookieBrowserCard = ComboBoxSettingCard(
             cfg.download_cookie_browser,
             FIF.GLOBE,
             self.tr("Cookie 来源浏览器"),
-            self.tr("刷新 cookies.txt 时只读取所选浏览器，默认使用 Safari"),
+            self.tr("提取 cookies.txt 时只读取所选浏览器，默认使用 Safari"),
             texts=["Safari", "Chrome", "Edge"],
             parent=self.downloadSettingGroup,
         )
@@ -545,7 +546,9 @@ class SettingInterface(ScrollArea):
 
         self.saveGroup.addSettingCard(self.savePathCard)
         self.downloadSettingGroup.addSettingCard(self.downloadEngineStrategyCard)
-        self.downloadSettingGroup.addSettingCard(self.downloadAutoRefreshCookiesCard)
+        self.downloadSettingGroup.addSettingCard(
+            self.downloadAutoExtractCookiesOnStartupCard
+        )
         self.downloadSettingGroup.addSettingCard(self.downloadCookieBrowserCard)
         self.downloadSettingGroup.addSettingCard(self.downloadCenterOutputDirCard)
         self.downloadAccountGroup.addSettingCard(self.edgeCookieExportCard)
@@ -861,7 +864,7 @@ class SettingInterface(ScrollArea):
         self.__onLLMBatchContextChanged(cfg.llm_batch_context_enabled.value)
         self.__applyPageStyles()
         self.__refreshDownloadCenterOutputDir()
-        self.__refreshCookieStatus()
+        self.refresh_cookie_status()
 
     def __initLayout(self):
         """初始化布局"""
@@ -932,10 +935,12 @@ class SettingInterface(ScrollArea):
             self.__showDownloadCenterOutputDir
         )
         self.downloadCookieBrowserCard.comboBox.currentTextChanged.connect(
-            lambda _: self.__refreshCookieStatus()
+            lambda _: self.refresh_cookie_status()
         )
         self.edgeCookieExportCard.clicked.connect(self.__exportEdgeCookies)
-        self.edgeCookieStatusCard.clicked.connect(self.__refreshCookieStatus)
+        self.edgeCookieStatusCard.clicked.connect(
+            lambda: self.refresh_cookie_status()
+        )
 
         # 个性化
         self.themeCard.optionChanged.connect(self.__onThemeCardChanged)
@@ -1111,11 +1116,23 @@ class SettingInterface(ScrollArea):
             parent=self,
         )
 
-    def __refreshCookieStatus(self):
-        from app.core.utils.edge_cookie_utils import verify_cookie_file
+    def refresh_cookie_status(self, result: dict | None = None):
+        if result is None and self._cookie_export_in_progress:
+            return
+        if result is None:
+            from app.core.utils.edge_cookie_utils import verify_cookie_file
 
-        result = verify_cookie_file()
+            result = verify_cookie_file()
         self.edgeCookieStatusCard.setContent(self.__formatCookieStatusContent(result))
+
+    def set_cookie_export_in_progress(self, in_progress: bool):
+        self._cookie_export_in_progress = in_progress
+        self.edgeCookieExportCard.button.setEnabled(not in_progress)
+        self.edgeCookieStatusCard.button.setEnabled(not in_progress)
+        self.edgeCookieExportCard.button.setText(
+            self.tr("提取中…") if in_progress else self.tr("提取")
+        )
+        self.downloadCookieBrowserCard.comboBox.setEnabled(not in_progress)
 
     def __exportEdgeCookies(self):
         from app.core.utils.edge_cookie_utils import export_browser_cookies
@@ -1123,7 +1140,7 @@ class SettingInterface(ScrollArea):
         result = export_browser_cookies(
             browser=str(cfg.get(cfg.download_cookie_browser))
         )
-        self.edgeCookieStatusCard.setContent(self.__formatCookieStatusContent(result))
+        self.refresh_cookie_status(result)
 
         if result.get("success"):
             InfoBar.success(

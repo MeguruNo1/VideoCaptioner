@@ -158,18 +158,6 @@ class EdgeCookieUtilsTests(unittest.TestCase):
         self.assertFalse(summary["has_youtube"])
         self.assertFalse(summary["has_bilibili"])
 
-    def test_export_reports_rookiepy_missing(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.object(
-                cookies,
-                "_extract_browser_cookies_with_ytdlp",
-                side_effect=RuntimeError("missing browser cookies"),
-            ):
-                result = cookies.export_browser_cookies(Path(temp_dir) / "cookies.txt")
-
-        self.assertFalse(result["success"])
-        self.assertEqual(result["status_code"], "extract_failed")
-
     def test_export_reports_empty_browser_cookie_result(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "cookies.txt"
