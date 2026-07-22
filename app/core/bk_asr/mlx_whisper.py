@@ -7,6 +7,7 @@ from ..utils.logger import setup_logger
 from ..utils.mlx_model_utils import DEFAULT_MLX_MODEL, validate_mlx_model
 from .asr_data import ASRDataSeg
 from .base import BaseASR
+from .whisper_x_auto import align_transcription_with_whisperx
 from .mlx_workflow import (
     build_chunk_windows,
     detect_speech_ranges,
@@ -18,7 +19,7 @@ from .mlx_workflow import (
 )
 
 logger = setup_logger("mlx_whisper")
-MLX_WORKFLOW_VERSION = "vad-union-global-dedupe-v2"
+MLX_WORKFLOW_VERSION = "vad-union-global-dedupe-whisperx-align-v1"
 
 def _parse_prompt_terms(text: str) -> list[str]:
     terms = []
@@ -59,6 +60,8 @@ class MLXWhisperASR(BaseASR):
         vad_threshold: float = 0.5,
         chunk_duration: int = 600,
         chunk_overlap: int = 30,
+        align_device: str = "cpu",
+        align_model_dir: str | None = None,
     ):
         super().__init__(audio_path, use_cache)
         self.model = model or DEFAULT_MLX_MODEL
@@ -69,6 +72,8 @@ class MLXWhisperASR(BaseASR):
         self.vad_threshold = float(vad_threshold or 0.5)
         self.chunk_duration = max(1, int(chunk_duration or 600))
         self.chunk_overlap = max(0, int(chunk_overlap or 0))
+        self.align_device = align_device or "cpu"
+        self.align_model_dir = align_model_dir
 
     def _make_segments(self, resp_data: dict) -> list[ASRDataSeg]:
         segments = []
@@ -117,7 +122,10 @@ class MLXWhisperASR(BaseASR):
             audio_path,
             path_or_hf_repo=self.model,
             language=self.language,
-            word_timestamps=self.need_word_time_stamp,
+            # Word timestamps from Whisper cross-attention/DTW can collapse or
+            # begin seconds before speech. WhisperX forced alignment is applied
+            # after MLX transcription when word timestamps are requested.
+            word_timestamps=False,
             initial_prompt=self.initial_prompt or None,
         )
 
@@ -203,6 +211,27 @@ class MLXWhisperASR(BaseASR):
             callback(5, "Loading MLX Whisper")
             callback(35, "Transcribing with MLX Whisper")
             result = self._run_workflow(mlx_whisper, callback)
+            if self.need_word_time_stamp and result.get("segments"):
+                callback(92, "Aligning MLX transcript with WhisperX")
+                alignment_segments = [
+                    {
+                        "start": float(segment["start"]),
+                        "end": float(segment["end"]),
+                        "text": str(segment.get("text") or "").strip(),
+                    }
+                    for segment in result["segments"]
+                    if str(segment.get("text") or "").strip()
+                    and segment.get("start") is not None
+                    and segment.get("end") is not None
+                    and float(segment["end"]) > float(segment["start"])
+                ]
+                result = align_transcription_with_whisperx(
+                    self.audio_path,
+                    alignment_segments,
+                    self.language,
+                    device=self.align_device,
+                    model_dir=self.align_model_dir,
+                )
             callback(100, "MLX Whisper finished")
             return result
         finally:
@@ -220,6 +249,8 @@ class MLXWhisperASR(BaseASR):
                 str(self.vad_threshold),
                 str(self.chunk_duration),
                 str(self.chunk_overlap),
+                self.align_device,
+                str(self.align_model_dir),
                 MLX_WORKFLOW_VERSION,
             ]
         )

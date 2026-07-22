@@ -58,7 +58,7 @@ class MLXWhisperASRTests(unittest.TestCase):
             b"audio",
             path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
             language="zh",
-            word_timestamps=True,
+            word_timestamps=False,
             initial_prompt="请优先识别：VideoCaptioner, MLX Whisper",
         )
 
@@ -90,8 +90,56 @@ class MLXWhisperASRTests(unittest.TestCase):
             str(audio_path),
             path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
             language="en",
-            word_timestamps=True,
+            word_timestamps=False,
             initial_prompt=None,
+        )
+
+    def test_word_timestamps_use_whisperx_forced_alignment(self):
+        asr = MLXWhisperASR(
+            b"audio",
+            model="mlx-community/whisper-large-v3-turbo",
+            language="en",
+            need_word_time_stamp=True,
+            align_device="cpu",
+            align_model_dir="/models",
+        )
+        transcription = {
+            "segments": [
+                {"start": 0.0, "end": 1.0, "text": "hello world"},
+            ]
+        }
+        aligned = {
+            "segments": [
+                {
+                    "start": 0.2,
+                    "end": 0.9,
+                    "text": "hello world",
+                    "words": [
+                        {"word": "hello", "start": 0.2, "end": 0.5},
+                        {"word": "world", "start": 0.6, "end": 0.9},
+                    ],
+                }
+            ]
+        }
+        fake_mlx_whisper = types.SimpleNamespace()
+
+        with (
+            patch.dict("sys.modules", {"mlx_whisper": fake_mlx_whisper}),
+            patch.object(asr, "_run_workflow", return_value=transcription),
+            patch(
+                "app.core.bk_asr.mlx_whisper.align_transcription_with_whisperx",
+                return_value=aligned,
+            ) as mocked_align,
+        ):
+            result = asr._run(callback=Mock())
+
+        self.assertEqual(result, aligned)
+        mocked_align.assert_called_once_with(
+            b"audio",
+            [{"start": 0.0, "end": 1.0, "text": "hello world"}],
+            "en",
+            device="cpu",
+            model_dir="/models",
         )
 
     def test_builds_initial_prompt_from_mlx_prompt_and_hotwords(self):
@@ -157,6 +205,8 @@ class MLXWhisperASRTests(unittest.TestCase):
             vad_threshold=0.5,
             chunk_duration=600,
             chunk_overlap=30,
+            align_device="cpu",
+            align_model_dir=None,
         )
 
 

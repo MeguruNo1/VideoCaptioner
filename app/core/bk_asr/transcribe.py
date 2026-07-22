@@ -43,6 +43,8 @@ def transcribe(audio_path: str, config: TranscribeConfig, callback=None) -> ASRD
             vad_threshold=config.mlx_vad_threshold,
             chunk_duration=config.mlx_chunk_duration,
             chunk_overlap=config.mlx_chunk_overlap,
+            align_device=config.whisperx_device,
+            align_model_dir=config.whisperx_model_dir,
         )
         asr_data = asr.run(callback=callback)
         _remove_repeated_artifacts_if_word_timestamp(asr_data)

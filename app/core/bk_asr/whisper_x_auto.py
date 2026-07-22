@@ -135,6 +135,75 @@ def _resolve_local_silero_dir(
     return None
 
 
+def load_whisperx_align_model(
+    whisperx,
+    language_code: str,
+    device: str = "cpu",
+    model_dir: str | None = None,
+):
+    """Load the standalone acoustic model used by WhisperX forced alignment."""
+    kwargs = {
+        "language_code": language_code,
+        "device": device,
+    }
+    if model_dir:
+        kwargs["model_dir"] = model_dir
+        local_dir_name = LOCAL_ALIGN_MODEL_DIRS.get(language_code)
+        if local_dir_name:
+            local_model_dir = Path(model_dir) / local_dir_name
+            if local_model_dir.is_dir():
+                kwargs["model_name"] = str(local_model_dir)
+
+    try:
+        return whisperx.load_align_model(**kwargs)
+    except TypeError:
+        kwargs.pop("model_dir", None)
+        return whisperx.load_align_model(**kwargs)
+
+
+def align_transcription_with_whisperx(
+    audio_path: str,
+    segments: list[dict],
+    language_code: str,
+    device: str = "cpu",
+    model_dir: str | None = None,
+) -> dict:
+    """Force-align MLX Whisper text with WhisperX's independent acoustic model."""
+    if not segments:
+        return {"segments": [], "word_segments": [], "language": language_code}
+
+    try:
+        import whisperx
+    except ImportError as exc:
+        raise RuntimeError(
+            "MLX Whisper 强制对齐需要 WhisperX，请先安装 whisperx。"
+        ) from exc
+
+    apply_download_proxy_environment()
+    align_model = None
+    try:
+        audio = whisperx.load_audio(audio_path)
+        align_model, metadata = load_whisperx_align_model(
+            whisperx,
+            language_code,
+            device=device,
+            model_dir=model_dir,
+        )
+        result = whisperx.align(
+            segments,
+            align_model,
+            metadata,
+            audio,
+            device,
+            return_char_alignments=False,
+        )
+        result["language"] = language_code
+        return result
+    finally:
+        del align_model
+        gc.collect()
+
+
 class WhisperXASR(BaseASR):
     def __init__(
         self,
@@ -554,23 +623,12 @@ class WhisperXASR(BaseASR):
         )
 
     def _load_align_model(self, whisperx, language_code: str):
-        kwargs = {
-            "language_code": language_code,
-            "device": self.device,
-        }
-        if self.model_dir:
-            kwargs["model_dir"] = self.model_dir
-            local_dir_name = LOCAL_ALIGN_MODEL_DIRS.get(language_code)
-            if local_dir_name:
-                local_model_dir = os.path.join(self.model_dir, local_dir_name)
-                if os.path.isdir(local_model_dir):
-                    kwargs["model_name"] = local_model_dir
-
-        try:
-            return whisperx.load_align_model(**kwargs)
-        except TypeError:
-            kwargs.pop("model_dir", None)
-            return whisperx.load_align_model(**kwargs)
+        return load_whisperx_align_model(
+            whisperx,
+            language_code,
+            device=self.device,
+            model_dir=self.model_dir,
+        )
 
     def _get_key(self):
         payload = "|".join(

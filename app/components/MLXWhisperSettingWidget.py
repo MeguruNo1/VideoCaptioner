@@ -300,7 +300,7 @@ class MLXWhisperSettingWidget(QWidget):
         self.word_timestamps_card = SwitchSettingCard(
             FIF.UNIT,
             self.tr("词级时间轴"),
-            self.tr("开启后使用 MLX Whisper 原生词级时间戳"),
+            self.tr("开启后使用 MLX 转录，并由 WhisperX 声学模型强制对齐"),
             cfg.mlx_word_timestamps,
             self.setting_group,
         )
