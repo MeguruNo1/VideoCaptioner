@@ -47,6 +47,11 @@ from app.core.utils.desktop_notification import (
     request_desktop_notification_authorization,
     send_desktop_notification,
 )
+from app.core.utils.download_description import (
+    DEFAULT_DESCRIPTION_TEMPLATE,
+    DESCRIPTION_TEMPLATE_VARIABLES,
+    find_unknown_template_variables,
+)
 from app.core.utils.transcript_terms import extract_glossary_pairs, format_glossary_pairs
 from app.core.utils.proxy_utils import (
     PROXY_MODE_MANUAL,
@@ -256,6 +261,96 @@ class PromptCenterDialog(MessageBoxBase):
         dialog.exec_()
 
 
+class DescriptionTemplateDialog(MessageBoxBase):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        max_width, edit_height = DefaultPromptDialog._dialog_dimensions(parent)
+        self.widget.setMaximumWidth(max_width)
+        self.widget.setMinimumWidth(min(max_width, 720))
+        self.setWindowTitle(self.tr("视频信息文本模板"))
+
+        self.titleLabel = BodyLabel(self.tr("视频信息文本模板"), self)
+        self.descriptionLabel = BodyLabel(
+            self.tr("下载视频时，使用此模板生成与视频同名的 .txt 文件。"), self
+        )
+        self.descriptionLabel.setWordWrap(True)
+        variable_text = "  ".join(
+            f"${{{name}}}：{description}"
+            for name, description in DESCRIPTION_TEMPLATE_VARIABLES.items()
+        )
+        self.variableLabel = BodyLabel(self.tr("可用变量：") + variable_text, self)
+        self.variableLabel.setWordWrap(True)
+
+        self.textEdit = TextEdit(self)
+        self.textEdit.setPlainText(self._current_template())
+        self.textEdit.setMinimumSize(min(max_width - 80, 680), edit_height)
+        self.textEdit.setMaximumHeight(edit_height)
+        self.textEdit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        self.saveButton = PushButton(self.tr("保存模板"), self.buttonGroup)
+        self.restoreButton = PushButton(self.tr("恢复默认"), self.buttonGroup)
+
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.descriptionLabel)
+        self.viewLayout.addWidget(self.variableLabel)
+        self.viewLayout.addWidget(self.textEdit)
+        self.viewLayout.setSpacing(10)
+
+        self.yesButton.setText(self.tr("关闭"))
+        self.cancelButton.hide()
+        self.buttonLayout.insertWidget(0, self.saveButton, 0, Qt.AlignVCenter)
+        self.buttonLayout.insertWidget(1, self.restoreButton, 0, Qt.AlignVCenter)
+        self.buttonLayout.insertStretch(2, 1)
+
+        self.saveButton.clicked.connect(self.save_template)
+        self.restoreButton.clicked.connect(self.restore_default)
+
+    @staticmethod
+    def _current_template() -> str:
+        template = str(cfg.get(cfg.download_description_txt_template) or "")
+        return template if template.strip() else DEFAULT_DESCRIPTION_TEMPLATE
+
+    def save_template(self):
+        template = self.textEdit.toPlainText()
+        if not template.strip():
+            InfoBar.error(
+                self.tr("保存失败"),
+                self.tr("模板不能为空；如需重置，请使用“恢复默认”。"),
+                duration=4000,
+                parent=self,
+            )
+            return
+
+        unknown_variables = find_unknown_template_variables(template)
+        if unknown_variables:
+            InfoBar.error(
+                self.tr("保存失败"),
+                self.tr("包含未知变量：")
+                + ", ".join(f"${{{name}}}" for name in unknown_variables),
+                duration=5000,
+                parent=self,
+            )
+            return
+
+        cfg.set(cfg.download_description_txt_template, template)
+        InfoBar.success(
+            self.tr("保存成功"),
+            self.tr("后续下载生成的视频信息文本将使用此模板。"),
+            duration=3000,
+            parent=self,
+        )
+
+    def restore_default(self):
+        cfg.set(cfg.download_description_txt_template, "")
+        self.textEdit.setPlainText(DEFAULT_DESCRIPTION_TEMPLATE)
+        InfoBar.success(
+            self.tr("已恢复默认"),
+            self.tr("视频信息文本将使用内置默认模板。"),
+            duration=2500,
+            parent=self,
+        )
+
+
 class SettingInterface(ScrollArea):
     """设置界面"""
 
@@ -441,6 +536,13 @@ class SettingInterface(ScrollArea):
             self.tr("跟随工作目录"),
             self.downloadSettingGroup,
         )
+        self.downloadDescriptionTemplateCard = PushSettingCard(
+            self.tr("编辑"),
+            FIF.DOCUMENT,
+            self.tr("视频信息文本模板"),
+            self.tr("编辑下载时生成的同名 .txt 文件内容和动态变量"),
+            self.downloadSettingGroup,
+        )
         self.edgeCookieExportCard = PrimaryPushSettingCard(
             self.tr("提取"),
             FIF.DOWNLOAD,
@@ -551,6 +653,9 @@ class SettingInterface(ScrollArea):
         )
         self.downloadSettingGroup.addSettingCard(self.downloadCookieBrowserCard)
         self.downloadSettingGroup.addSettingCard(self.downloadCenterOutputDirCard)
+        self.downloadSettingGroup.addSettingCard(
+            self.downloadDescriptionTemplateCard
+        )
         self.downloadAccountGroup.addSettingCard(self.edgeCookieExportCard)
         self.downloadAccountGroup.addSettingCard(self.edgeCookieStatusCard)
 
@@ -918,6 +1023,9 @@ class SettingInterface(ScrollArea):
         # 检查 LLM 连接
         self.checkLLMConnectionCard.clicked.connect(self.checkLLMConnection)
         self.promptCenterCard.clicked.connect(self.__showPromptCenterDialog)
+        self.downloadDescriptionTemplateCard.clicked.connect(
+            self.__showDescriptionTemplateDialog
+        )
 
         # 保存路径
         self.savePathCard.clicked.connect(self.__onsavePathCardClicked)
@@ -988,6 +1096,10 @@ class SettingInterface(ScrollArea):
 
     def __showPromptCenterDialog(self):
         dialog = PromptCenterDialog(self)
+        dialog.exec_()
+
+    def __showDescriptionTemplateDialog(self):
+        dialog = DescriptionTemplateDialog(self)
         dialog.exec_()
 
     def __onLLMBatchContextChanged(self, checked: bool):

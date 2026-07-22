@@ -1061,6 +1061,7 @@ class VideoDownloadThread(QThread):
         download_sections: list[str] | None = None,
         pr_smart_transcode_hevc_on_av1: bool = False,
         ensure_mp4_output: bool = False,
+        description_txt_template: str | None = None,
     ):
         super().__init__()
         self.url = url
@@ -1077,6 +1078,7 @@ class VideoDownloadThread(QThread):
         self.format_selector = format_selector
         self.need_metadata = need_metadata
         self.need_description_txt = need_description_txt
+        self.description_txt_template = description_txt_template
         self.need_transcript_txt = need_transcript_txt
         self.enable_time_ranges = enable_time_ranges
         self.download_sections = list(download_sections or [])
@@ -1536,6 +1538,7 @@ class VideoDownloadThread(QThread):
             info_dict,
             work_dir,
             sanitize_filename(info_dict.get("title", "video")),
+            template=self.description_txt_template,
         )
 
     def _write_transcript_txt_file(self, subtitle_path: str, info_dict: dict, work_dir: Path) -> str:

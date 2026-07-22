@@ -494,6 +494,9 @@ class Config(QConfig):
     download_center_need_description_txt = ConfigItem(
         "Download", "CenterNeedDescriptionTxt", True, BoolValidator()
     )
+    download_description_txt_template = ConfigItem(
+        "Download", "DescriptionTxtTemplate", ""
+    )
     download_center_subtitle_mode = OptionsConfigItem(
         "Download",
         "CenterSubtitleMode",

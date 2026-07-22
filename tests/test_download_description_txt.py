@@ -3,6 +3,8 @@ from pathlib import Path
 from unittest.mock import mock_open, patch
 
 from app.core.utils.download_description import (
+    DEFAULT_DESCRIPTION_TEMPLATE,
+    find_unknown_template_variables,
     format_upload_date,
     render_description_txt,
     write_description_txt_file,
@@ -56,6 +58,51 @@ class DownloadDescriptionTxtTests(unittest.TestCase):
         self.assertIn("原作者：频道作者", text)
         self.assertNotIn("频道作者 (", text)
         self.assertTrue(text.endswith("原简介：\n"))
+
+    def test_render_description_txt_supports_custom_template_variables(self):
+        text = render_description_txt(
+            {
+                "upload_date": "20260509",
+                "title": "示例标题",
+                "uploader": "示例作者",
+                "uploader_url": "https://example.com/uploader",
+                "description": "简介",
+                "webpage_url": "https://example.com/video",
+            },
+            template=(
+                "${title}\n${author}\n${author_url}\n${author_line}\n"
+                "${upload_date}\n${video_url}\n${description}"
+            ),
+        )
+
+        self.assertEqual(
+            text,
+            "\n".join(
+                [
+                    "示例标题",
+                    "示例作者",
+                    "https://example.com/uploader",
+                    "示例作者 (https://example.com/uploader)",
+                    "2026 年 05 月 09 日",
+                    "https://example.com/video",
+                    "简介",
+                ]
+            ),
+        )
+
+    def test_empty_template_uses_default_template(self):
+        self.assertEqual(
+            render_description_txt({"title": "示例标题"}, template=""),
+            render_description_txt({"title": "示例标题"}, DEFAULT_DESCRIPTION_TEMPLATE),
+        )
+
+    def test_unknown_template_variables_are_rejected(self):
+        self.assertEqual(
+            find_unknown_template_variables("${title} ${unknown} ${missing}"),
+            ["missing", "unknown"],
+        )
+        with self.assertRaisesRegex(ValueError, "未知变量"):
+            render_description_txt({}, "${unknown}")
 
     def test_write_description_txt_file_writes_utf8_text_in_download_dir(self):
         work_dir = Path("download-dir")

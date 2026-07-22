@@ -2589,6 +2589,9 @@ class DownloadCenterInterface(QWidget):
             format_selector=request["format_selector"],
             need_metadata=request["need_metadata"],
             need_description_txt=request["need_description_txt"],
+            description_txt_template=str(
+                cfg.get(cfg.download_description_txt_template) or ""
+            ),
             need_transcript_txt=request["need_transcript_txt"],
             enable_time_ranges=request["enable_time_ranges"],
             download_sections=request["download_sections"],
