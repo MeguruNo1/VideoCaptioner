@@ -342,6 +342,11 @@ class DownloadCenterInterface(QWidget):
         self.command_bar.addAction(self.ffmpeg_fallback_action)
         top_layout.addWidget(self.command_bar, 1)
 
+        self.terminate_button = PushButton(self.tr("终止下载"), self, icon=FIF.CANCEL)
+        self.terminate_button.setFixedHeight(34)
+        self.terminate_button.setVisible(False)
+        top_layout.addWidget(self.terminate_button)
+
         self.start_button = PrimaryPushButton(self.tr("开始下载"), self, icon=FIF.DOWNLOAD)
         self.start_button.setFixedHeight(34)
         top_layout.addWidget(self.start_button)
@@ -878,6 +883,7 @@ class DownloadCenterInterface(QWidget):
         self.url_input.returnPressed.connect(self.parse_link)
         self.parse_button.clicked.connect(self.parse_link)
         self.start_button.clicked.connect(self._on_start_button_clicked)
+        self.terminate_button.clicked.connect(self._on_terminate_button_clicked)
         self.subtitle_checkbox.toggled.connect(self._toggle_subtitle_mode_row)
         self.subtitle_checkbox.toggled.connect(self._refresh_selection_summary)
         self.thumbnail_checkbox.toggled.connect(self._refresh_selection_summary)
@@ -1227,23 +1233,33 @@ class DownloadCenterInterface(QWidget):
 
     def _refresh_start_button_state(self):
         if self.download_action_state == "downloading":
+            self.terminate_button.setVisible(False)
             self.start_button.setText(self.tr("暂停下载"))
             self.start_button.setToolTip(self.tr("点击后先暂停下载"))
             self.start_button.setEnabled(True)
             return
 
         if self.download_action_state == "paused":
-            self.start_button.setText(self.tr("终止下载"))
-            self.start_button.setToolTip(self.tr("再次点击将终止下载并清理当前数据"))
+            self.terminate_button.setText(self.tr("终止下载"))
+            self.terminate_button.setToolTip(self.tr("终止下载并清理当前数据"))
+            self.terminate_button.setEnabled(True)
+            self.terminate_button.setVisible(True)
+            self.start_button.setText(self.tr("继续下载"))
+            self.start_button.setToolTip(self.tr("从当前进度继续下载"))
             self.start_button.setEnabled(True)
             return
 
         if self.download_action_state == "terminating":
-            self.start_button.setText(self.tr("终止中…"))
-            self.start_button.setToolTip(self.tr("正在终止下载并清理当前数据"))
+            self.terminate_button.setText(self.tr("终止中…"))
+            self.terminate_button.setToolTip(self.tr("正在终止下载并清理当前数据"))
+            self.terminate_button.setEnabled(False)
+            self.terminate_button.setVisible(True)
+            self.start_button.setText(self.tr("继续下载"))
+            self.start_button.setToolTip(self.tr("下载正在终止"))
             self.start_button.setEnabled(False)
             return
 
+        self.terminate_button.setVisible(False)
         self.start_button.setText(self.tr("开始下载"))
         self.start_button.setToolTip("")
         self.start_button.setEnabled(self.controls_enabled and self.preview_data is not None)
@@ -1265,13 +1281,24 @@ class DownloadCenterInterface(QWidget):
         if self.download_action_state == "downloading":
             self.download_thread.request_pause()
             self._set_download_action_state("paused")
-            self.status_label.setText(self.tr("正在暂停下载，暂停后再次点击将终止并清理当前数据…"))
+            self.status_label.setText(self.tr("正在暂停下载…"))
             return
 
         if self.download_action_state == "paused":
-            self.download_thread.request_terminate()
-            self._set_download_action_state("terminating")
-            self.status_label.setText(self.tr("正在终止下载并清理当前数据…"))
+            self.download_thread.request_resume()
+            self._set_download_action_state("downloading")
+            self.status_label.setText(self.tr("正在继续下载…"))
+
+    def _on_terminate_button_clicked(self):
+        if self.download_action_state != "paused":
+            return
+        if not self.download_thread or not self.download_thread.isRunning():
+            self.download_thread = None
+            self._set_download_action_state("idle")
+            return
+        self.download_thread.request_terminate()
+        self._set_download_action_state("terminating")
+        self.status_label.setText(self.tr("正在终止下载并清理当前数据…"))
 
     def _set_result_actions_enabled(self, enabled: bool, has_video: bool = False):
         self.open_folder_action.setEnabled(enabled)
@@ -2597,6 +2624,7 @@ class DownloadCenterInterface(QWidget):
             download_sections=request["download_sections"],
             pr_smart_transcode_hevc_on_av1=request["pr_smart_transcode_hevc_on_av1"],
             ensure_mp4_output=request["ensure_mp4_output"],
+            resume_existing=resuming,
         )
         self.download_thread.progress.connect(self.on_download_progress)
         self.download_thread.progress_detail.connect(self.on_download_progress_detail)

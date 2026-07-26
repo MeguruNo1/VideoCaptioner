@@ -1,19 +1,41 @@
 import os
+import tempfile
 import unittest
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtWidgets import QApplication, QBoxLayout
 from qfluentwidgets import CheckBox
 
+from app.common.config import cfg
 from app.view.download_center_interface import DownloadCenterInterface
 
 
 class DownloadCenterLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.settings_file_patch = patch.object(
+            cfg._cfg,
+            "file",
+            Path(cls.temp_dir.name) / "settings.json",
+        )
+        cls.download_state_patch = patch.object(
+            DownloadCenterInterface,
+            "DOWNLOAD_STATE_PATH",
+            Path(cls.temp_dir.name) / "download_center_state.json",
+        )
+        cls.settings_file_patch.start()
+        cls.download_state_patch.start()
         cls.app = QApplication.instance() or QApplication([])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.download_state_patch.stop()
+        cls.settings_file_patch.stop()
+        cls.temp_dir.cleanup()
 
     def test_mode_panel_hides_inactive_page_instead_of_reserving_its_height(self):
         interface = DownloadCenterInterface()
@@ -161,10 +183,35 @@ class DownloadCenterLayoutTests(unittest.TestCase):
         self.assertIn("进度：42.5%", interface.download_detail_panel.text())
         interface.deleteLater()
 
-    def test_restores_preview_and_interrupted_download_progress(self):
-        import tempfile
-        from pathlib import Path
+    def test_paused_download_shows_resume_and_adjacent_terminate_actions(self):
+        interface = DownloadCenterInterface()
+        interface.download_thread = MagicMock()
+        interface.download_thread.isRunning.return_value = True
+        interface._set_download_action_state("downloading")
 
+        interface._on_start_button_clicked()
+
+        interface.download_thread.request_pause.assert_called_once_with()
+        self.assertEqual(interface.start_button.text(), "继续下载")
+        self.assertEqual(interface.terminate_button.text(), "终止下载")
+        self.assertFalse(interface.terminate_button.isHidden())
+
+        interface._on_start_button_clicked()
+
+        interface.download_thread.request_resume.assert_called_once_with()
+        self.assertEqual(interface.start_button.text(), "暂停下载")
+        self.assertTrue(interface.terminate_button.isHidden())
+
+        interface._set_download_action_state("paused")
+        interface._on_terminate_button_clicked()
+
+        interface.download_thread.request_terminate.assert_called_once_with()
+        self.assertEqual(interface.download_action_state, "terminating")
+        self.assertEqual(interface.terminate_button.text(), "终止中…")
+        self.assertFalse(interface.start_button.isEnabled())
+        interface.deleteLater()
+
+    def test_restores_preview_and_interrupted_download_progress(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "download_center_state.json"
             with patch.object(DownloadCenterInterface, "DOWNLOAD_STATE_PATH", state_path):

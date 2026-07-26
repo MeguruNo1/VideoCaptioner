@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from app.thread import video_download_thread
 from app.thread.video_download_thread import (
     VideoDownloadThread,
     _build_ydl_options,
@@ -113,6 +114,78 @@ def test_request_terminate_without_download_dir_only_sets_event():
 
     assert thread._terminate_event.is_set()
     process.assert_not_called()
+
+
+def test_request_resume_clears_pause_and_allows_future_pause_notice(tmp_path):
+    thread = _make_thread(tmp_path / "current-download")
+    thread._pause_event.set()
+    thread._pause_notice_emitted = True
+
+    thread.request_resume()
+
+    assert not thread._pause_event.is_set()
+    assert thread._pause_notice_emitted is False
+
+
+def test_restart_resume_reuses_completed_subtitle_and_transcript(tmp_path):
+    title = "Resume Clip"
+    work_dir = tmp_path / title
+    subtitle_path = work_dir / "subtitle" / "【下载字幕】_en.vtt"
+    transcript_path = work_dir / f"【视频文稿】{title}.txt"
+    subtitle_path.parent.mkdir(parents=True)
+    subtitle_path.write_text("WEBVTT\n\n00:00.000 --> 00:01.000\nHello", encoding="utf-8")
+    transcript_path.write_text("Hello", encoding="utf-8")
+    info_dict = {
+        "title": title,
+        "automatic_captions": {
+            "en": [{"url": "https://example.test/subtitle.vtt", "ext": "vtt"}]
+        },
+    }
+    thread = VideoDownloadThread(
+        url="https://example.test/video",
+        work_dir=str(tmp_path),
+        need_video=False,
+        need_subtitle=True,
+        need_transcript_txt=True,
+        resume_existing=True,
+    )
+
+    with (
+        patch.object(video_download_thread, "APP_DATA_PATH", tmp_path),
+        patch.object(
+            video_download_thread,
+            "_extract_metadata_info",
+            return_value=info_dict,
+        ),
+        patch.object(
+            video_download_thread, "apply_download_proxy_environment", return_value=""
+        ),
+        patch.object(
+            video_download_thread, "get_effective_download_proxy_url", return_value=""
+        ),
+        patch.object(video_download_thread, "_pick_subtitle_item") as pick_subtitle,
+        patch.object(
+            video_download_thread, "_download_subtitle_fallback"
+        ) as download_subtitle,
+        patch.object(thread, "_write_transcript_txt_file") as write_transcript,
+        patch.object(video_download_thread.yt_dlp, "YoutubeDL") as youtube_dl,
+    ):
+        result = thread.download(
+            need_video=False,
+            need_subtitle=True,
+            need_transcript_txt=True,
+            resume_existing=True,
+        )
+
+    options = youtube_dl.call_args.args[0]
+    assert options["writesubtitles"] is False
+    assert options["writeautomaticsub"] is False
+    assert result["subtitle_path"] == str(subtitle_path)
+    assert result["transcript_txt_path"] == str(transcript_path)
+    assert result["transcript_message"] == "已复用"
+    pick_subtitle.assert_not_called()
+    download_subtitle.assert_not_called()
+    write_transcript.assert_not_called()
 
 
 def test_force_kills_ffmpeg_that_ignores_terminate():

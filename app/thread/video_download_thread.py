@@ -564,6 +564,47 @@ def _download_subtitle_fallback(
     return str(subtitle_path)
 
 
+def _find_reusable_subtitle_path(
+    work_dir: Path, subtitle_language: str | None = None
+) -> str | None:
+    prefixes = []
+    language = str(subtitle_language or "").strip().lower()
+    if language:
+        prefixes.append(f"【下载字幕】_{language}")
+    prefixes.append("【下载字幕】")
+
+    for prefix in prefixes:
+        try:
+            candidates = sorted(
+                work_dir.rglob(f"{prefix}.*"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            continue
+        for candidate in candidates:
+            try:
+                if (
+                    candidate.is_file()
+                    and candidate.suffix.lower() in SUBTITLE_EXTENSIONS
+                    and candidate.stat().st_size > 0
+                ):
+                    return str(candidate)
+            except OSError:
+                continue
+    return None
+
+
+def _find_reusable_transcript_path(work_dir: Path, title: str) -> str | None:
+    transcript_path = work_dir / f"【视频文稿】{title}.txt"
+    try:
+        if transcript_path.is_file() and transcript_path.stat().st_size > 0:
+            return str(transcript_path)
+    except OSError:
+        pass
+    return None
+
+
 def _is_format_selection_error(exc: Exception) -> bool:
     message = str(exc).lower()
     if not message:
@@ -1062,6 +1103,7 @@ class VideoDownloadThread(QThread):
         pr_smart_transcode_hevc_on_av1: bool = False,
         ensure_mp4_output: bool = False,
         description_txt_template: str | None = None,
+        resume_existing: bool = False,
     ):
         super().__init__()
         self.url = url
@@ -1084,6 +1126,7 @@ class VideoDownloadThread(QThread):
         self.download_sections = list(download_sections or [])
         self.pr_smart_transcode_hevc_on_av1 = pr_smart_transcode_hevc_on_av1
         self.ensure_mp4_output = ensure_mp4_output
+        self.resume_existing = resume_existing
         self._pause_event = threading.Event()
         self._terminate_event = threading.Event()
         self._pause_notice_emitted = False
@@ -1113,6 +1156,7 @@ class VideoDownloadThread(QThread):
                 download_sections=self.download_sections,
                 pr_smart_transcode_hevc_on_av1=self.pr_smart_transcode_hevc_on_av1,
                 ensure_mp4_output=self.ensure_mp4_output,
+                resume_existing=self.resume_existing,
             )
             self.detailed_finished.emit(result)
             self.finished.emit(result.get("video_path") or "")
@@ -1134,6 +1178,11 @@ class VideoDownloadThread(QThread):
     def request_pause(self):
         if not self._terminate_event.is_set():
             self._pause_event.set()
+
+    def request_resume(self):
+        if not self._terminate_event.is_set():
+            self._pause_notice_emitted = False
+            self._pause_event.clear()
 
     def request_terminate(self):
         self._terminate_event.set()
@@ -1382,7 +1431,7 @@ class VideoDownloadThread(QThread):
                 self._pause_notice_emitted = True
                 self.progress.emit(
                     self._current_progress,
-                    "下载已暂停，再次点击按钮将终止下载并清理当前数据。",
+                    "下载已暂停，可点击继续下载，或终止下载并清理当前数据。",
                 )
             while self._pause_event.is_set():
                 self._raise_if_terminated()
@@ -1636,6 +1685,7 @@ class VideoDownloadThread(QThread):
         download_sections: list[str] | None = None,
         pr_smart_transcode_hevc_on_av1: bool = False,
         ensure_mp4_output: bool = False,
+        resume_existing: bool = False,
     ) -> dict:
         logger.info("开始下载资源: %s", self.url)
         self._download_started_at = time.time()
@@ -1669,37 +1719,58 @@ class VideoDownloadThread(QThread):
         subtitle_download_link = None
         subtitle_ext = "vtt"
         effective_need_subtitle = need_subtitle or need_transcript_txt
+        subtitle_path = (
+            _find_reusable_subtitle_path(work_dir, subtitle_language)
+            if resume_existing and effective_need_subtitle
+            else None
+        )
+        if subtitle_path:
+            logger.info("继续下载时复用已完成字幕: %s", subtitle_path)
 
-        if effective_need_subtitle:
+        if effective_need_subtitle and not subtitle_path:
             subtitle_download_link, subtitle_ext = _pick_subtitle_item(
                 info_dict, subtitle_mode, subtitle_language
             )
 
         fallback_proxy = proxy_url or get_effective_download_proxy_url()
-        subtitle_path = None
-        transcript_txt_path = None
-        transcript_message = "未触发"
+        transcript_txt_path = (
+            _find_reusable_transcript_path(work_dir, title)
+            if resume_existing and need_transcript_txt
+            else None
+        )
+        transcript_message = "已复用" if transcript_txt_path else "未触发"
         terms_txt_path = None
         terms_message = "请在 WhisperX 热词管理中手动生成"
-        if need_transcript_txt:
-            self.progress.emit(2, self.tr("提前下载字幕并生成视频文稿..."))
-            try:
-                subtitle_path = _download_subtitle_fallback(
-                    subtitle_download_link,
-                    subtitle_ext,
-                    work_dir / "subtitle" / f"【下载字幕】_{subtitle_language or subtitle_mode}",
-                    fallback_proxy,
-                )
-                if subtitle_path:
+        if need_transcript_txt and not transcript_txt_path:
+            if subtitle_path:
+                self.progress.emit(2, self.tr("复用已下载字幕生成视频文稿..."))
+                try:
                     transcript_txt_path = self._write_transcript_txt_file(
                         subtitle_path, info_dict, work_dir
                     )
-                    transcript_message = "已提前生成"
-                else:
-                    transcript_message = "未找到可提前下载的字幕，稍后尝试生成视频文稿"
-            except Exception as exc:
-                logger.exception("提前生成视频文稿失败: %s", exc)
-                transcript_message = f"提前生成视频文稿失败，稍后重试: {exc}"
+                    transcript_message = "已复用字幕生成"
+                except Exception as exc:
+                    logger.exception("复用字幕生成视频文稿失败: %s", exc)
+                    transcript_message = f"复用字幕生成视频文稿失败，稍后重试: {exc}"
+            else:
+                self.progress.emit(2, self.tr("提前下载字幕并生成视频文稿..."))
+                try:
+                    subtitle_path = _download_subtitle_fallback(
+                        subtitle_download_link,
+                        subtitle_ext,
+                        work_dir / "subtitle" / f"【下载字幕】_{subtitle_language or subtitle_mode}",
+                        fallback_proxy,
+                    )
+                    if subtitle_path:
+                        transcript_txt_path = self._write_transcript_txt_file(
+                            subtitle_path, info_dict, work_dir
+                        )
+                        transcript_message = "已提前生成"
+                    else:
+                        transcript_message = "未找到可提前下载的字幕，稍后尝试生成视频文稿"
+                except Exception as exc:
+                    logger.exception("提前生成视频文稿失败: %s", exc)
+                    transcript_message = f"提前生成视频文稿失败，稍后重试: {exc}"
             self._raise_if_terminated()
 
         ydl_need_subtitle = effective_need_subtitle and not subtitle_path
@@ -1809,9 +1880,7 @@ class VideoDownloadThread(QThread):
             mp4_normalization_message = f"已将回退格式转换为 MP4（{encoder}）"
         media_path = media_files[0] if len(media_files) == 1 else (str(work_dir) if media_files else None)
         if not subtitle_path:
-            for file in work_dir.glob("**/【下载字幕】.*"):
-                subtitle_path = str(file)
-                break
+            subtitle_path = _find_reusable_subtitle_path(work_dir, subtitle_language)
 
         if effective_need_subtitle and not subtitle_path:
             subtitle_path = _download_subtitle_fallback(
