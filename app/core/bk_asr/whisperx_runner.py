@@ -3,6 +3,11 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    from .nltk_utils import call_with_punkt_tab_recovery
+except ImportError:
+    from nltk_utils import call_with_punkt_tab_recovery
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parents[3]
 
@@ -234,13 +239,15 @@ def main():
             align_model, metadata = load_align_model(
                 whisperx, request, result.get("language") or request.get("language")
             )
-            result = whisperx.align(
-                result["segments"],
-                align_model,
-                metadata,
-                audio,
-                request["device"],
-                return_char_alignments=False,
+            result = call_with_punkt_tab_recovery(
+                lambda: whisperx.align(
+                    result["segments"],
+                    align_model,
+                    metadata,
+                    audio,
+                    request["device"],
+                    return_char_alignments=False,
+                )
             )
 
         progress(95, "Writing result")

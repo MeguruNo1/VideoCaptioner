@@ -48,6 +48,12 @@ class NativeHevcPostprocessTests(unittest.TestCase):
             self.assertIsNone(fallback_source)
             self.assertIsNone(fallback_target)
             transcode.assert_called_once()
+            self.assertEqual(
+                transcode.call_args.kwargs["preset_name"],
+                video_download_thread.cfg.get(
+                    video_download_thread.cfg.download_native_hevc_preset
+                ),
+            )
 
     def test_native_hevc_success_is_used_for_vp9(self):
         with tempfile.TemporaryDirectory() as temp_dir:

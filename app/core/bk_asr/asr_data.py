@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
 from app.core.utils.profanity_filter import mask_english_profanity
+from app.core.utils.subtitle_punctuation import normalize_cjk_quotes
 
 SEPARATE_ORIGINAL_TRANSLATE_LAYOUT = "单独输出原文和译文"
 
@@ -325,6 +326,12 @@ class ASRData:
                 continue
             translated = translated.replace("，", " ").replace(",", " ")
             seg.translated_text = re.sub(r"\s+", " ", translated).strip()
+        return self
+
+    def normalize_translated_cjk_quotes(self) -> "ASRData":
+        """将译文引号统一为外层「」和单引号『』。"""
+        for seg in self.segments:
+            seg.translated_text = normalize_cjk_quotes(seg.translated_text)
         return self
 
     def mask_original_profanity(self) -> "ASRData":

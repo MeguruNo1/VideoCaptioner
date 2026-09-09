@@ -324,7 +324,18 @@ class StrictPunctuationSplitTests(unittest.TestCase):
         self.assertEqual(segments[0].end_time, 1500)
         self.assertEqual(segments[1].start_time, 1500)
 
-    def test_fill_short_display_gap_includes_two_second_boundary(self):
+    def test_fill_short_display_gap_keeps_gap_above_half_second(self):
+        segments = [
+            ASRDataSeg("第一句", 0, 1000),
+            ASRDataSeg("第二句", 1501, 2500),
+        ]
+
+        SubtitleSplitter._fill_short_display_gaps(segments)
+
+        self.assertEqual(segments[0].end_time, 1000)
+        self.assertEqual(segments[1].start_time, 1501)
+
+    def test_fill_short_display_gap_keeps_large_pause(self):
         segments = [
             ASRDataSeg("第一句", 0, 1000),
             ASRDataSeg("第二句", 3000, 4000),
@@ -332,19 +343,8 @@ class StrictPunctuationSplitTests(unittest.TestCase):
 
         SubtitleSplitter._fill_short_display_gaps(segments)
 
-        self.assertEqual(segments[0].end_time, 3000)
-        self.assertEqual(segments[1].start_time, 3000)
-
-    def test_fill_short_display_gap_keeps_large_pause(self):
-        segments = [
-            ASRDataSeg("第一句", 0, 1000),
-            ASRDataSeg("第二句", 3001, 4000),
-        ]
-
-        SubtitleSplitter._fill_short_display_gaps(segments)
-
         self.assertEqual(segments[0].end_time, 1000)
-        self.assertEqual(segments[1].start_time, 3001)
+        self.assertEqual(segments[1].start_time, 3000)
 
     def test_fill_short_display_gap_ignores_zero_and_overlap(self):
         zero_gap_segments = [

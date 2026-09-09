@@ -1,0 +1,2 @@
+# Add to the existing macOS environment. No separate translation API is used.
+mcp>=1.28,<2

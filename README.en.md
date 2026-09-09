@@ -79,6 +79,17 @@ pip install -r requirements-macos-whisperx.txt
 python main.py
 ```
 
+YouTube may require a subtitle-specific PO Token. After the first source setup,
+install the local token provider so yt-dlp can list affected automatic captions:
+
+```bash
+scripts/setup_youtube_pot_provider.sh
+```
+
+The script requires Node.js 20+, npm, and Git. It installs the provider under
+`~/Library/Application Support/VideoCaptioner/youtube-pot-provider` and does not
+run a persistent background service.
+
 WhisperX downloads transcription, VAD, and alignment models on first use unless compatible local models already exist under:
 
 ```text
@@ -118,3 +129,9 @@ The output app includes the Python runtime and Python dependencies, but still ex
 ## Upstream and License
 
 The original project was created by [@WEIFENG2333](https://github.com/WEIFENG2333). This fork is based on that project and follows the original GPL-3.0 license terms. If you publish this fork, keep the original copyright and license information.
+
+## Codex subtitle workflow
+
+A local MCP server and Skill can download a video, transcribe with local MLX Whisper, and let the current Codex conversation proofread, segment, and translate captions. Each task uses a video-title directory and exports the final video, source/translated SRT, a proofread source transcript, and a template description. Highest-quality VP9/AV1 downloads are converted to HEVC. Jobs are resumable and support local re-transcription; no computer control or separate translation API is used. See the [Codex MCP guide](docs/codex-mcp.md).
+
+The shared download core incorporates production lessons documented by [FluentYTDL](https://github.com/SakuraForgot/FluentYTDL): yt-dlp's default YouTube client strategy, concurrent fragments with the full retry budget, staged authentication recovery, cleanup of stale partial state after 403 responses, and atomic cookie replacement only after candidate validation. Download Center, preview parsing, MCP, and compatibility threads all use these rules.

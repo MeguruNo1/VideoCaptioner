@@ -1,24 +1,9 @@
 import html
-import importlib.util
 import json
 import re
 from pathlib import Path
 
-
-def _load_asr_data_module():
-    # Loading the file directly avoids importing bk_asr/__init__.py and its UI/runtime deps.
-    module_path = Path(__file__).parents[1] / "bk_asr" / "asr_data.py"
-    spec = importlib.util.spec_from_file_location("video_captioner_asr_data", module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"无法加载字幕解析模块: {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-_asr_data_module = _load_asr_data_module()
-ASRData = _asr_data_module.ASRData
-ASRDataSeg = _asr_data_module.ASRDataSeg
+from app.core.bk_asr.asr_data import ASRData, ASRDataSeg
 
 
 _TAG_PATTERN = re.compile(r"<[^>]+>")

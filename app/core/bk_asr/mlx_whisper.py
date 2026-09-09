@@ -7,7 +7,6 @@ from ..utils.logger import setup_logger
 from ..utils.mlx_model_utils import DEFAULT_MLX_MODEL, validate_mlx_model
 from .asr_data import ASRDataSeg
 from .base import BaseASR
-from .whisper_x_auto import align_transcription_with_whisperx
 from .mlx_workflow import (
     build_chunk_windows,
     detect_speech_ranges,
@@ -19,7 +18,13 @@ from .mlx_workflow import (
 )
 
 logger = setup_logger("mlx_whisper")
-MLX_WORKFLOW_VERSION = "vad-union-global-dedupe-whisperx-align-v1"
+MLX_WORKFLOW_VERSION = "vad-union-global-dedupe-whisperx-align-v2"
+
+def align_transcription_with_whisperx(*args, **kwargs):
+    """Lazy compatibility entrypoint; native MLX jobs never load WhisperX."""
+    from .whisper_x_auto import align_transcription_with_whisperx as align
+    return align(*args, **kwargs)
+
 
 def _parse_prompt_terms(text: str) -> list[str]:
     terms = []
@@ -62,7 +67,11 @@ class MLXWhisperASR(BaseASR):
         chunk_overlap: int = 30,
         align_device: str = "cpu",
         align_model_dir: str | None = None,
+        alignment_method: str = "whisperx",
     ):
+        if alignment_method not in {"whisperx", "native"}:
+            raise ValueError("alignment_method must be whisperx or native")
+        self.alignment_method = alignment_method
         super().__init__(audio_path, use_cache)
         self.model = model or DEFAULT_MLX_MODEL
         self.language = language or None
@@ -122,11 +131,11 @@ class MLXWhisperASR(BaseASR):
             audio_path,
             path_or_hf_repo=self.model,
             language=self.language,
-            # Word timestamps from Whisper cross-attention/DTW can collapse or
-            # begin seconds before speech. WhisperX forced alignment is applied
-            # after MLX transcription when word timestamps are requested.
-            word_timestamps=False,
+            # Preserve GUI forced alignment; headless jobs explicitly opt into
+            # native MLX word timestamps and validate their timing downstream.
+            word_timestamps=self.need_word_time_stamp and self.alignment_method == "native",
             initial_prompt=self.initial_prompt or None,
+            **({"condition_on_previous_text": False} if self.alignment_method == "native" else {}),
         )
 
     def _build_workflow_windows(
@@ -211,7 +220,7 @@ class MLXWhisperASR(BaseASR):
             callback(5, "Loading MLX Whisper")
             callback(35, "Transcribing with MLX Whisper")
             result = self._run_workflow(mlx_whisper, callback)
-            if self.need_word_time_stamp and result.get("segments"):
+            if self.need_word_time_stamp and self.alignment_method == "whisperx" and result.get("segments"):
                 callback(92, "Aligning MLX transcript with WhisperX")
                 alignment_segments = [
                     {
@@ -249,6 +258,7 @@ class MLXWhisperASR(BaseASR):
                 str(self.vad_threshold),
                 str(self.chunk_duration),
                 str(self.chunk_overlap),
+                self.alignment_method,
                 self.align_device,
                 str(self.align_model_dir),
                 MLX_WORKFLOW_VERSION,

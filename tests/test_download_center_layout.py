@@ -252,18 +252,12 @@ class DownloadCenterLayoutTests(unittest.TestCase):
                 self.assertIn("恢复上次下载进度", restored.status_label.text())
                 restored.deleteLater()
 
-    def test_automatic_subtitles_prefer_english_and_allow_language_change(self):
+    def test_subtitle_choices_merge_source_and_language_with_group_separator(self):
         interface = DownloadCenterInterface()
         interface.preview_data = {
-            "manual_subtitle_languages": [],
+            "manual_subtitle_languages": ["zh-Hans"],
             "auto_subtitle_languages": ["ru", "en", "ja"],
         }
-        mode_blocked = interface.subtitle_mode_combo.blockSignals(True)
-        interface._set_combo_current_data(interface.subtitle_mode_combo, "auto", "auto")
-        interface.subtitle_mode_combo.blockSignals(mode_blocked)
-        language_blocked = interface.subtitle_language_combo.blockSignals(True)
-        interface._set_combo_current_data(interface.subtitle_language_combo, "en", "en")
-        interface.subtitle_language_combo.blockSignals(language_blocked)
         from app.common.config import cfg
 
         original_get = cfg.get
@@ -274,13 +268,48 @@ class DownloadCenterLayoutTests(unittest.TestCase):
                 "en" if item is cfg.download_center_subtitle_language else original_get(item)
             ),
         ):
-            interface._populate_subtitle_languages()
+            interface._populate_subtitle_choices()
 
-        self.assertEqual(interface.subtitle_language_combo.currentData(), "en")
-        blocked = interface.subtitle_language_combo.blockSignals(True)
-        interface._set_combo_current_data(interface.subtitle_language_combo, "ru", "en")
-        interface.subtitle_language_combo.blockSignals(blocked)
-        self.assertEqual(interface.subtitle_language_combo.currentData(), "ru")
+        self.assertEqual(interface.subtitle_source_combo.count(), 4)
+        self.assertEqual(interface.subtitle_source_combo.separator_before_indices, {1})
+        self.assertEqual(
+            interface.subtitle_source_combo.itemData(0), ("manual", "zh-Hans")
+        )
+        self.assertIn("人工字幕", interface.subtitle_source_combo.itemText(0))
+        self.assertEqual(interface.subtitle_source_combo.itemData(2), ("auto", "en"))
+        self.assertIn("自动字幕", interface.subtitle_source_combo.itemText(2))
+        interface.deleteLater()
+
+    def test_auto_only_subtitles_hide_manual_group(self):
+        interface = DownloadCenterInterface()
+        interface.preview_data = {
+            "manual_subtitle_languages": [],
+            "auto_subtitle_languages": ["ru", "en", "ja"],
+        }
+
+        interface._populate_subtitle_choices()
+
+        self.assertEqual(interface.subtitle_source_combo.count(), 3)
+        self.assertEqual(interface.subtitle_source_combo.separator_before_indices, set())
+        for index in range(interface.subtitle_source_combo.count()):
+            self.assertEqual(interface.subtitle_source_combo.itemData(index)[0], "auto")
+            self.assertNotIn("人工字幕", interface.subtitle_source_combo.itemText(index))
+        self.assertEqual(interface._selected_subtitle_mode(), "auto")
+        interface.deleteLater()
+
+    def test_no_subtitles_disables_unified_subtitle_choice(self):
+        interface = DownloadCenterInterface()
+        interface.preview_data = {
+            "manual_subtitle_languages": [],
+            "auto_subtitle_languages": [],
+        }
+
+        interface._populate_subtitle_choices()
+
+        self.assertEqual(interface.subtitle_source_combo.count(), 1)
+        self.assertIsNone(interface.subtitle_source_combo.currentData())
+        self.assertIn("未检测到", interface.subtitle_source_combo.currentText())
+        self.assertFalse(interface.subtitle_source_combo.isEnabled())
         interface.deleteLater()
 
 

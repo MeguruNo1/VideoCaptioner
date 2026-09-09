@@ -194,19 +194,35 @@ class VideoInfoCard(CardWidget):
             need_language_settings = cfg.transcribe_model.value == TranscribeModelEnum.WHISPER_X
             if need_language_settings and not self.show_language_settings():
                 return
-        self.progress_ring.show()
-        self.progress_ring.setValue(100)
-        self.start_button.setDisabled(True)
         self.start_transcription(force_no_asr_cache=force_no_asr_cache)
 
     def start_transcription(self, need_create_task=True, force_no_asr_cache=False):
         """开始转录过程"""
+        if need_create_task:
+            if self.video_info is None:
+                self._show_transcription_preflight_error(
+                    self.tr("请先导入可用的音频或视频文件")
+                )
+                return False
+            self.task = TaskFactory.create_transcribe_task(self.video_info.file_path)
+
+        from app.core.utils.transcription_model_utils import (
+            validate_transcription_model_ready,
+        )
+
+        model_ready, model_message = validate_transcription_model_ready(
+            self.task.transcribe_config if self.task else None
+        )
+        if not model_ready:
+            self._show_transcription_preflight_error(model_message)
+            return False
+
         self.transcription_interface.is_processing = True
         self.transcription_interface._set_translation_handoff_enabled(False)
+        self.progress_ring.show()
+        self.progress_ring.setValue(100)
         self.start_button.setEnabled(False)
-
-        if need_create_task:
-            self.task = TaskFactory.create_transcribe_task(self.video_info.file_path)
+        self.start_button.setText(self.tr("正在准备模型…"))
 
         if self.task and self.task.output_path and Path(self.task.output_path).exists():
             force_no_asr_cache = True
@@ -221,6 +237,22 @@ class VideoInfoCard(CardWidget):
         self.transcript_thread.progress.connect(self.on_transcript_progress)
         self.transcript_thread.error.connect(self.on_transcript_error)
         self.transcript_thread.start()
+        return True
+
+    def _show_transcription_preflight_error(self, message: str):
+        if self.transcription_interface:
+            self.transcription_interface.is_processing = False
+            self.transcription_interface._set_translation_handoff_enabled(False)
+        self.progress_ring.hide()
+        self.progress_ring.setValue(0)
+        self.start_button.setEnabled(bool(self.video_info or self.task))
+        self.start_button.setText(self.tr("开始转录"))
+        InfoBar.warning(
+            self.tr("转录模型不可用"),
+            self.tr(str(message)),
+            duration=6000,
+            parent=self.transcription_interface or self,
+        )
 
     def on_transcript_progress(self, value, message):
         """更新转录进度"""
@@ -231,9 +263,11 @@ class VideoInfoCard(CardWidget):
         """处理转录错误"""
         if self.transcription_interface:
             self.transcription_interface.is_processing = False
+            self.transcription_interface._set_translation_handoff_enabled(False)
+        self.progress_ring.hide()
+        self.progress_ring.setValue(0)
         self.start_button.setEnabled(True)
         self.start_button.setText(self.tr("重新转录"))
-        self.start_button.setEnabled(True)
         InfoBar.error(
             self.tr("转录失败"),
             self.tr(error),
@@ -550,9 +584,8 @@ class TranscriptionInterface(QWidget):
 
     def process(self):
         """主处理函数"""
-        self.is_processing = True
         self._set_translation_handoff_enabled(False)
-        self.video_info_card.start_transcription(need_create_task=False)
+        return self.video_info_card.start_transcription(need_create_task=False)
 
     def dragEnterEvent(self, event):
         """拖拽进入事件处理"""

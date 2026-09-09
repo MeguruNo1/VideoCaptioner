@@ -8,6 +8,14 @@ from ..utils.logger import setup_logger
 logger = setup_logger("macos_video_transcoder")
 
 NATIVE_HEVC_ENCODER_NAME = "macos_avfoundation_hevc"
+NATIVE_HEVC_PRESET_FAST_1080P = "fast_1080p"
+NATIVE_HEVC_PRESET_BALANCED_4K = "balanced_4k"
+NATIVE_HEVC_PRESET_HIGHEST_QUALITY = "highest_quality"
+NATIVE_HEVC_PRESET_ATTRIBUTES = {
+    NATIVE_HEVC_PRESET_FAST_1080P: "AVAssetExportPresetHEVC1920x1080",
+    NATIVE_HEVC_PRESET_BALANCED_4K: "AVAssetExportPresetHEVC3840x2160",
+    NATIVE_HEVC_PRESET_HIGHEST_QUALITY: "AVAssetExportPresetHEVCHighestQuality",
+}
 
 
 def _load_frameworks():
@@ -79,10 +87,27 @@ def _session_error_text(session) -> str:
     return str(localized or error)
 
 
+def _native_hevc_export_preset(av, preset_name: str):
+    attribute = NATIVE_HEVC_PRESET_ATTRIBUTES.get(
+        preset_name,
+        NATIVE_HEVC_PRESET_ATTRIBUTES[NATIVE_HEVC_PRESET_HIGHEST_QUALITY],
+    )
+    preset = getattr(av, attribute, None)
+    if preset:
+        return preset
+
+    logger.warning("macOS 不支持所选 HEVC 预设 %s，回退到最高质量", preset_name)
+    fallback = getattr(av, "AVAssetExportPresetHEVCHighestQuality", None)
+    if not fallback:
+        raise RuntimeError("macOS 原生 HEVC 最高质量预设不可用")
+    return fallback
+
+
 def transcode_video_to_hevc_native(
     input_file: str,
     output_file: str,
     progress_callback: Callable[[int, str], None] | None = None,
+    preset_name: str = NATIVE_HEVC_PRESET_HIGHEST_QUALITY,
 ) -> str:
     input_path = Path(input_file)
     output_path = Path(output_file)
@@ -97,7 +122,7 @@ def transcode_video_to_hevc_native(
         output_path.unlink()
 
     asset = _asset_for_path(str(input_path))
-    preset = av.AVAssetExportPresetHEVCHighestQuality
+    preset = _native_hevc_export_preset(av, preset_name)
     session = av.AVAssetExportSession.alloc().initWithAsset_presetName_(asset, preset)
     if session is None:
         raise RuntimeError("创建 macOS 原生 HEVC 导出会话失败")
@@ -138,5 +163,7 @@ def transcode_video_to_hevc_native(
 
     if progress_callback:
         progress_callback(100, "H.265 转码完成")
-    logger.info("macOS 原生 HEVC 转码完成: %s", output_path)
+    logger.info(
+        "macOS 原生 HEVC 转码完成: %s，预设=%s", output_path, preset_name
+    )
     return NATIVE_HEVC_ENCODER_NAME

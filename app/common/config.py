@@ -444,6 +444,12 @@ class Config(QConfig):
         "智能选择",
         OptionsValidator(["单线程", "多线程", "智能选择"]),
     )
+    download_native_hevc_preset = OptionsConfigItem(
+        "Download",
+        "NativeHevcPreset",
+        "highest_quality",
+        OptionsValidator(["fast_1080p", "balanced_4k", "highest_quality"]),
+    )
     # Keep the legacy persisted key so existing users retain their switch value.
     download_auto_extract_cookies_on_startup = ConfigItem(
         "Download", "AutoRefreshEdgeCookies", False, BoolValidator()

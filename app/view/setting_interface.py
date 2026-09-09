@@ -514,6 +514,17 @@ class SettingInterface(ScrollArea):
             texts=["单线程", "多线程", "智能选择"],
             parent=self.downloadSettingGroup,
         )
+        self.downloadNativeHevcPresetCard = ComboBoxSettingCard(
+            cfg.download_native_hevc_preset,
+            FIF.VIDEO,
+            self.tr("原生 H.265 转码预设"),
+            self.tr(
+                "用于 PR 智能预设的 AV1/VP9 转码；快速档输出最高 1080p，"
+                "均衡档输出最高 4K"
+            ),
+            texts=["快速（1080p）", "均衡（最高 4K）", "最高质量（保留原设置）"],
+            parent=self.downloadSettingGroup,
+        )
         self.downloadAutoExtractCookiesOnStartupCard = SwitchSettingCard(
             FIF.SYNC,
             self.tr("应用启动时自动提取浏览器 Cookie"),
@@ -525,7 +536,10 @@ class SettingInterface(ScrollArea):
             cfg.download_cookie_browser,
             FIF.GLOBE,
             self.tr("Cookie 来源浏览器"),
-            self.tr("提取 cookies.txt 时只读取所选浏览器，默认使用 Safari"),
+            self.tr(
+                "提取 cookies.txt 时只读取所选浏览器；Safari 首次提取需授予"
+                "完全磁盘访问权限"
+            ),
             texts=["Safari", "Chrome", "Edge"],
             parent=self.downloadSettingGroup,
         )
@@ -648,6 +662,7 @@ class SettingInterface(ScrollArea):
 
         self.saveGroup.addSettingCard(self.savePathCard)
         self.downloadSettingGroup.addSettingCard(self.downloadEngineStrategyCard)
+        self.downloadSettingGroup.addSettingCard(self.downloadNativeHevcPresetCard)
         self.downloadSettingGroup.addSettingCard(
             self.downloadAutoExtractCookiesOnStartupCard
         )
@@ -1262,12 +1277,30 @@ class SettingInterface(ScrollArea):
                 parent=self,
             )
         else:
-            InfoBar.error(
-                self.tr("Cookie 导出失败"),
-                result.get("message", self.tr("无法从浏览器导出 Cookie")),
-                duration=4000,
-                parent=self,
-            )
+            message = result.get("message", self.tr("无法从浏览器导出 Cookie"))
+            if result.get("needs_elevation_hint"):
+                from app.core.utils.edge_cookie_utils import (
+                    MACOS_FULL_DISK_ACCESS_SETTINGS_URL,
+                )
+
+                dialog = MessageBox(
+                    self.tr("需要完全磁盘访问权限"),
+                    message,
+                    self,
+                )
+                dialog.yesButton.setText(self.tr("打开系统设置"))
+                dialog.cancelButton.setText(self.tr("稍后"))
+                if dialog.exec():
+                    QDesktopServices.openUrl(
+                        QUrl(MACOS_FULL_DISK_ACCESS_SETTINGS_URL)
+                    )
+            else:
+                InfoBar.error(
+                    self.tr("Cookie 导出失败"),
+                    message,
+                    duration=5000,
+                    parent=self,
+                )
 
     def __showRestartTooltip(self):
         """显示重启提示"""

@@ -56,11 +56,13 @@ class _FakeSession:
 class _FakeExportSessionFactory:
     def __init__(self, session):
         self._session = session
+        self.preset = None
 
     def alloc(self):
         return self
 
     def initWithAsset_presetName_(self, _asset, _preset):
+        self.preset = _preset
         return self._session
 
 
@@ -124,6 +126,43 @@ class MacOSVideoTranscoderTests(unittest.TestCase):
             self.assertEqual(result, "macos_avfoundation_hevc")
             self.assertTrue(output_path.is_file())
             self.assertIn((100, "H.265 转码完成"), progress_events)
+
+    def test_transcode_video_to_hevc_native_uses_selected_4k_preset(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.mp4"
+            output_path = Path(temp_dir) / "output.mp4"
+            input_path.write_bytes(b"input")
+
+            av = SimpleNamespace(
+                AVAssetExportPresetHEVCHighestQuality="HEVC_HQ",
+                AVAssetExportPresetHEVC3840x2160="HEVC_4K",
+                AVFileTypeMPEG4="public.mpeg-4",
+                AVAssetExportSessionStatusCompleted=3,
+            )
+            factory = _FakeExportSessionFactory(
+                _FakeSession(av.AVAssetExportSessionStatusCompleted, av.AVFileTypeMPEG4)
+            )
+            av.AVAssetExportSession = factory
+            foundation = SimpleNamespace(
+                NSURL=SimpleNamespace(fileURLWithPath_=lambda value: value)
+            )
+
+            with patch.object(
+                macos_video_transcoder.sys, "platform", "darwin"
+            ), patch.object(
+                macos_video_transcoder,
+                "_load_frameworks",
+                return_value=(av, SimpleNamespace(), foundation),
+            ), patch.object(
+                macos_video_transcoder, "_asset_for_path", return_value=object()
+            ):
+                macos_video_transcoder.transcode_video_to_hevc_native(
+                    str(input_path),
+                    str(output_path),
+                    preset_name=macos_video_transcoder.NATIVE_HEVC_PRESET_BALANCED_4K,
+                )
+
+            self.assertEqual(factory.preset, "HEVC_4K")
 
 
 if __name__ == "__main__":

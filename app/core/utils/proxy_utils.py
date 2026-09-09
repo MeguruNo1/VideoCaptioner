@@ -2,7 +2,6 @@ import os
 import socket
 from typing import Mapping
 
-from app.common.config import cfg
 
 
 PROXY_MODE_AUTO = "自动检测"
@@ -54,6 +53,8 @@ def detect_proxy_url(base_env: Mapping[str, str] | None = None) -> str:
 
 
 def get_proxy_settings() -> tuple[str, str]:
+    from app.common.config import cfg
+
     return (
         str(cfg.get(cfg.download_proxy_mode) or PROXY_MODE_AUTO),
         str(cfg.get(cfg.download_proxy_url) or ""),

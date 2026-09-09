@@ -155,6 +155,31 @@ class MLXWhisperASRTests(unittest.TestCase):
             ),
         )
 
+    def test_alignment_failure_stops_transcription(self):
+        asr = MLXWhisperASR(
+            b"audio",
+            model="mlx-community/whisper-large-v3-turbo",
+            language="en",
+            need_word_time_stamp=True,
+        )
+        transcription = {
+            "segments": [
+                {"start": 0.0, "end": 1.0, "text": "hello world"},
+            ]
+        }
+        fake_mlx_whisper = types.SimpleNamespace()
+
+        with (
+            patch.dict("sys.modules", {"mlx_whisper": fake_mlx_whisper}),
+            patch.object(asr, "_run_workflow", return_value=transcription),
+            patch(
+                "app.core.bk_asr.mlx_whisper.align_transcription_with_whisperx",
+                side_effect=RuntimeError("alignment failed"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "alignment failed"):
+                asr._run(callback=Mock())
+
     def test_cache_key_changes_with_workflow_version(self):
         asr = MLXWhisperASR(
             b"audio",

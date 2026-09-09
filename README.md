@@ -79,6 +79,15 @@ pip install -r requirements-macos-whisperx.txt
 python main.py
 ```
 
+YouTube 现在可能要求字幕专用的 PO Token。首次从源码运行后，执行下面的脚本安装本地 Token provider；否则部分明明能在浏览器播放的自动字幕可能无法被 yt-dlp 列出：
+
+```bash
+scripts/setup_youtube_pot_provider.sh
+```
+
+该脚本需要 Node.js 20+、npm 和 Git，并将 provider 安装到
+`~/Library/Application Support/VideoCaptioner/youtube-pot-provider`，不会在后台启动常驻服务。
+
 WhisperX 首次使用时会下载转写、VAD 和对齐模型，除非已经存在兼容的本地模型：
 
 ```text
@@ -118,3 +127,9 @@ VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.1 scripts/build_macos_release.sh
 ## 上游与许可
 
 原项目由 [@WEIFENG2333](https://github.com/WEIFENG2333) 创建。本分支基于原项目继续修改，许可证遵循原项目的 GPL-3.0 条款；如果对外发布 fork，请保留原项目版权和许可证信息。
+
+## Codex 自动字幕工作流
+
+新增本地 MCP + Skill 接入：提供视频链接，由本地 MLX Whisper 转录、当前 Codex 校对断句与翻译；按视频名建立任务目录，输出最终视频、原文/中文字幕、原文文稿及模板简介。最高画质下载遇到 VP9/AV1 时自动转为 HEVC，无需电脑操控或独立翻译 API。支持任务恢复和局部重转录。安装与使用见 [Codex MCP 指南](docs/codex-mcp.md)。
+
+下载核心参考了 [FluentYTDL](https://github.com/SakuraForgot/FluentYTDL) 的生产经验：让 yt-dlp 使用其默认 YouTube 客户端策略、并行分片保持完整重试预算、认证失败分级恢复、403 过期断点清理，以及 Cookie 候选通过校验后再原子替换。这些规则由下载中心、预览解析、MCP 和兼容线程共同使用。

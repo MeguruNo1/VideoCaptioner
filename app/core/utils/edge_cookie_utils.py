@@ -17,6 +17,16 @@ COOKIE_BROWSER_LABELS = {
     "edge": "Edge",
 }
 DEFAULT_COOKIE_BROWSER = "safari"
+SAFARI_COOKIE_DATABASES = (
+    Path("~/Library/Cookies/Cookies.binarycookies"),
+    Path(
+        "~/Library/Containers/com.apple.Safari/Data/Library/Cookies/"
+        "Cookies.binarycookies"
+    ),
+)
+MACOS_FULL_DISK_ACCESS_SETTINGS_URL = (
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+)
 YOUTUBE_COOKIE_DOMAINS = ("youtube.com", "youtu.be", "google.com", "googlevideo.com")
 BILIBILI_COOKIE_DOMAINS = ("bilibili.com",)
 DOWNLOAD_COOKIE_DOMAINS = YOUTUBE_COOKIE_DOMAINS + BILIBILI_COOKIE_DOMAINS
@@ -28,6 +38,7 @@ BILIBILI_REQUIRED_COOKIES = {
     "DedeUserID__ckMd5",
     "bili_jct",
 }
+YOUTUBE_REQUIRED_COOKIES = {"SID", "HSID", "SSID", "SAPISID", "APISID"}
 
 
 class _CookieLogger:
@@ -112,6 +123,11 @@ def _cookie_summary(cookies: Iterable[Any]) -> dict:
     has_youtube = any(
         _domain_matches(domain, YOUTUBE_COOKIE_DOMAINS) for domain in domains
     )
+    youtube_cookie_names = {
+        _cookie_name(cookie)
+        for cookie in cookie_list
+        if _domain_matches(_cookie_domain(cookie), YOUTUBE_COOKIE_DOMAINS)
+    }
     has_bilibili = any(
         _domain_matches(domain, BILIBILI_COOKIE_DOMAINS) for domain in domains
     )
@@ -121,6 +137,7 @@ def _cookie_summary(cookies: Iterable[Any]) -> dict:
     return {
         "cookie_count": len(cookie_list),
         "has_youtube": has_youtube,
+        "has_youtube_login": YOUTUBE_REQUIRED_COOKIES.issubset(youtube_cookie_names),
         "has_bilibili": has_bilibili,
         "has_bilibili_login": has_bilibili_login,
         "bilibili_cookie_names": bilibili_cookie_names,
@@ -135,6 +152,7 @@ def _cookie_result(
     path: Path,
     cookie_count: int = 0,
     has_youtube: bool = False,
+    has_youtube_login: bool = False,
     has_bilibili: bool = False,
     has_bilibili_login: bool = False,
     bilibili_cookie_names: list[str] | None = None,
@@ -155,6 +173,7 @@ def _cookie_result(
         "path": str(path),
         "cookie_count": cookie_count,
         "has_youtube": has_youtube,
+        "has_youtube_login": has_youtube_login,
         "has_bilibili": has_bilibili,
         "has_bilibili_login": has_bilibili_login,
         "bilibili_cookie_names": bilibili_cookie_names or [],
@@ -171,7 +190,26 @@ def _describe_export_error(
 ) -> tuple[str, str]:
     label = cookie_browser_label(browser)
     if isinstance(error, PermissionError):
+        if normalize_cookie_browser(browser) == "safari":
+            return (
+                "permission_denied",
+                "Safari Cookie 无法访问。请前往“系统设置 > 隐私与安全性 > "
+                "完全磁盘访问权限”，允许 VideoCaptioner；随后完全退出并重新"
+                "打开应用，再次提取",
+            )
         return "permission_denied", f"{label} Cookie 导出失败：浏览器数据当前不可访问"
+
+    if isinstance(error, FileNotFoundError):
+        if normalize_cookie_browser(browser) == "safari":
+            return (
+                "browser_cookie_not_found",
+                "未找到 Safari Cookie 数据库，请先使用 Safari 登录 B站或 YouTube，"
+                "并至少访问一次对应网站后重试",
+            )
+        return (
+            "browser_cookie_not_found",
+            f"未找到 {label} Cookie 数据库，请先启动并登录 {label} 后重试",
+        )
 
     text = str(error).lower()
     if any(token in text for token in ("locked", "in use", "sharing violation")):
@@ -183,11 +221,42 @@ def _describe_export_error(
     return "extract_failed", f"{label} Cookie 导出失败：{error}"
 
 
+def _find_safari_cookie_database(
+    candidates: Iterable[Path] | None = None,
+) -> Path:
+    """Return a readable Safari cookie database and preserve TCC errors.
+
+    yt-dlp checks Safari paths with ``isfile``. macOS privacy controls may make
+    that check look exactly like a missing file, so probe the file directly to
+    distinguish a missing database from denied Full Disk Access.
+    """
+    paths = candidates or SAFARI_COOKIE_DATABASES
+    for candidate in paths:
+        path = candidate.expanduser()
+        try:
+            with path.open("rb") as handle:
+                handle.read(1)
+        except FileNotFoundError:
+            continue
+        except PermissionError as exc:
+            raise PermissionError(
+                f"macOS denied access to Safari cookie database: {path}"
+            ) from exc
+        return path
+
+    raise FileNotFoundError("could not find safari cookies database")
+
+
 def _extract_browser_cookies_with_ytdlp(
     target_path: Path, browser: str | None = None
 ) -> YoutubeDLCookieJar:
     browser = normalize_cookie_browser(browser)
-    extracted_jar = extract_cookies_from_browser(browser, logger=_CookieLogger())
+    profile = None
+    if browser == "safari":
+        profile = str(_find_safari_cookie_database())
+    extracted_jar = extract_cookies_from_browser(
+        browser, profile=profile, logger=_CookieLogger()
+    )
     return _filtered_cookie_jar(extracted_jar, target_path)
 
 
@@ -311,6 +380,7 @@ def harden_cookie_file(cookie_path: Path | None = None) -> dict:
         path=target_path,
         cookie_count=summary["cookie_count"],
         has_youtube=summary["has_youtube"],
+        has_youtube_login=summary["has_youtube_login"],
         has_bilibili=summary["has_bilibili"],
         has_bilibili_login=summary["has_bilibili_login"],
         bilibili_cookie_names=summary["bilibili_cookie_names"],
@@ -333,7 +403,6 @@ def export_browser_cookies(
         )
         cookies = list(cookie_jar)
         if not cookies:
-            _remove_cookie_file(target_path)
             return _cookie_result(
                 success=False,
                 status="empty",
@@ -347,20 +416,23 @@ def export_browser_cookies(
                 source_browser=browser,
             )
 
-        _write_cookie_jar(cookie_jar, target_path, browser)
         summary = _cookie_summary(cookies)
         message = f"{browser_label} Cookie 导出完成"
         status_code = "export_ok"
         success = True
         status = "available"
-        if summary["has_bilibili"] and not summary["has_bilibili_login"]:
+        if not summary["has_youtube_login"] and not summary["has_bilibili_login"]:
             message = (
-                f"{browser_label} Cookie 导出失败：B站仅检测到访客 Cookie，"
-                "请确认该浏览器已登录 B站"
+                f"{browser_label} Cookie 导出未通过登录校验，已保留原 Cookie 文件；"
+                "请确认浏览器已登录 YouTube 或 B站"
             )
-            status_code = "bilibili_login_missing"
+            status_code = "login_cookies_missing"
             success = False
             status = "failed"
+        else:
+            # Candidate validation is the write gate. A partial/anonymous
+            # extraction must never replace a previously working cookie file.
+            _write_cookie_jar(cookie_jar, target_path, browser)
         return _cookie_result(
             success=success,
             status=status,
@@ -369,6 +441,7 @@ def export_browser_cookies(
             path=target_path,
             cookie_count=summary["cookie_count"],
             has_youtube=summary["has_youtube"],
+            has_youtube_login=summary["has_youtube_login"],
             has_bilibili=summary["has_bilibili"],
             has_bilibili_login=summary["has_bilibili_login"],
             bilibili_cookie_names=summary["bilibili_cookie_names"],
@@ -377,6 +450,9 @@ def export_browser_cookies(
         )
     except Exception as exc:
         status_code, message = _describe_export_error(exc, browser)
+        needs_full_disk_access = (
+            browser == "safari" and status_code == "permission_denied"
+        )
         return _cookie_result(
             success=False,
             status="failed",
@@ -385,6 +461,7 @@ def export_browser_cookies(
             path=target_path,
             updated_at=_now_text(),
             source_browser=browser,
+            needs_elevation_hint=needs_full_disk_access,
         )
 
 

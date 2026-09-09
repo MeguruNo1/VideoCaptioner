@@ -241,7 +241,14 @@ class SubtitleThread(QThread):
                 asr_data.mask_original_profanity()
                 self.update_all.emit(asr_data.to_json())
 
+            if subtitle_config.target_language in CHINESE_TARGET_LANGUAGES:
+                asr_data.normalize_translated_cjk_quotes()
+
             # 6. 保存字幕
+            # 对所有入口统一补齐短显示空隙，包括无需重新断句的已有字幕。
+            from app.core.subtitle_processor.split import SubtitleSplitter
+
+            SubtitleSplitter._fill_short_display_gaps(asr_data.segments)
             self._atomic_save_subtitles(asr_data, subtitle_config.subtitle_layout)
             logger.info(f"字幕保存到 {self.task.output_path}")
 

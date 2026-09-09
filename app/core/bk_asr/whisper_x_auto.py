@@ -15,6 +15,7 @@ from ..utils.proxy_utils import (
 )
 from .asr_data import ASRDataSeg
 from .base import BaseASR
+from .nltk_utils import call_with_punkt_tab_recovery
 
 logger = setup_logger("whisper_x_auto")
 
@@ -189,13 +190,15 @@ def align_transcription_with_whisperx(
             device=device,
             model_dir=model_dir,
         )
-        result = whisperx.align(
-            segments,
-            align_model,
-            metadata,
-            audio,
-            device,
-            return_char_alignments=False,
+        result = call_with_punkt_tab_recovery(
+            lambda: whisperx.align(
+                segments,
+                align_model,
+                metadata,
+                audio,
+                device,
+                return_char_alignments=False,
+            )
         )
         result["language"] = language_code
         return result
@@ -312,13 +315,15 @@ class WhisperXASR(BaseASR):
                 align_model, metadata = self._load_align_model(
                     whisperx, result.get("language") or self.language
                 )
-                result = whisperx.align(
-                    result["segments"],
-                    align_model,
-                    metadata,
-                    audio,
-                    self.device,
-                    return_char_alignments=False,
+                result = call_with_punkt_tab_recovery(
+                    lambda: whisperx.align(
+                        result["segments"],
+                        align_model,
+                        metadata,
+                        audio,
+                        self.device,
+                        return_char_alignments=False,
+                    )
                 )
 
             callback(100, "WhisperX finished")

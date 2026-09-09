@@ -237,6 +237,37 @@ class StartupCookieExportTests(unittest.TestCase):
         interface.deleteLater()
         self.app.processEvents()
 
+    def test_link_parsing_startup_failure_restores_controls(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            DownloadCenterInterface,
+            "DOWNLOAD_STATE_PATH",
+            Path(temp_dir) / "download_state.json",
+        ), patch(
+            "app.view.download_center_interface.APP_DATA_PATH",
+            Path(temp_dir),
+        ):
+            interface = DownloadCenterInterface()
+            interface.url_input.setText("https://example.com/video")
+
+            with patch(
+                "app.thread.video_download_thread.VideoPreviewThread",
+                side_effect=FileNotFoundError("missing packaged module"),
+            ), patch(
+                "app.view.download_center_interface.InfoBar.warning"
+            ), patch(
+                "app.view.download_center_interface.InfoBar.error"
+            ) as error:
+                interface.parse_link()
+
+        self.assertIsNone(interface.preview_thread)
+        self.assertTrue(interface.url_input.isEnabled())
+        self.assertTrue(interface.parse_button.isEnabled())
+        self.assertEqual(interface.status_label.text(), "解析失败")
+        error.assert_called_once()
+        self.assertIn("missing packaged module", error.call_args.args[1])
+        interface.deleteLater()
+        self.app.processEvents()
+
     def test_starting_download_no_longer_extracts_cookies(self):
         original_get = cfg.get
 

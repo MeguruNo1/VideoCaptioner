@@ -4,11 +4,19 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+import yt_dlp
+
 from app.thread import video_download_thread
 from app.thread.video_download_thread import (
     VideoDownloadThread,
     _build_ydl_options,
+    _build_strategy_options,
+    _clean_stale_partial_files,
+    _extract_metadata_info,
     _pick_subtitle_item,
+    _resolve_cookiefile_path,
+    _stable_selected_format_selector,
 )
 
 
@@ -37,7 +45,11 @@ def _make_process(pid: int, name: str, command: list[str]):
 
 
 def test_download_options_keep_partial_files_for_network_resume(tmp_path):
-    options = _build_ydl_options("", tmp_path / "missing-cookies.txt")
+    with patch(
+        "app.thread.video_download_thread.add_bgutil_extractor_args",
+        return_value=False,
+    ):
+        options = _build_ydl_options("", tmp_path / "missing-cookies.txt")
 
     assert options["continuedl"] is True
     assert options["nopart"] is False
@@ -46,6 +58,198 @@ def test_download_options_keep_partial_files_for_network_resume(tmp_path):
     assert options["file_access_retries"] == 3
     assert options["extractor_retries"] == 3
     assert options["socket_timeout"] == 30
+
+
+def test_download_options_enable_local_pot_provider(tmp_path):
+    def configure(options):
+        options.setdefault("extractor_args", {})["youtubepot-bgutilscript"] = {
+            "server_home": ["/test/provider/server"]
+        }
+        return True
+
+    with patch(
+        "app.thread.video_download_thread.add_bgutil_extractor_args",
+        side_effect=configure,
+    ):
+        options = _build_ydl_options("", tmp_path / "missing-cookies.txt")
+
+    assert "youtube" not in options.get("extractor_args", {})
+    assert options["extractor_args"]["youtubepot-bgutilscript"] == {
+        "server_home": ["/test/provider/server"]
+    }
+
+
+def test_metadata_retries_creator_when_authenticated_youtube_is_limited_to_1080p(
+    tmp_path,
+):
+    cookie_path = tmp_path / "cookies.txt"
+    cookie_path.write_text("cookies", encoding="utf-8")
+    initial = {
+        "extractor_key": "Youtube",
+        "formats": [
+            {"format_id": "301", "height": 1080, "vcodec": "avc1", "acodec": "mp4a"}
+        ],
+        "automatic_captions": {"en": [{"url": "https://example.test/en.vtt"}]},
+    }
+    high_resolution = {
+        "extractor_key": "Youtube",
+        "formats": [
+            {"format_id": "315", "height": 2160, "vcodec": "vp9", "acodec": "none"}
+        ],
+    }
+    returned_info = iter([initial, high_resolution])
+    received_options = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            received_options.append(options)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def extract_info(self, *_args, **_kwargs):
+            return next(returned_info)
+
+    with (
+        patch.object(video_download_thread, "_build_ydl_options", return_value={}),
+        patch.object(video_download_thread.yt_dlp, "YoutubeDL", FakeYoutubeDL),
+    ):
+        result = _extract_metadata_info(
+            "https://www.youtube.com/watch?v=test", "", cookie_path, "单线程"
+        )
+
+    assert received_options[1]["extractor_args"]["youtube"]["player_client"] == [
+        "default", "web_safari"
+    ]
+    assert result["formats"][0]["height"] == 2160
+    assert result["automatic_captions"] == initial["automatic_captions"]
+    assert result["_videocaptioner_youtube_player_client"] == "default,web_safari"
+
+
+def test_metadata_keeps_initial_result_when_creator_does_not_improve_resolution(
+    tmp_path,
+):
+    cookie_path = tmp_path / "cookies.txt"
+    cookie_path.write_text("cookies", encoding="utf-8")
+    initial = {
+        "extractor_key": "Youtube",
+        "formats": [
+            {"format_id": "301", "height": 1080, "vcodec": "avc1", "acodec": "mp4a"}
+        ],
+    }
+    returned_info = iter(
+        [
+            initial,
+            {
+                "extractor_key": "Youtube",
+                "formats": [
+                    {"format_id": "18", "height": 360, "vcodec": "avc1", "acodec": "mp4a"}
+                ],
+            },
+        ]
+    )
+
+    class FakeYoutubeDL:
+        def __init__(self, _options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def extract_info(self, *_args, **_kwargs):
+            return next(returned_info)
+
+    with (
+        patch.object(video_download_thread, "_build_ydl_options", return_value={}),
+        patch.object(video_download_thread.yt_dlp, "YoutubeDL", FakeYoutubeDL),
+    ):
+        result = _extract_metadata_info(
+            "https://www.youtube.com/watch?v=test", "", cookie_path, "单线程"
+        )
+
+    assert result is initial
+
+
+def test_metadata_reports_proxy_risk_after_cookie_and_anonymous_auth_blocks(tmp_path):
+    cookie_path = tmp_path / "cookies.txt"
+    cookie_path.write_text("cookies", encoding="utf-8")
+
+    class RejectingYoutubeDL:
+        def __init__(self, _options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def extract_info(self, *_args, **_kwargs):
+            raise yt_dlp.utils.DownloadError("Sign in to confirm you're not a bot")
+
+    with (
+        patch.object(video_download_thread, "_build_ydl_options", return_value={}),
+        patch.object(video_download_thread, "_refresh_configured_browser_cookies", return_value=False),
+        patch.object(video_download_thread.yt_dlp, "YoutubeDL", RejectingYoutubeDL),
+        pytest.raises(RuntimeError, match="代理出口"),
+    ):
+        _extract_metadata_info(
+            "https://www.youtube.com/watch?v=test", "", cookie_path, "多线程"
+        )
+
+
+def test_duplicate_youtube_audio_id_uses_prefix_selector():
+    info = {
+        "formats": [
+            {"format_id": "140", "language": "ar", "vcodec": "none"},
+            {"format_id": "140", "language": "en-US", "vcodec": "none"},
+        ]
+    }
+
+    assert _stable_selected_format_selector(info, "140", "audio") == (
+        "ba[format_id^=140]"
+    )
+
+
+def test_unique_youtube_video_id_remains_exact():
+    info = {"formats": [{"format_id": "401", "height": 2160, "acodec": "none"}]}
+
+    assert _stable_selected_format_selector(info, "401", "video") == "401"
+
+
+def test_multithread_strategy_keeps_full_retry_budget():
+    options = _build_strategy_options("多线程")
+
+    assert options["concurrent_fragment_downloads"] == 4
+    assert options["retries"] == 10
+    assert options["fragment_retries"] == 10
+
+
+def test_missing_task_cookie_falls_back_to_shared_software_cookie(tmp_path):
+    missing = tmp_path / "deleted-task" / "cookies.txt"
+    with patch.object(video_download_thread, "APP_DATA_PATH", tmp_path / "app-data"):
+        assert _resolve_cookiefile_path(str(missing)) == tmp_path / "app-data" / "cookies.txt"
+
+
+def test_403_recovery_removes_only_stale_partial_files(tmp_path):
+    part = tmp_path / "video.mp4.part"
+    state = tmp_path / "video.mp4.ytdl"
+    final = tmp_path / "video.mp4"
+    unrelated = tmp_path / "notes.txt"
+    for path in (part, state, final, unrelated):
+        path.write_bytes(b"data")
+
+    assert _clean_stale_partial_files(tmp_path) == 2
+    assert not part.exists()
+    assert not state.exists()
+    assert final.exists()
+    assert unrelated.exists()
 
 
 def test_selected_english_subtitle_wins_over_video_original_language():

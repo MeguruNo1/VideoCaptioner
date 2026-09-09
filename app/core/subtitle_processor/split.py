@@ -36,7 +36,7 @@ MAX_WORD_COUNT_CJK = 25  # 中日韩文本最大字数
 MAX_WORD_COUNT_ENGLISH = 18  # 英文文本最大单词数
 SEGMENT_THRESHOLD = 300  # 每个分段的最大字数
 MAX_GAP = 1500  # 允许每个词语之间的最大时间间隔（毫秒）
-SHORT_DISPLAY_GAP_FILL_MS = 2000  # 断句后自动补齐的短显示空隙
+SHORT_DISPLAY_GAP_FILL_MS = 500  # 断句后自动补齐不超过 0.5 秒的显示空隙
 SPLIT_STRATEGY_VERSION = "lossless-sequential-alignment-v3-abbreviation-aware"
 
 

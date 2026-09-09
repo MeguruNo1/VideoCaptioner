@@ -6,10 +6,11 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-from PyQt5.QtCore import Qt, QSize, QThread, pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, QSize, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QAction,
     QButtonGroup,
     QFileDialog,
     QFrame,
@@ -40,6 +41,7 @@ from qfluentwidgets import (
     InfoBarPosition,
     IndeterminateProgressBar,
     LineEdit,
+    MenuAnimationType,
     PrimaryPushButton,
     ProgressBar,
     PushButton,
@@ -113,6 +115,64 @@ class AspectRatioLabel(QLabel):
 
     def hasHeightForWidth(self):
         return True
+
+
+class GroupedSubtitleComboBox(ComboBox):
+    """Combo box that draws native separators between subtitle source groups."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.separator_before_indices: set[int] = set()
+
+    def set_separator_before(self, indices) -> None:
+        self.separator_before_indices = {int(index) for index in indices}
+
+    def _showComboMenu(self):
+        if not self.items:
+            return
+
+        menu = self._createComboMenu()
+        actions = []
+        for index, item in enumerate(self.items):
+            if index in self.separator_before_indices:
+                menu.addSeparator()
+            action = QAction(
+                item.icon,
+                item.text,
+                triggered=lambda _checked=False, item_index=index: self._onItemClicked(
+                    item_index
+                ),
+            )
+            action.setEnabled(item.isEnabled)
+            menu.addAction(action)
+            actions.append(action)
+
+        if menu.view.width() < self.width():
+            menu.view.setMinimumWidth(self.width())
+            menu.adjustSize()
+
+        menu.setMaxVisibleItems(self.maxVisibleItems())
+        menu.setAttribute(Qt.WA_DeleteOnClose)
+        menu.closedSignal.connect(self._onDropMenuClosed)
+        self.dropMenu = menu
+        if self.currentIndex() >= 0 and actions:
+            menu.setDefaultAction(actions[self.currentIndex()])
+
+        x = -menu.width() // 2 + menu.layout().contentsMargins().left() + self.width() // 2
+        drop_down_position = self.mapToGlobal(QPoint(x, self.height()))
+        drop_down_height = menu.view.heightForAnimation(
+            drop_down_position, MenuAnimationType.DROP_DOWN
+        )
+        pull_up_position = self.mapToGlobal(QPoint(x, 0))
+        pull_up_height = menu.view.heightForAnimation(
+            pull_up_position, MenuAnimationType.PULL_UP
+        )
+        if drop_down_height >= pull_up_height:
+            menu.view.adjustSize(drop_down_position, MenuAnimationType.DROP_DOWN)
+            menu.exec(drop_down_position, aniType=MenuAnimationType.DROP_DOWN)
+        else:
+            menu.view.adjustSize(pull_up_position, MenuAnimationType.PULL_UP)
+            menu.exec(pull_up_position, aniType=MenuAnimationType.PULL_UP)
 
 
 class DownloadCenterInterface(QWidget):
@@ -289,7 +349,7 @@ class DownloadCenterInterface(QWidget):
         self._render_preview_card(preview)
         self._populate_video_table(preview.get("video_formats") or [])
         self._populate_audio_table(preview.get("audio_formats") or [])
-        self._populate_subtitle_languages()
+        self._populate_subtitle_choices()
         self._pending_download_request = payload.get("request") or None
         self._pending_subtitle_mode = str(payload.get("subtitle_mode") or "manual")
         self._pending_work_dir = str(payload.get("work_dir") or "")
@@ -648,19 +708,14 @@ class DownloadCenterInterface(QWidget):
         subtitle_mode_layout.setSpacing(12)
         self.subtitle_mode_label = BodyLabel(self.tr("字幕来源"), self.subtitle_mode_row)
         self.subtitle_mode_label.setObjectName("downloadPrimaryLabel")
-        self.subtitle_mode_combo = ComboBox(self.subtitle_mode_row)
-        self.subtitle_mode_combo.addItem(self.tr("人工字幕"), userData="manual")
-        self.subtitle_mode_combo.addItem(self.tr("自动字幕"), userData="auto")
-        self.subtitle_mode_combo.setMinimumWidth(140)
-        self.subtitle_language_label = BodyLabel(self.tr("字幕语言"), self.subtitle_mode_row)
-        self.subtitle_language_label.setObjectName("downloadPrimaryLabel")
-        self.subtitle_language_combo = ComboBox(self.subtitle_mode_row)
-        self.subtitle_language_combo.addItem("English (en)", userData="en")
-        self.subtitle_language_combo.setMinimumWidth(160)
+        self.subtitle_source_combo = GroupedSubtitleComboBox(self.subtitle_mode_row)
+        self.subtitle_source_combo.addItem(
+            self.tr("解析链接后显示可用字幕"), userData=None
+        )
+        self.subtitle_source_combo.setItemEnabled(0, False)
+        self.subtitle_source_combo.setMinimumWidth(300)
         subtitle_mode_layout.addWidget(self.subtitle_mode_label)
-        subtitle_mode_layout.addWidget(self.subtitle_mode_combo)
-        subtitle_mode_layout.addWidget(self.subtitle_language_label)
-        subtitle_mode_layout.addWidget(self.subtitle_language_combo)
+        subtitle_mode_layout.addWidget(self.subtitle_source_combo)
         subtitle_mode_layout.addStretch(1)
 
         self.time_range_section = QWidget(self.options_section)
@@ -906,8 +961,9 @@ class DownloadCenterInterface(QWidget):
         self.pr_smart_postprocess_checkbox.toggled.connect(self._on_postprocess_checkbox_toggled)
         self.professional_postprocess_checkbox.toggled.connect(self._on_postprocess_checkbox_toggled)
         self.pr_smart_transcript_checkbox.toggled.connect(self._on_pr_smart_transcript_toggled)
-        self.subtitle_mode_combo.currentIndexChanged.connect(self._on_subtitle_mode_changed)
-        self.subtitle_language_combo.currentIndexChanged.connect(self._save_download_preferences)
+        self.subtitle_source_combo.currentIndexChanged.connect(
+            self._on_subtitle_source_changed
+        )
         self.custom_video_codec_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.custom_container_combo.currentIndexChanged.connect(self._save_download_preferences)
         self.custom_audio_codec_combo.currentIndexChanged.connect(self._save_download_preferences)
@@ -1055,16 +1111,6 @@ class DownloadCenterInterface(QWidget):
             "video_audio",
         )
         self._set_combo_current_data(
-            self.subtitle_mode_combo,
-            str(cfg.get(cfg.download_center_subtitle_mode) or "manual"),
-            "manual",
-        )
-        self._set_combo_current_data(
-            self.subtitle_language_combo,
-            str(cfg.get(cfg.download_center_subtitle_language) or "en"),
-            "en",
-        )
-        self._set_combo_current_data(
             self.custom_video_codec_combo,
             str(cfg.get(cfg.download_center_custom_video_codec) or "auto"),
             "auto",
@@ -1107,7 +1153,7 @@ class DownloadCenterInterface(QWidget):
         cfg.set(cfg.download_center_subtitle_mode, self._selected_subtitle_mode())
         cfg.set(
             cfg.download_center_subtitle_language,
-            self.subtitle_language_combo.currentData() or "en",
+            self._selected_subtitle_language(),
         )
         cfg.set(cfg.download_center_custom_video_codec, self.custom_video_codec_combo.currentData() or "auto")
         cfg.set(cfg.download_center_custom_container, self.custom_container_combo.currentData() or "auto")
@@ -1218,8 +1264,9 @@ class DownloadCenterInterface(QWidget):
         subtitle_source_needed = self.subtitle_checkbox.isChecked() or (
             self._is_pr_smart_preset_selected() and self.pr_smart_transcript_checkbox.isChecked()
         )
-        self.subtitle_mode_combo.setEnabled(enabled and subtitle_source_needed)
-        self.subtitle_language_combo.setEnabled(enabled and subtitle_source_needed)
+        self.subtitle_source_combo.setEnabled(
+            enabled and subtitle_source_needed and self._has_available_subtitle_choice()
+        )
         self.choose_output_dir_button.setEnabled(enabled)
         self.reset_output_dir_button.setEnabled(enabled)
         self.custom_video_codec_combo.setEnabled(enabled and self._is_custom_simple_preset_selected())
@@ -1581,6 +1628,7 @@ class DownloadCenterInterface(QWidget):
         self._clear_table(self.video_table)
         self._clear_table(self.audio_table)
         self._set_preview_visible(False)
+        self._reset_subtitle_choices()
         self._refresh_selection_summary()
         self._pending_download_request = None
         try:
@@ -1603,49 +1651,113 @@ class DownloadCenterInterface(QWidget):
             self._is_pr_smart_preset_selected() and self.pr_smart_transcript_checkbox.isChecked()
         )
         self.subtitle_mode_row.setVisible(subtitle_source_needed)
-        self.subtitle_mode_combo.setEnabled(self.controls_enabled and subtitle_source_needed)
-        self.subtitle_language_combo.setEnabled(self.controls_enabled and subtitle_source_needed)
+        self.subtitle_source_combo.setEnabled(
+            self.controls_enabled
+            and subtitle_source_needed
+            and self._has_available_subtitle_choice()
+        )
         self._refresh_selection_summary()
 
-    def _on_subtitle_mode_changed(self, *_args):
-        self._populate_subtitle_languages()
+    def _on_subtitle_source_changed(self, *_args):
         self._save_download_preferences()
         self._refresh_selection_summary()
 
-    def _populate_subtitle_languages(self):
-        if not hasattr(self, "subtitle_language_combo"):
-            return
-        mode = self._selected_subtitle_mode()
-        key = "manual_subtitle_languages" if mode == "manual" else "auto_subtitle_languages"
-        languages = list((self.preview_data or {}).get(key) or [])
-        preferred = str(cfg.get(cfg.download_center_subtitle_language) or "en").lower()
-        previous = str(self.subtitle_language_combo.currentData() or preferred).lower()
+    @staticmethod
+    def _unique_subtitle_languages(languages) -> list[str]:
         candidates = []
-        for language in languages:
+        for language in languages or []:
             language = str(language).strip()
             if language and language not in candidates:
                 candidates.append(language)
-        if not candidates:
-            candidates = ["en"]
+        return candidates
 
-        old_blocked = self.subtitle_language_combo.blockSignals(True)
-        self.subtitle_language_combo.clear()
-        for language in candidates:
-            label = "English" if language.lower() == "en" or language.lower().startswith("en-") else language
-            self.subtitle_language_combo.addItem(f"{label} ({language})", userData=language)
+    @staticmethod
+    def _subtitle_language_label_text(language: str) -> str:
+        if language.lower() == "en" or language.lower().startswith("en-"):
+            return f"English ({language})"
+        return language
 
-        lowered = [language.lower() for language in candidates]
-        target = next(
-            (
-                language
-                for wanted in (preferred, previous, "en")
-                for language in candidates
-                if language.lower() == wanted or language.lower().startswith(wanted + "-")
-            ),
-            candidates[0],
+    def _reset_subtitle_choices(self, message: str | None = None) -> None:
+        if not hasattr(self, "subtitle_source_combo"):
+            return
+        blocked = self.subtitle_source_combo.blockSignals(True)
+        self.subtitle_source_combo.clear()
+        self.subtitle_source_combo.set_separator_before([])
+        self.subtitle_source_combo.addItem(
+            message or self.tr("解析链接后显示可用字幕"), userData=None
         )
-        self._set_combo_current_data(self.subtitle_language_combo, target, candidates[0])
-        self.subtitle_language_combo.blockSignals(old_blocked)
+        self.subtitle_source_combo.setItemEnabled(0, False)
+        self.subtitle_source_combo.blockSignals(blocked)
+        self.subtitle_source_combo.setEnabled(False)
+
+    def _populate_subtitle_choices(self):
+        if not hasattr(self, "subtitle_source_combo"):
+            return
+        manual_languages = self._unique_subtitle_languages(
+            (self.preview_data or {}).get("manual_subtitle_languages")
+        )
+        auto_languages = self._unique_subtitle_languages(
+            (self.preview_data or {}).get("auto_subtitle_languages")
+        )
+        if not manual_languages and not auto_languages:
+            self._reset_subtitle_choices(self.tr("未检测到可用字幕"))
+            return
+
+        preferred_mode = str(
+            cfg.get(cfg.download_center_subtitle_mode) or "manual"
+        ).lower()
+        preferred = str(cfg.get(cfg.download_center_subtitle_language) or "en").lower()
+        previous = self.subtitle_source_combo.currentData()
+        blocked = self.subtitle_source_combo.blockSignals(True)
+        self.subtitle_source_combo.clear()
+
+        choices = []
+        for mode, source_label, languages in (
+            ("manual", self.tr("人工字幕"), manual_languages),
+            ("auto", self.tr("自动字幕"), auto_languages),
+        ):
+            for language in languages:
+                choice = (mode, language)
+                choices.append(choice)
+                self.subtitle_source_combo.addItem(
+                    f"{source_label} · {self._subtitle_language_label_text(language)}",
+                    userData=choice,
+                )
+
+        separator_indices = (
+            [len(manual_languages)] if manual_languages and auto_languages else []
+        )
+        self.subtitle_source_combo.set_separator_before(separator_indices)
+
+        target = previous if previous in choices else None
+        if target is None:
+            target = next(
+                (
+                    choice
+                    for wanted_mode, wanted_language in (
+                        (preferred_mode, preferred),
+                        (preferred_mode, "en"),
+                        ("manual", preferred),
+                        ("manual", "en"),
+                        ("auto", preferred),
+                        ("auto", "en"),
+                    )
+                    for choice in choices
+                    if choice[0] == wanted_mode
+                    and (
+                        choice[1].lower() == wanted_language
+                        or choice[1].lower().startswith(wanted_language + "-")
+                    )
+                ),
+                choices[0],
+            )
+        self.subtitle_source_combo.setCurrentIndex(choices.index(target))
+        self.subtitle_source_combo.blockSignals(blocked)
+        self._toggle_subtitle_mode_row()
+
+    def _has_available_subtitle_choice(self) -> bool:
+        data = self.subtitle_source_combo.currentData()
+        return isinstance(data, tuple) and len(data) == 2
 
     def _is_custom_simple_preset_selected(self) -> bool:
         return (self.simple_preset_combo.currentData() or "") == "custom_preferences"
@@ -1910,12 +2022,17 @@ class DownloadCenterInterface(QWidget):
             return False
 
     def _selected_subtitle_mode(self) -> str:
-        return self.subtitle_mode_combo.currentData() or "manual"
+        combo = self.__dict__.get("subtitle_source_combo")
+        data = combo.currentData() if combo is not None else None
+        if isinstance(data, tuple) and len(data) == 2:
+            return str(data[0])
+        return str(cfg.get(cfg.download_center_subtitle_mode) or "manual")
 
     def _selected_subtitle_language(self) -> str:
-        combo = self.__dict__.get("subtitle_language_combo")
-        if combo is not None:
-            return str(combo.currentData() or "en")
+        combo = self.__dict__.get("subtitle_source_combo")
+        data = combo.currentData() if combo is not None else None
+        if isinstance(data, tuple) and len(data) == 2:
+            return str(data[1])
         return str(cfg.get(cfg.download_center_subtitle_language) or "en")
 
     def parse_link(self):
@@ -1930,12 +2047,21 @@ class DownloadCenterInterface(QWidget):
         self._set_preview_visible(False)
         self.progress_bar.setValue(0)
         self.status_label.setText(self.tr("正在解析链接…"))
-        from app.thread.video_download_thread import VideoPreviewThread
+        try:
+            from app.thread.video_download_thread import VideoPreviewThread
 
-        self.preview_thread = VideoPreviewThread(url=url, download_engine_strategy=str(cfg.get(cfg.download_engine_strategy) or "智能选择"))
-        self.preview_thread.finished.connect(self.on_preview_finished)
-        self.preview_thread.error.connect(self.on_preview_error)
-        self.preview_thread.start()
+            self.preview_thread = VideoPreviewThread(
+                url=url,
+                download_engine_strategy=str(
+                    cfg.get(cfg.download_engine_strategy) or "智能选择"
+                ),
+            )
+            self.preview_thread.finished.connect(self.on_preview_finished)
+            self.preview_thread.error.connect(self.on_preview_error)
+            self.preview_thread.start()
+        except Exception as exc:
+            self.preview_thread = None
+            self.on_preview_error(str(exc))
 
     def on_preview_finished(self, preview: dict):
         self.preview_data = preview
@@ -1947,7 +2073,7 @@ class DownloadCenterInterface(QWidget):
         self._render_preview_card(preview)
         self._populate_video_table(preview.get("video_formats") or [])
         self._populate_audio_table(preview.get("audio_formats") or [])
-        self._populate_subtitle_languages()
+        self._populate_subtitle_choices()
         self._adjust_responsive_layout()
         self._refresh_selection_summary()
         self._pending_download_request = None
@@ -2445,7 +2571,7 @@ class DownloadCenterInterface(QWidget):
         if self.subtitle_checkbox.isChecked():
             extras.append(
                 self.tr("字幕")
-                + f" ({self.subtitle_language_combo.currentData() or 'en'})"
+                + f" ({self._selected_subtitle_language()})"
             )
         if self.thumbnail_checkbox.isChecked():
             extras.append(self.tr("封面"))

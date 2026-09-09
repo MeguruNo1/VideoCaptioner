@@ -1,0 +1,171 @@
+"""Deterministic word anchoring and subtitle validation; no language model calls."""
+import math
+import re
+from uuid import uuid4
+
+from app.core.utils.profanity_filter import mask_english_profanity
+from app.core.utils.subtitle_punctuation import normalize_cjk_quotes
+
+BATCH_WORDS = 160
+SHORT_DISPLAY_GAP_FILL_MS = 500
+
+
+def words_from_result(result, prefix="w", offset=0):
+    words = []
+    for segment in result.get("segments", []):
+        raw_words = segment.get("words") or []
+        if not raw_words and str(segment.get("text", "")).strip():
+            raise ValueError("MLX returned speech without word timestamps; retranscribe before captioning")
+        for raw in raw_words:
+            text = str(raw.get("word") or raw.get("text") or "").strip()
+            if not text:
+                continue
+            start, end = raw.get("start"), raw.get("end")
+            if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+                raise ValueError("MLX word is missing timestamps")
+            if not math.isfinite(start) or not math.isfinite(end):
+                raise ValueError("MLX word has non-finite timestamps")
+            words.append({"id": f"{prefix}{len(words):06d}", "text": text,
+                          "start_ms": round((start + offset) * 1000),
+                          "end_ms": round((end + offset) * 1000)})
+    if not words:
+        raise ValueError("No speech detected; check the audio or choose a different source language")
+    return words
+
+
+def make_batches(words):
+    batches = []
+    cursor = 0
+    while cursor < len(words):
+        stop = min(cursor + BATCH_WORDS, len(words))
+        if stop < len(words):
+            for index in range(stop - 1, cursor + BATCH_WORDS // 2, -1):
+                if re.search(r"[.!?。！？]$", words[index]["text"]):
+                    stop = index + 1
+                    break
+        batches.append({"id": uuid4().hex, "start_word_id": words[cursor]["id"],
+                        "end_word_id": words[stop - 1]["id"], "captions": None,
+                        "glossary": {}, "notes": []})
+        cursor = stop
+    return batches
+
+
+def batch_words(state, batch):
+    ids = [word["id"] for word in state["words"]]
+    first, last = ids.index(batch["start_word_id"]), ids.index(batch["end_word_id"])
+    return state["words"][first:last + 1]
+
+
+def anchor_captions(words, captions):
+    if not captions:
+        raise ValueError("A batch must contain captions")
+    index = {word["id"]: i for i, word in enumerate(words)}
+    cursor = 0
+    anchored = []
+    for caption in captions:
+        start = index.get(caption.get("start_word_id"))
+        end = index.get(caption.get("end_word_id"))
+        if start != cursor or end is None or end < start:
+            raise ValueError("Caption word ranges must cover this batch exactly once, in order")
+        source, translation = caption.get("source", ""), caption.get("translation", "")
+        if not isinstance(source, str) or not source.strip() or not isinstance(translation, str) or not translation.strip():
+            raise ValueError("Every caption requires nonempty source and translation")
+        selected = words[start:end + 1]
+        item = {"start_word_id": words[start]["id"], "end_word_id": words[end]["id"],
+                "source": " ".join(source.split()), "translation": " ".join(translation.split()),
+                "start_ms": selected[0]["start_ms"], "end_ms": selected[-1]["end_ms"]}
+        if item["start_ms"] < 0 or item["end_ms"] <= item["start_ms"]:
+            raise ValueError("Invalid caption timing; use retranscribe_range")
+        anchored.append(item)
+        cursor = end + 1
+    if cursor != len(words):
+        raise ValueError("Batch has uncovered words")
+    return anchored
+
+
+def apply_text_settings(captions, settings):
+    """Apply the same final text switches used by the desktop subtitle flow."""
+    subtitle = (settings or {}).get("subtitle") or {}
+    target = str(subtitle.get("target_language_code") or subtitle.get("target_language") or "").lower()
+    chinese_target = target.startswith("zh") or target in {"中文", "简体中文", "繁体中文", "粤语"}
+    result = []
+    for caption in captions:
+        item = dict(caption)
+        if subtitle.get("mask_original_profanity"):
+            item["source"] = mask_english_profanity(item["source"])
+        if chinese_target and subtitle.get("remove_translated_chinese_commas"):
+            item["translation"] = re.sub(
+                r"\s+", " ", item["translation"].replace("，", " ").replace(",", " ")
+            ).strip()
+        if subtitle.get("remove_translated_periods"):
+            item["translation"] = item["translation"].replace("。", "")
+        if chinese_target:
+            item["translation"] = normalize_cjk_quotes(item["translation"])
+        result.append(item)
+    return result
+
+
+def fill_short_display_gaps(captions, max_gap_ms=SHORT_DISPLAY_GAP_FILL_MS):
+    """Extend the preceding caption across a positive gap of at most 0.5s."""
+    result = [dict(caption) for caption in captions]
+    for current, following in zip(result, result[1:]):
+        gap = following["start_ms"] - current["end_ms"]
+        if 0 < gap <= max_gap_ms:
+            current["end_ms"] = following["start_ms"]
+    return result
+
+
+def validate(state):
+    errors, warnings = [], []
+    if not state.get("words"):
+        errors.append("No transcript available")
+    duration = state.get("duration_ms")
+    previous_start = -1
+    for word in state.get("words", []):
+        start, end = word["start_ms"], word["end_ms"]
+        if start < 0 or end < start or start < previous_start or (duration and end > duration + 100):
+            errors.append(f"Invalid word timing: {word['id']}")
+        elif end == start:
+            warnings.append(f"Zero-duration MLX word; review its containing caption: {word['id']}")
+        if end - start > 3000:
+            warnings.append(f"Unusually long word: {word['id']}")
+        previous_start = start
+    previous_end = -1
+    for batch in state.get("batches", []):
+        if not batch["captions"]:
+            errors.append(f"Untranslated batch: {batch['id']}")
+            continue
+        try:
+            captions = anchor_captions(batch_words(state, batch), batch["captions"])
+        except ValueError as exc:
+            errors.append(f"{batch['id']}: {exc}")
+            continue
+        for caption in captions:
+            start, end = caption["start_ms"], caption["end_ms"]
+            if start < previous_end:
+                errors.append(f"Overlapping captions at {caption['start_word_id']}")
+            text = caption["translation"]
+            cjk = bool(re.search(r"[\u3400-\u9fff]", text))
+            units = len(re.sub(r"\s", "", text))
+            if end - start > 7000 or units > (42 if cjk else 84) or units / ((end-start)/1000) > (12 if cjk else 22):
+                warnings.append(f"Review reading length/speed: {caption['start_word_id']}")
+            previous_end = end
+        warnings.extend(f"{batch['id']}: {note}" for note in batch.get("notes", []))
+    return {"valid": not errors, "errors": errors[:100], "warnings": warnings[:100],
+            "error_count": len(errors), "warning_count": len(warnings),
+            "truncated": len(errors) > 100 or len(warnings) > 100}
+
+
+def timestamp(ms):
+    seconds, milliseconds = divmod(ms, 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
+
+
+def render_srt(captions, layout):
+    blocks = []
+    for index, caption in enumerate(captions, 1):
+        text = "\n".join(caption[key] for key in layout)
+        blocks.append(f"{index}\n{timestamp(caption['start_ms'])} --> {timestamp(caption['end_ms'])}\n{text}\n")
+    return "\n".join(blocks)

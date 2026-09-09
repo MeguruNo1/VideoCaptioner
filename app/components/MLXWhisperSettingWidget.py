@@ -23,6 +23,7 @@ from ..core.utils.mlx_model_utils import (
     preferred_mlx_model,
     validate_mlx_model,
 )
+from ..core.utils.transcription_model_utils import resolve_available_mlx_model
 from ..core.utils.transcript_file_locator import resolve_default_transcript_path
 from ..core.utils.transcript_terms import (
     apply_terms_to_document_prompt,
@@ -281,7 +282,7 @@ class MLXWhisperSettingWidget(QWidget):
             self.setting_group,
         )
         self.model_status_card = PushSettingCard(
-            self.tr("刷新"),
+            self.tr("检测"),
             FIF.INFO,
             self.tr("模型接入状态"),
             self.tr("未检测"),
@@ -451,9 +452,28 @@ class MLXWhisperSettingWidget(QWidget):
         )
 
     def refresh_model_status(self, show_warning: bool = False):
-        is_valid_model, message = validate_mlx_model(cfg.mlx_model.value)
+        model = str(cfg.mlx_model.value or "").strip()
+        is_valid_model, message = validate_mlx_model(model)
+        ready_path = resolve_available_mlx_model(model) if is_valid_model else None
+        if ready_path is not None:
+            message = self.tr("模型已就绪：") + str(ready_path)
+        elif is_valid_model:
+            is_valid_model = False
+            message = self.tr(
+                "模型尚未下载完成；请选择本地模型目录，或先完成模型下载"
+            )
         self.model_status_card.setContent(self.tr(message))
-        if show_warning and not is_valid_model:
+        self.model_status_card.setToolTip(self.tr(message))
+        if not show_warning:
+            return
+        if is_valid_model:
+            InfoBar.success(
+                self.tr("MLX Whisper 模型可用"),
+                self.tr(message),
+                duration=4000,
+                parent=self,
+            )
+        else:
             InfoBar.warning(
                 self.tr("MLX Whisper 模型未接入"),
                 self.tr(message),
