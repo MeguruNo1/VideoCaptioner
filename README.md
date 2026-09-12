@@ -46,6 +46,10 @@
 https://github.com/MeguruNo1/video-captioner-macos-enhanced/releases
 ```
 
+当前版本：`macos-enhanced-v0.1.2`
+
+本版新增 Codex 本地字幕工作流、MLX Whisper 词级时间戳强制对齐、可定制下载简介模板、启动时浏览器 Cookie 更新、标题缩写断句保护，以及可恢复下载的暂停/终止控制。
+
 安装方式：
 
 1. 下载最新的 `VideoCaptioner-macos-enhanced-*.dmg`。
@@ -111,7 +115,7 @@ scripts/build_macos_app.sh --install
 发布用 DMG 通过 PyInstaller 构建独立 `.app`，输出到 `dist/release/`：
 
 ```bash
-VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.1 scripts/build_macos_release.sh
+VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.2 scripts/build_macos_release.sh
 ```
 
 构建产物会包含 Python 运行时和 Python 依赖，但仍依赖系统可用的 FFmpeg，并会在首次使用 ASR 时下载模型。

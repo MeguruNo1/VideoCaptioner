@@ -46,6 +46,10 @@ This fork publishes Apple Silicon macOS builds as `.dmg` installers:
 https://github.com/MeguruNo1/video-captioner-macos-enhanced/releases
 ```
 
+Current version: `macos-enhanced-v0.1.2`
+
+This release adds the local Codex subtitle workflow, forced alignment for MLX Whisper word timestamps, customizable download-description templates, browser-cookie refresh at startup, safer subtitle splitting around title abbreviations, and separate pause/terminate controls for resumable downloads.
+
 Install steps:
 
 1. Download the latest `VideoCaptioner-macos-enhanced-*.dmg`.
@@ -113,7 +117,7 @@ scripts/build_macos_app.sh --install
 Release DMGs are built with PyInstaller and written to `dist/release/`:
 
 ```bash
-VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.1 scripts/build_macos_release.sh
+VIDEO_CAPTIONER_VERSION=macos-enhanced-v0.1.2 scripts/build_macos_release.sh
 ```
 
 The output app includes the Python runtime and Python dependencies, but still expects system FFmpeg and downloads ASR models on first use.

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="VideoCaptioner"
-DEFAULT_VERSION="macos-enhanced-v0.1.1"
+DEFAULT_VERSION="macos-enhanced-v0.1.2"
 VERSION="${VIDEO_CAPTIONER_VERSION:-$DEFAULT_VERSION}"
 if [[ ! "$VERSION" =~ ^macos-enhanced-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
     echo "Invalid release version: $VERSION" >&2
